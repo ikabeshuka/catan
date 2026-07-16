@@ -36,9 +36,18 @@ export function distributeInitialResources(
         const roundedX = Math.round(x * 10) / 10;
         const roundedY = Math.round(y * 10) / 10;
 
-        // אם האריח משיק לצומת והוא אינו מדבר - השחקן מקבל משאב אחד ממנו
-        if (roundedX === vX && roundedY === vY && tile.type !== 'DESERT') {
-          updatedResources[tile.type] += 1;
+        // אם האריח משיק לצומת והוא אינו מדבר או אריחי משימה מיוחדים - השחקן מקבל משאב אחד ממנו
+        if (
+          roundedX === vX &&
+          roundedY === vY &&
+          tile.type !== 'DESERT' &&
+          tile.type !== 'CASTLE' &&
+          tile.type !== 'QUARRY' &&
+          tile.type !== 'GLASSWORKS' &&
+          tile.type !== 'WATER' &&
+          tile.type !== 'GOLD_FIELD'
+        ) {
+          updatedResources[tile.type as keyof typeof updatedResources] += 1;
         }
       }
     });

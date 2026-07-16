@@ -19,4 +19,7 @@ export interface Player {
     VICTORY_POINT?: number;
   };
   knightsPlayed?: number;
+  wagonPosition?: string; // mazahe vertexId
+  wagonLevel?: number; // 1-3
+  remainingMovementPoints?: number;
 }

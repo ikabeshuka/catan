@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useRef } from 'react';
-import { GameProvider, useGame } from './context/GameContext';
+import { GameProvider, useGame, getPlayerTotalVP } from './context/GameContext';
 import { GameBoard3D } from './components/board/GameBoard3D';
 import { ActionSidebar } from './components/actions/ActionSidebar';
 import { ResourceContainer } from './components/playerPanel/ResourceContainer';
@@ -8,11 +8,10 @@ import { DevelopmentCardsPanel } from './components/playerPanel/DevelopmentCards
 import { runAITurn } from './utils/ai/aiController';
 import { getMediumBotTarget } from './utils/ai/getMediumBotTarget';
 import { useTurnManager } from './hooks/useTurnManager';
-import { PhaseGuide } from './components/notifications/PhaseGuide';
 import { stealRandomCard } from './utils/gameEngine/robberSteal';
 import { 
   WoodIcon, BrickIcon, SheepIcon, WheatIcon, OreIcon,
-  DealIcon, MonopolyIcon,
+  DealIcon, MonopolyIcon, CardIcon,
   CrossIcon, WarningIcon
 } from './components/common/Icons';
 import { LobbyScreen } from './components/lobby/LobbyScreen';
@@ -82,7 +81,9 @@ const GameContent: React.FC = () => {
     setTiles,
     robberyState,
     setRobberyState,
-    showBuildingCostToast
+    showBuildingCostToast,
+    longestRoadPlayerId,
+    largestArmyPlayerId
   } = useGame();
 
   const { recordSetupPlacement, endTurn, handleDiceRoll, startTurn } = useTurnManager();
@@ -92,7 +93,7 @@ const GameContent: React.FC = () => {
   const humanPlayer = players.find(p => !p.isBot) || players[0];
 
   // States for trade system
-  const [isDevPanelCollapsed, setIsDevPanelCollapsed] = useState(true);
+  const [isDevCardsOverlayOpen, setIsDevCardsOverlayOpen] = useState(false);
   const [isTradeModalOpen, setIsTradeModalOpen] = useState(false);
   const [isMonopolyModalOpen, setIsMonopolyModalOpen] = useState(false);
   const [isYearOfPlentyModalOpen, setIsYearOfPlentyModalOpen] = useState(false);
@@ -103,96 +104,10 @@ const GameContent: React.FC = () => {
   // States for award popups
   const [armyPopup, setArmyPopup] = useState<{ player: any; prevPlayer: any } | null>(null);
   const [roadPopup, setRoadPopup] = useState<{ player: any; prevPlayer: any } | null>(null);
+  const [activeTrophyModal, setActiveTrophyModal] = useState<'longest_road' | 'largest_army' | null>(null);
 
   const prevLargestArmyRef = useRef<string | null>(null);
   const prevLongestRoadRef = useRef<string | null>(null);
-
-  // Helper to parse edge vertices from edge ID
-  const getEdgeVertices = (edgeId: string) => {
-    const withoutPrefix = edgeId.replace('e_', '');
-    const parts = withoutPrefix.split('_v_');
-    const v1 = parts[0];
-    const v2 = 'v_' + parts[1];
-    return [v1, v2];
-  };
-
-  // Helper to calculate longest road for a player
-  const calculateLongestRoadForPlayer = (playerId: string, allEdges: any[], allVertices: any[]): number => {
-    const playerRoads = allEdges.filter(e => e.hasRoad && e.playerId === playerId);
-    if (playerRoads.length === 0) return 0;
-
-    const adj: Record<string, { edgeId: string, targetVertex: string }[]> = {};
-    
-    playerRoads.forEach(road => {
-      try {
-        const [v1, v2] = getEdgeVertices(road.id);
-        if (v1 && v2) {
-          if (!adj[v1]) adj[v1] = [];
-          if (!adj[v2]) adj[v2] = [];
-          adj[v1].push({ edgeId: road.id, targetVertex: v2 });
-          adj[v2].push({ edgeId: road.id, targetVertex: v1 });
-        }
-      } catch (err) {
-        // Safe fallback if parsing fails
-      }
-    });
-
-    const isVertexBroken = (vertexId: string) => {
-      const vertex = allVertices.find(v => v.id === vertexId);
-      if (!vertex) return false;
-      return vertex.playerId !== null && vertex.playerId !== playerId && vertex.structure !== 'NONE';
-    };
-
-    let maxPathLength = 0;
-    const visitedEdges = new Set<string>();
-
-    const dfs = (vertex: string, currentLength: number) => {
-      maxPathLength = Math.max(maxPathLength, currentLength);
-      
-      if (isVertexBroken(vertex)) return;
-
-      const neighbors = adj[vertex] || [];
-      for (const neighbor of neighbors) {
-        if (!visitedEdges.has(neighbor.edgeId)) {
-          visitedEdges.add(neighbor.edgeId);
-          dfs(neighbor.targetVertex, currentLength + 1);
-          visitedEdges.delete(neighbor.edgeId);
-        }
-      }
-    };
-
-    Object.keys(adj).forEach(v => {
-      dfs(v, 0);
-    });
-
-    return maxPathLength;
-  };
-
-  const longestRoadPlayerId = (() => {
-    let maxRoad = 4; // Must have at least 5 segments
-    let leaderId: string | null = null;
-    players.forEach(p => {
-      const roadLen = calculateLongestRoadForPlayer(p.id, edges, vertices);
-      if (roadLen > maxRoad) {
-        maxRoad = roadLen;
-        leaderId = p.id;
-      }
-    });
-    return leaderId;
-  })();
-
-  const largestArmyPlayerId = (() => {
-    let maxKnights = 2; // Must have at least 3 knights
-    let leaderId: string | null = null;
-    players.forEach(p => {
-      const kp = p.knightsPlayed || 0;
-      if (kp > maxKnights) {
-        maxKnights = kp;
-        leaderId = p.id;
-      }
-    });
-    return leaderId;
-  })();
 
   useEffect(() => {
     if (gamePhase === 'LOBBY' || gamePhase === 'GAME_OVER') {
@@ -266,7 +181,6 @@ const GameContent: React.FC = () => {
 
   // הגדרות למגבלת זמן תגובה של בוטים וספירה לאחור
   const [botTimeLimit, setBotTimeLimit] = useState<number>(10);
-  const [timeLeft, setTimeLeft] = useState<number>(10);
 
   // מעבר בטוח לתור הבא במקרה של עצירה ידנית או אוטומטית (זמן תם)
   const forceNextTurn = () => {
@@ -338,35 +252,27 @@ const GameContent: React.FC = () => {
   // אפקט שעוקב אחר זמן התגובה של הבוטים ומריץ ספירה לאחור
   useEffect(() => {
     if (gamePhase !== 'LOBBY' && activePlayer && activePlayer.isBot) {
-      setTimeLeft(botTimeLimit);
-
-      const intervalId = setInterval(() => {
-        setTimeLeft(prev => {
-          if (prev <= 1) {
-            clearInterval(intervalId);
-            forceNextTurn();
-            return 0;
-          }
-          return prev - 1;
-        });
-      }, 1000);
+      const timerId = setTimeout(() => {
+        forceNextTurn();
+      }, botTimeLimit * 1000);
 
       return () => {
-        clearInterval(intervalId);
+        clearTimeout(timerId);
       };
     }
   }, [currentPlayerIndex, turnSubPhase, gamePhase, activePlayer?.id, botTimeLimit]);
 
-  // בדיקת תנאי ניצחון בתחילת כל תור (אנושי או בוט)
+  // בדיקת תנאי ניצחון דינמית בזמן אמת (אנושי או בוט)
   useEffect(() => {
-    if (gamePhase === 'MAIN_GAME' && turnSubPhase === 'BEFORE_ROLL') {
-      const winner = players.find(p => p.victoryPoints >= 10);
+    if (gamePhase === 'MAIN_GAME') {
+      const winner = players.find(p => getPlayerTotalVP(p, longestRoadPlayerId, largestArmyPlayerId, true) >= 10);
       if (winner) {
+        const totalVP = getPlayerTotalVP(winner, longestRoadPlayerId, largestArmyPlayerId, true);
         setGamePhase('GAME_OVER');
-        addLog(`המשחק נגמר! ${winner.name} ניצח/ה עם ${winner.victoryPoints} נקודות ניצחון!`);
+        addLog(`המשחק נגמר! ${winner.name} ניצח/ה עם ${totalVP} נקודות ניצחון!`);
       }
     }
-  }, [currentPlayerIndex, turnSubPhase, gamePhase, players]);
+  }, [players, longestRoadPlayerId, largestArmyPlayerId, gamePhase]);
 
   // האפקט המרכזי שמזהה תור של בוט ומפעיל את ה-AI באופן אוטומטי
   useEffect(() => {
@@ -737,137 +643,22 @@ const GameContent: React.FC = () => {
   }
 
   return (
-    <div className="flex h-screen w-screen fixed inset-0 bg-slate-950 text-slate-100 font-sans p-4 gap-4 overflow-hidden">
+    <div className="flex flex-row h-screen w-screen overflow-hidden bg-black text-slate-100 font-sans p-4 gap-4">
       
-      {/* פריסה צידית: מכילה את לוח השליטה (למעלה) ואת לוג ההיסטוריה (למטה) */}
-      <aside className="w-64 flex flex-col gap-4 h-full z-10">
+      {/* פריסה צידית: מכילה את פאנל השליטה (למעלה) ולוג ההיסטוריה קבוע בתחתית (למטה) */}
+      <aside className="w-[336px] flex flex-col gap-4 h-full z-10 flex-none">
         <div className="flex-1 min-h-0 overflow-y-auto scrollbar-none">
           <ActionSidebar />
         </div>
-        <GameLog />
+        <div className="flex-none">
+          <GameLog />
+        </div>
       </aside>
 
       {/* האזור המרכזי: לוח המשחק והיד של השחקן */}
-      <main className="flex-1 flex flex-col gap-4 h-full relative overflow-hidden">
+      <main className="flex-grow w-full h-full relative flex flex-col gap-4 overflow-hidden">
         
-        {/* כותרת עליונה ייעודית קבועה בפריסת Flex */}
-        <header className="py-3 px-4 flex-none w-full flex items-center justify-between bg-slate-900/80 border border-slate-800 rounded-xl backdrop-blur shadow-md select-none z-10">
-          <div className="flex items-center gap-2">
-            <span className="w-2.5 h-2.5 rounded-full bg-amber-500 animate-pulse"></span>
-            <span className="text-xs md:text-sm font-bold text-slate-200">
-              משחק כעת: <span className="player-name text-amber-400 font-extrabold">{activePlayer?.name}</span>
-            </span>
-          </div>
-
-          {/* תצוגת מספר הקלפים של כל השחקנים בכל רגע נתון */}
-          {players.length > 0 && (
-            <div className="flex items-center gap-2.5 bg-slate-950/50 px-3 py-1.5 rounded-xl border border-slate-800/60 shadow-inner">
-              {players.map((p) => {
-                const totalCards = Object.values(p.resources).reduce((sum, count) => sum + count, 0);
-                const holdsLongestRoad = longestRoadPlayerId === p.id;
-                const holdsLargestArmy = largestArmyPlayerId === p.id;
-                return (
-                  <div 
-                    key={p.id} 
-                    className="flex items-center gap-1.5 text-xs font-bold px-2.5 py-1 rounded-lg bg-slate-900 border border-slate-800/80 shadow"
-                    style={{ borderRight: `3px solid ${p.color}` }}
-                  >
-                    <span className="text-slate-300 text-[11px] font-medium">{p.name}:</span>
-                    <span className="text-amber-400 font-black font-mono text-[11px]">{totalCards} קלפים</span>
-                    
-                    {/* תעודות חיווי עשיר */}
-                    {(holdsLongestRoad || holdsLargestArmy) && (
-                      <div className="flex items-center gap-1 mr-1 border-r border-slate-800 pr-1.5">
-                        {holdsLongestRoad && (
-                          <img 
-                            src="/badge_longest_road.png" 
-                            alt="Longest Road" 
-                            className="w-4 h-4 object-contain animate-bounce" 
-                            style={{ animationDuration: '3s' }}
-                            title="הדרך הארוכה ביותר (Longest Road)" 
-                          />
-                        )}
-                        {holdsLargestArmy && (
-                          <img 
-                            src="/badge_largest_army.png" 
-                            alt="Largest Army" 
-                            className="w-4 h-4 object-contain animate-bounce"
-                            style={{ animationDuration: '3s', animationDelay: '0.5s' }}
-                            title="הצבא הגדול ביותר (Largest Army)" 
-                          />
-                        )}
-                      </div>
-                    )}
-                  </div>
-                );
-              })}
-            </div>
-          )}
-
-          {/* תצוגת מחזיקי התעודות המרכזית */}
-          <div className="hidden lg:flex items-center gap-3 bg-slate-950/50 px-3 py-1.5 rounded-xl border border-slate-800/60 shadow-inner">
-            <div className="flex items-center gap-2 text-xs font-bold">
-              <span className="text-slate-400 text-[10px]">הדרך הארוכה ביותר:</span>
-              {players.find(p => p.id === longestRoadPlayerId) ? (
-                <div className="flex items-center gap-1 bg-slate-900 px-2 py-0.5 rounded-lg border border-slate-800 shadow" style={{ borderRight: `2.5px solid ${players.find(p => p.id === longestRoadPlayerId)?.color}` }}>
-                  <img src="/badge_longest_road.png" alt="Longest Road" className="w-4 h-4 object-contain animate-pulse" />
-                  <span className="text-slate-200 text-[11px]">{players.find(p => p.id === longestRoadPlayerId)?.name}</span>
-                </div>
-              ) : (
-                <span className="text-slate-600 text-[11px] italic">אין מחזיק</span>
-              )}
-            </div>
-            <div className="w-px h-4 bg-slate-800" />
-            <div className="flex items-center gap-2 text-xs font-bold">
-              <span className="text-slate-400 text-[10px]">הצבא הגדול ביותר:</span>
-              {players.find(p => p.id === largestArmyPlayerId) ? (
-                <div className="flex items-center gap-1 bg-slate-900 px-2 py-0.5 rounded-lg border border-slate-800 shadow" style={{ borderRight: `2.5px solid ${players.find(p => p.id === largestArmyPlayerId)?.color}` }}>
-                  <img src="/badge_largest_army.png" alt="Largest Army" className="w-4 h-4 object-contain animate-pulse" />
-                  <span className="text-slate-200 text-[11px]">{players.find(p => p.id === largestArmyPlayerId)?.name}</span>
-                </div>
-              ) : (
-                <span className="text-slate-600 text-[11px] italic">אין מחזיק</span>
-              )}
-            </div>
-          </div>
-          
-          {/* סרגל שליטה וניטור זמן תגובה בזמן אמת עבור הבוטים */}
-          {activePlayer?.isBot && (
-            <div className="flex items-center gap-4 bg-slate-950/80 px-3 py-1.5 rounded-lg border border-slate-800/80 animate-fade-in shadow-inner">
-              <div className="flex items-center gap-1.5 text-xs text-slate-300">
-                <span>⏱️</span>
-                <span className="font-bold">זמן תגובה:</span>
-                <span className={`font-mono font-black px-1.5 py-0.5 rounded ${timeLeft <= 3 ? 'text-rose-400 bg-rose-500/10 animate-pulse font-extrabold' : 'text-amber-400 bg-amber-500/10'}`}>
-                  {timeLeft} שניות
-                </span>
-              </div>
-              <button
-                onClick={forceNextTurn}
-                className="bg-rose-600 hover:bg-rose-500 hover:shadow-lg hover:shadow-rose-500/25 text-white text-xs font-black py-1 px-3 rounded-md transition-all duration-200 active:scale-95 cursor-pointer border border-rose-500"
-                title="עצור את הבוט הנוכחי והמשך לשחקן הבא"
-              >
-                🛑 עצור
-              </button>
-            </div>
-          )}
-
-          <span className="text-[10px] md:text-xs text-slate-400 font-medium">Catan Premium Edition</span>
-        </header>
-
-        <PhaseGuide />
-
-        {/* כפתור פתיחת ממשק מסחר */}
-        {turnSubPhase === 'TRADE_AND_BUILD' && !activePlayer?.isBot && (
-          <div className="flex justify-end px-4 z-10 -mb-2">
-            <button
-              onClick={() => setIsTradeModalOpen(true)}
-              className="bg-gradient-to-r from-amber-500 to-orange-500 text-slate-950 font-black py-2.5 px-5 rounded-xl shadow-lg shadow-amber-500/10 hover:shadow-amber-500/20 hover:brightness-110 active:scale-[0.97] transition-all text-sm cursor-pointer flex items-center gap-2 border border-amber-400 animate-pulse"
-            >
-              <DealIcon size={16} primaryColor="currentColor" secondaryColor="currentColor" />
-              <span>הצעת עסקה לשחקנים</span>
-            </button>
-          </div>
-        )}
+        {/* ה-Header הוסר לחלוטין כדי לפנות שטח אנכי מקסימלי ללוח המשחק */}
 
         {/* התראה על בניית כבישים חינם */}
         {roadBuildingRemaining > 0 && (
@@ -886,35 +677,12 @@ const GameContent: React.FC = () => {
         )}
 
         {/* פריסה דינמית המבוססת על מיקום פאנל המשאבים */}
-        <div className={`flex flex-1 gap-4 min-h-0 w-full ${resourcePosition === 'right' ? 'flex-row' : 'flex-col'} overflow-hidden`}>
+        <div className="flex flex-1 gap-4 min-h-0 w-full flex-col overflow-hidden">
           
           {/* לוח ה-SVG המשושה - GameBoard3D */}
           <div className="flex-1 bg-slate-900/40 border-2 border-slate-800 rounded-xl overflow-hidden relative shadow-inner flex items-center justify-center min-h-0">
             <GameBoard3D />
           </div>
-
-          {/* פאנל המשאבים בצד ימין (אם נבחר מיקום ימני) */}
-          {resourcePosition === 'right' && (
-            <aside className={`flex-none transition-all duration-300 ${(isResourceCollapsed && isDevPanelCollapsed) ? 'w-24' : 'w-80'} h-full z-10 flex flex-col gap-4 overflow-y-auto`}>
-              <div className="flex-none">
-                <ResourceContainer 
-                  resources={humanPlayer.resources} 
-                  playerName={humanPlayer.name} 
-                  position={resourcePosition}
-                  isCollapsed={isResourceCollapsed}
-                  onPositionChange={setResourcePosition}
-                  onToggleCollapsed={() => setIsResourceCollapsed(prev => !prev)}
-                />
-              </div>
-              <div className={`transition-all duration-300 ${isDevPanelCollapsed ? 'flex-none h-auto' : 'flex-1 min-h-[220px]'}`}>
-                <DevelopmentCardsPanel 
-                  handlePlayCard={handlePlayCard} 
-                  isCollapsed={isDevPanelCollapsed}
-                  onToggle={() => setIsDevPanelCollapsed(prev => !prev)}
-                />
-              </div>
-            </aside>
-          )}
 
           {/* פאנל המשאבים התחתון (אם נבחר מיקום תחתון) - ממוקם כחלק מהפריסה הדינמית למניעת הסתרה וחורים ריקים */}
           {resourcePosition === 'bottom' && (
@@ -929,17 +697,11 @@ const GameContent: React.FC = () => {
                   onToggleCollapsed={() => setIsResourceCollapsed(prev => !prev)}
                 />
               </div>
-              <div className={`w-full md:w-96 flex-none transition-all duration-300 ${isDevPanelCollapsed ? 'h-auto' : 'h-[350px]'}`}>
-                <DevelopmentCardsPanel 
-                  handlePlayCard={handlePlayCard} 
-                  isCollapsed={isDevPanelCollapsed}
-                  onToggle={() => setIsDevPanelCollapsed(prev => !prev)}
-                />
-              </div>
             </footer>
           )}
 
         </div>
+      </main>
 
         {/* מודל מסחר אינטראקטיבי */}
         {isTradeModalOpen && (
@@ -960,54 +722,89 @@ const GameContent: React.FC = () => {
               <div className="space-y-5">
                 {/* GIVE SECTION */}
                 <div>
-                  <label className="block text-slate-300 text-sm font-bold mb-2">אני מציע לתת (Give):</label>
-                  <div className="flex gap-3">
-                    <select
-                      value={giveRes}
-                      onChange={(e) => setGiveRes(e.target.value as any)}
-                      className="flex-1 bg-slate-950 border border-slate-800 text-slate-100 p-2.5 rounded-xl text-sm focus:outline-none focus:ring-1 focus:ring-amber-500"
-                    >
-                      <option value="WOOD">עץ 🪵 (יש לך: {humanPlayer.resources.WOOD || 0})</option>
-                      <option value="BRICK">לבנה 🧱 (יש לך: {humanPlayer.resources.BRICK || 0})</option>
-                      <option value="SHEEP">כבש 🐑 (יש לך: {humanPlayer.resources.SHEEP || 0})</option>
-                      <option value="WHEAT">חיטה 🌾 (יש לך: {humanPlayer.resources.WHEAT || 0})</option>
-                      <option value="ORE">ברזל 🪨 (יש לך: {humanPlayer.resources.ORE || 0})</option>
-                    </select>
+                  <label className="block text-slate-300 text-sm font-bold mb-3">אני מציע לתת (Give):</label>
+                  <div className="space-y-3">
+                    <div className="grid grid-cols-5 gap-2">
+                      {[
+                        { type: 'WOOD' as const, label: 'עץ', img: '/wood1.png', activeBg: 'bg-emerald-950/45 border-emerald-500' },
+                        { type: 'BRICK' as const, label: 'לבנה', img: '/brick1.png', activeBg: 'bg-orange-950/45 border-orange-500' },
+                        { type: 'SHEEP' as const, label: 'כבש', img: '/wool1.png', activeBg: 'bg-lime-950/45 border-lime-500' },
+                        { type: 'WHEAT' as const, label: 'חיטה', img: '/wheat1.png', activeBg: 'bg-amber-950/45 border-amber-500' },
+                        { type: 'ORE' as const, label: 'ברזל', img: '/rock1.png', activeBg: 'bg-slate-800/50 border-slate-500' },
+                      ].map((res) => {
+                        const isActive = giveRes === res.type;
+                        const stock = humanPlayer.resources[res.type] || 0;
+                        return (
+                          <button
+                            key={res.type}
+                            type="button"
+                            onClick={() => {
+                              setGiveRes(res.type);
+                              setGiveAmt(1);
+                            }}
+                            className={`flex flex-col items-center justify-center p-2.5 rounded-xl border text-[10px] font-black transition-all cursor-pointer gap-1
+                              ${isActive ? res.activeBg + ' ring-1 ring-amber-500/40 text-white font-black' : 'bg-slate-950/40 border-slate-800/80 text-slate-400 hover:bg-slate-950/70'}`}
+                          >
+                            <img src={res.img} className="w-8 h-8 object-contain" alt={res.label} />
+                            <span>{res.label}</span>
+                            <span className="text-[8px] opacity-75">({stock})</span>
+                          </button>
+                        );
+                      })}
+                    </div>
                     
-                    <input
-                      type="number"
-                      min={1}
-                      max={humanPlayer.resources[giveRes] || 0}
-                      value={giveAmt}
-                      onChange={(e) => setGiveAmt(Math.max(1, parseInt(e.target.value) || 1))}
-                      className="w-24 bg-slate-950 border border-slate-800 text-slate-100 p-2.5 rounded-xl text-sm text-center focus:outline-none focus:ring-1 focus:ring-amber-500"
-                    />
+                    <div className="flex items-center gap-3">
+                      <span className="text-xs text-slate-400 font-bold">כמות:</span>
+                      <input
+                        type="number"
+                        min={1}
+                        max={humanPlayer.resources[giveRes] || 0}
+                        value={giveAmt}
+                        onChange={(e) => setGiveAmt(Math.max(1, parseInt(e.target.value) || 1))}
+                        className="flex-1 bg-slate-950 border border-slate-800 text-slate-100 p-2 rounded-xl text-sm text-center focus:outline-none focus:ring-1 focus:ring-amber-500"
+                      />
+                    </div>
                   </div>
                 </div>
 
                 {/* RECEIVE SECTION */}
                 <div>
-                  <label className="block text-slate-300 text-sm font-bold mb-2">אני מבקש לקבל (Receive):</label>
-                  <div className="flex gap-3">
-                    <select
-                      value={receiveRes}
-                      onChange={(e) => setReceiveRes(e.target.value as any)}
-                      className="flex-1 bg-slate-950 border border-slate-800 text-slate-100 p-2.5 rounded-xl text-sm focus:outline-none focus:ring-1 focus:ring-amber-500"
-                    >
-                      <option value="BRICK">לבנה 🧱</option>
-                      <option value="WOOD">עץ 🪵</option>
-                      <option value="SHEEP">כבש 🐑</option>
-                      <option value="WHEAT">חיטה 🌾</option>
-                      <option value="ORE">ברזל 🪨</option>
-                    </select>
-                    
-                    <input
-                      type="number"
-                      min={1}
-                      value={receiveAmt}
-                      onChange={(e) => setReceiveAmt(Math.max(1, parseInt(e.target.value) || 1))}
-                      className="w-24 bg-slate-950 border border-slate-800 text-slate-100 p-2.5 rounded-xl text-sm text-center focus:outline-none focus:ring-1 focus:ring-amber-500"
-                    />
+                  <label className="block text-slate-300 text-sm font-bold mb-3">אני מבקש לקבל (Receive):</label>
+                  <div className="space-y-3">
+                    <div className="grid grid-cols-5 gap-2">
+                      {[
+                        { type: 'WOOD' as const, label: 'עץ', img: '/wood1.png', activeBg: 'bg-emerald-950/45 border-emerald-500' },
+                        { type: 'BRICK' as const, label: 'לבנה', img: '/brick1.png', activeBg: 'bg-orange-950/45 border-orange-500' },
+                        { type: 'SHEEP' as const, label: 'כבש', img: '/wool1.png', activeBg: 'bg-lime-950/45 border-lime-500' },
+                        { type: 'WHEAT' as const, label: 'חיטה', img: '/wheat1.png', activeBg: 'bg-amber-950/45 border-amber-500' },
+                        { type: 'ORE' as const, label: 'ברזל', img: '/rock1.png', activeBg: 'bg-slate-800/50 border-slate-500' },
+                      ].map((res) => {
+                        const isActive = receiveRes === res.type;
+                        return (
+                          <button
+                            key={res.type}
+                            type="button"
+                            onClick={() => setReceiveRes(res.type)}
+                            className={`flex flex-col items-center justify-center p-2.5 rounded-xl border text-[10px] font-black transition-all cursor-pointer gap-1
+                              ${isActive ? res.activeBg + ' ring-1 ring-amber-500/40 text-white font-black' : 'bg-slate-950/40 border-slate-800/80 text-slate-400 hover:bg-slate-950/70'}`}
+                          >
+                            <img src={res.img} className="w-8 h-8 object-contain" alt={res.label} />
+                            <span>{res.label}</span>
+                          </button>
+                        );
+                      })}
+                    </div>
+
+                    <div className="flex items-center gap-3">
+                      <span className="text-xs text-slate-400 font-bold">כמות:</span>
+                      <input
+                        type="number"
+                        min={1}
+                        value={receiveAmt}
+                        onChange={(e) => setReceiveAmt(Math.max(1, parseInt(e.target.value) || 1))}
+                        className="flex-1 bg-slate-950 border border-slate-800 text-slate-100 p-2 rounded-xl text-sm text-center focus:outline-none focus:ring-1 focus:ring-amber-500"
+                      />
+                    </div>
                   </div>
                 </div>
 
@@ -1075,13 +872,13 @@ const GameContent: React.FC = () => {
                 בחר סוג משאב אחד. כל שאר הבוטים במשחק ייאלצו למסור לך את כל קלפי המשאב הזה שברשותם!
               </p>
 
-              <div className="grid grid-cols-1 gap-3">
+              <div className="grid grid-cols-2 sm:grid-cols-5 gap-2">
                 {[
-                  { type: 'WOOD' as const, label: 'עץ', icon: <WoodIcon size={20} className="text-emerald-400" />, emojiStr: '🪵', hover: 'hover:bg-emerald-950/30 hover:border-emerald-500/50' },
-                  { type: 'BRICK' as const, label: 'לבנה', icon: <BrickIcon size={20} className="text-orange-400" />, emojiStr: '🧱', hover: 'hover:bg-orange-950/30 hover:border-orange-500/50' },
-                  { type: 'SHEEP' as const, label: 'כבש', icon: <SheepIcon size={20} className="text-lime-400" />, emojiStr: '🐑', hover: 'hover:bg-lime-950/30 hover:border-lime-500/50' },
-                  { type: 'WHEAT' as const, label: 'חיטה', icon: <WheatIcon size={20} className="text-amber-400" />, emojiStr: '🌾', hover: 'hover:bg-amber-950/30 hover:border-amber-500/50' },
-                  { type: 'ORE' as const, label: 'ברזל', icon: <OreIcon size={20} className="text-slate-400" />, emojiStr: '🪨', hover: 'hover:bg-slate-800/30 hover:border-slate-500/50' },
+                  { type: 'WOOD' as const, label: 'עץ', img: '/wood1.png', border: 'border-emerald-500/30', hover: 'hover:bg-emerald-950/30 hover:border-emerald-500' },
+                  { type: 'BRICK' as const, label: 'לבנה', img: '/brick1.png', border: 'border-orange-500/30', hover: 'hover:bg-orange-950/30 hover:border-orange-500' },
+                  { type: 'SHEEP' as const, label: 'כבש', img: '/wool1.png', border: 'border-lime-500/30', hover: 'hover:bg-lime-950/30 hover:border-lime-500' },
+                  { type: 'WHEAT' as const, label: 'חיטה', img: '/wheat1.png', border: 'border-amber-500/30', hover: 'hover:bg-amber-950/30 hover:border-amber-500' },
+                  { type: 'ORE' as const, label: 'ברזל', img: '/rock1.png', border: 'border-slate-500/30', hover: 'hover:bg-slate-800/30 hover:border-slate-500' },
                 ].map((res) => (
                   <button
                     key={res.type}
@@ -1121,13 +918,10 @@ const GameContent: React.FC = () => {
                       addLog(`[קלף פיתוח] ${humanPlayer.name} הפעיל קלף מונופול ומקבל את כל קלפי ה-${res.label}! נגזלו ${stolen} קלפים משאר השחקנים.`);
                       setIsMonopolyModalOpen(false);
                     }}
-                    className={`flex items-center justify-between p-3.5 rounded-xl border border-slate-800 bg-slate-950/40 text-slate-200 text-sm font-bold transition-all ${res.hover} active:scale-[0.98] cursor-pointer`}
+                    className={`flex flex-col items-center justify-center p-3 rounded-xl border bg-slate-950/40 text-slate-200 text-xs font-bold transition-all ${res.border} ${res.hover} active:scale-[0.95] cursor-pointer gap-1.5`}
                   >
-                    <span className="flex items-center gap-3">
-                      <span>{res.icon}</span>
-                      <span>{res.label}</span>
-                    </span>
-                    <span className="text-slate-500 font-medium text-xs">בחר ➔</span>
+                    <img src={res.img} className="w-10 h-10 object-contain" alt={res.label} />
+                    <span>{res.label}</span>
                   </button>
                 ))}
               </div>
@@ -1147,42 +941,67 @@ const GameContent: React.FC = () => {
               </button>
               
               <h3 className="text-xl font-extrabold text-transparent bg-clip-text bg-gradient-to-r from-amber-400 to-yellow-500 mb-6 border-b border-slate-800 pb-3 flex items-center gap-2">
-                <span>🌾 קלף שנת שפע - קבלת 2 משאבים</span>
+                <img src="/wheat1.png" className="h-5 w-5 inline-block align-middle ml-1" alt="חיטה" />
+                <span>קלף שנת שפע - קבלת 2 משאבים</span>
               </h3>
 
               <p className="text-sm text-slate-300 mb-6">
                 בחר שני משאבים לקבלתם באופן מיידי מהבנק:
               </p>
 
-              <div className="space-y-4">
+              <div className="space-y-6">
                 <div>
-                  <label className="block text-slate-400 text-xs font-bold mb-1.5">משאב ראשון:</label>
-                  <select
-                    value={yopRes1}
-                    onChange={(e) => setYopRes1(e.target.value as any)}
-                    className="w-full bg-slate-950 border border-slate-800 text-slate-100 p-2.5 rounded-xl text-sm focus:outline-none focus:ring-1 focus:ring-amber-500 font-bold"
-                  >
-                    <option value="WOOD">עץ 🪵</option>
-                    <option value="BRICK">לבנה 🧱</option>
-                    <option value="SHEEP">כבש 🐑</option>
-                    <option value="WHEAT">חיטה 🌾</option>
-                    <option value="ORE">ברזל 🪨</option>
-                  </select>
+                  <label className="block text-slate-400 text-xs font-bold mb-3">משאב ראשון:</label>
+                  <div className="grid grid-cols-5 gap-2">
+                    {[
+                      { type: 'WOOD' as const, label: 'עץ', img: '/wood1.png', activeBg: 'bg-emerald-950/45 border-emerald-500' },
+                      { type: 'BRICK' as const, label: 'לבנה', img: '/brick1.png', activeBg: 'bg-orange-950/45 border-orange-500' },
+                      { type: 'SHEEP' as const, label: 'כבש', img: '/wool1.png', activeBg: 'bg-lime-950/45 border-lime-500' },
+                      { type: 'WHEAT' as const, label: 'חיטה', img: '/wheat1.png', activeBg: 'bg-amber-950/45 border-amber-500' },
+                      { type: 'ORE' as const, label: 'ברזל', img: '/rock1.png', activeBg: 'bg-slate-800/50 border-slate-500' },
+                    ].map((res) => {
+                      const isActive = yopRes1 === res.type;
+                      return (
+                        <button
+                          key={res.type}
+                          type="button"
+                          onClick={() => setYopRes1(res.type)}
+                          className={`flex flex-col items-center justify-center p-2.5 rounded-xl border text-[10px] font-black transition-all cursor-pointer gap-1
+                            ${isActive ? res.activeBg + ' ring-1 ring-amber-500/40 text-white' : 'bg-slate-950/40 border-slate-800/80 hover:bg-slate-950/70 text-slate-400'}`}
+                        >
+                          <img src={res.img} className="w-8 h-8 object-contain" alt={res.label} />
+                          <span>{res.label}</span>
+                        </button>
+                      );
+                    })}
+                  </div>
                 </div>
 
                 <div>
-                  <label className="block text-slate-400 text-xs font-bold mb-1.5">משאב שני:</label>
-                  <select
-                    value={yopRes2}
-                    onChange={(e) => setYopRes2(e.target.value as any)}
-                    className="w-full bg-slate-950 border border-slate-800 text-slate-100 p-2.5 rounded-xl text-sm focus:outline-none focus:ring-1 focus:ring-amber-500 font-bold"
-                  >
-                    <option value="WOOD">עץ 🪵</option>
-                    <option value="BRICK">לבנה 🧱</option>
-                    <option value="SHEEP">כבש 🐑</option>
-                    <option value="WHEAT">חיטה 🌾</option>
-                    <option value="ORE">ברזל 🪨</option>
-                  </select>
+                  <label className="block text-slate-400 text-xs font-bold mb-3">משאב שני:</label>
+                  <div className="grid grid-cols-5 gap-2">
+                    {[
+                      { type: 'WOOD' as const, label: 'עץ', img: '/wood1.png', activeBg: 'bg-emerald-950/45 border-emerald-500' },
+                      { type: 'BRICK' as const, label: 'לבנה', img: '/brick1.png', activeBg: 'bg-orange-950/45 border-orange-500' },
+                      { type: 'SHEEP' as const, label: 'כבש', img: '/wool1.png', activeBg: 'bg-lime-950/45 border-lime-500' },
+                      { type: 'WHEAT' as const, label: 'חיטה', img: '/wheat1.png', activeBg: 'bg-amber-950/45 border-amber-500' },
+                      { type: 'ORE' as const, label: 'ברזל', img: '/rock1.png', activeBg: 'bg-slate-800/50 border-slate-500' },
+                    ].map((res) => {
+                      const isActive = yopRes2 === res.type;
+                      return (
+                        <button
+                          key={res.type}
+                          type="button"
+                          onClick={() => setYopRes2(res.type)}
+                          className={`flex flex-col items-center justify-center p-2.5 rounded-xl border text-[10px] font-black transition-all cursor-pointer gap-1
+                            ${isActive ? res.activeBg + ' ring-1 ring-amber-500/40 text-white' : 'bg-slate-950/40 border-slate-800/80 hover:bg-slate-950/70 text-slate-400'}`}
+                        >
+                          <img src={res.img} className="w-8 h-8 object-contain" alt={res.label} />
+                          <span>{res.label}</span>
+                        </button>
+                      );
+                    })}
+                  </div>
                 </div>
               </div>
 
@@ -1204,6 +1023,52 @@ const GameContent: React.FC = () => {
             </div>
           </div>
         )}
+
+      {/* סיידבר ימני קבוע ומרונדר על המסך תמיד */}
+      <aside className={`transition-all duration-300 flex flex-col gap-4 h-full z-10 flex-none ${
+        isResourceCollapsed ? 'w-20' : 'w-80'
+      }`}>
+        {resourcePosition === 'bottom' ? (
+          /* בגובה מלא ונוח לקריאה, ללא אפשרות כיווץ */
+          <div className="flex-1 min-h-0">
+            <DevelopmentCardsPanel 
+              handlePlayCard={handlePlayCard} 
+              isCollapsed={isResourceCollapsed}
+              onToggle={() => {}}
+              onTrophyClick={(type) => setActiveTrophyModal(type)}
+              onHeaderClick={() => setIsDevCardsOverlayOpen(true)}
+              onOfferTradeClick={() => setIsTradeModalOpen(true)}
+            />
+          </div>
+        ) : (
+          /* resourcePosition === 'right' */
+          /* אגד את שני הרכיבים במבנה אנכי: פאנל המשאבים למעלה, ופאנל קלפי הפיתוח למטה */
+          <div className="flex flex-col gap-4 h-full min-h-0">
+            {/* פאנל המשאבים למעלה */}
+            <div className="flex-1 min-h-0 overflow-y-auto scrollbar-none">
+              <ResourceContainer 
+                resources={humanPlayer.resources} 
+                playerName={humanPlayer.name} 
+                position={resourcePosition}
+                isCollapsed={isResourceCollapsed}
+                onPositionChange={setResourcePosition}
+                onToggleCollapsed={() => setIsResourceCollapsed(prev => !prev)}
+              />
+            </div>
+            {/* פאנל קלפי פיתוח למטה */}
+            <div className="flex-1 min-h-0">
+              <DevelopmentCardsPanel 
+                handlePlayCard={handlePlayCard} 
+                isCollapsed={isResourceCollapsed}
+                onToggle={() => {}}
+                onTrophyClick={(type) => setActiveTrophyModal(type)}
+                onHeaderClick={() => setIsDevCardsOverlayOpen(true)}
+                onOfferTradeClick={() => setIsTradeModalOpen(true)}
+              />
+            </div>
+          </div>
+        )}
+      </aside>
 
         {/* מודל מסחר בנמל מונחה-משתמש */}
         {activePortTrade && (
@@ -1343,33 +1208,53 @@ const GameContent: React.FC = () => {
                   </p>
 
                   <div>
-                    <label className="block text-slate-300 text-xs font-bold mb-2">איזה משאב תרצה לתת (3 יחידות)?</label>
-                    <select
-                      value={harborGiveRes}
-                      onChange={(e) => setHarborGiveRes(e.target.value as any)}
-                      className="w-full bg-slate-950 border border-slate-800 text-slate-100 p-2.5 rounded-xl text-sm focus:outline-none focus:ring-1 focus:ring-emerald-500 font-bold"
-                    >
-                      <option value="WOOD">עץ 🪵 (יש לך: {humanPlayer.resources.WOOD || 0})</option>
-                      <option value="BRICK">לבנה 🧱 (יש לך: {humanPlayer.resources.BRICK || 0})</option>
-                      <option value="SHEEP">כבש 🐑 (יש לך: {humanPlayer.resources.SHEEP || 0})</option>
-                      <option value="WHEAT">חיטה 🌾 (יש לך: {humanPlayer.resources.WHEAT || 0})</option>
-                      <option value="ORE">ברזל 🪨 (יש לך: {humanPlayer.resources.ORE || 0})</option>
-                    </select>
+                    <label className="block text-slate-300 text-xs font-bold mb-3">איזה משאב תרצה לתת (3 יחידות)?</label>
+                    <div className="grid grid-cols-5 gap-2">
+                      {(['WOOD', 'BRICK', 'SHEEP', 'WHEAT', 'ORE'] as const).map(res => {
+                        const labels: Record<string, string> = { WOOD: 'עץ', BRICK: 'לבנה', SHEEP: 'כבש', WHEAT: 'חיטה', ORE: 'ברזל' };
+                        const imgs: Record<string, string> = { WOOD: '/wood1.png', BRICK: '/brick1.png', SHEEP: '/wool1.png', WHEAT: '/wheat1.png', ORE: '/rock1.png' };
+                        const stock = humanPlayer.resources[res] || 0;
+                        const isSelected = harborGiveRes === res;
+                        return (
+                          <button
+                            key={res}
+                            type="button"
+                            onClick={() => setHarborGiveRes(res)}
+                            className={`flex flex-col items-center justify-center p-2 rounded-xl border text-[10px] font-black transition-all cursor-pointer gap-1
+                              ${isSelected ? 'bg-amber-500/10 border-amber-500 text-amber-300' : 'bg-slate-950/40 border-slate-800/80 text-slate-400 hover:bg-slate-950/70'}`}
+                          >
+                            <img src={imgs[res]} className="w-7 h-7 object-contain" alt={labels[res]} />
+                            <span>{labels[res]}</span>
+                            <span className="text-[8px] opacity-75 font-mono">({stock})</span>
+                          </button>
+                        );
+                      })}
+                    </div>
                   </div>
 
-                  <div>
-                    <label className="block text-slate-300 text-xs font-bold mb-2">איזה משאב תרצה לקבל (יחידה אחת)?</label>
-                    <select
-                      value={harborReceiveRes}
-                      onChange={(e) => setHarborReceiveRes(e.target.value as any)}
-                      className="w-full bg-slate-950 border border-slate-800 text-slate-100 p-2.5 rounded-xl text-sm focus:outline-none focus:ring-1 focus:ring-emerald-500 font-bold"
-                    >
-                      <option value="BRICK">לבנה 🧱</option>
-                      <option value="WOOD">עץ 🪵</option>
-                      <option value="SHEEP">כבש 🐑</option>
-                      <option value="WHEAT">חיטה 🌾</option>
-                      <option value="ORE">ברזל 🪨</option>
-                    </select>
+                  <div className="mt-4">
+                    <label className="block text-slate-300 text-xs font-bold mb-3">איזה משאב תרצה לקבל (יחידה אחת)?</label>
+                    <div className="grid grid-cols-5 gap-2">
+                      {(['WOOD', 'BRICK', 'SHEEP', 'WHEAT', 'ORE'] as const)
+                        .filter(r => r !== harborGiveRes)
+                        .map(res => {
+                          const labels: Record<string, string> = { WOOD: 'עץ', BRICK: 'לבנה', SHEEP: 'כבש', WHEAT: 'חיטה', ORE: 'ברזל' };
+                          const imgs: Record<string, string> = { WOOD: '/wood1.png', BRICK: '/brick1.png', SHEEP: '/wool1.png', WHEAT: '/wheat1.png', ORE: '/rock1.png' };
+                          const isSelected = harborReceiveRes === res;
+                          return (
+                            <button
+                              key={res}
+                              type="button"
+                              onClick={() => setHarborReceiveRes(res)}
+                              className={`flex flex-col items-center justify-center p-2 rounded-xl border text-[10px] font-black transition-all cursor-pointer gap-1
+                                ${isSelected ? 'bg-emerald-500/10 border-emerald-500 text-emerald-300' : 'bg-slate-950/40 border-slate-800/80 text-slate-400 hover:bg-slate-950/70'}`}
+                            >
+                              <img src={imgs[res]} className="w-7 h-7 object-contain" alt={labels[res]} />
+                              <span>{labels[res]}</span>
+                            </button>
+                          );
+                        })}
+                    </div>
                   </div>
 
                   {/* WARNING */}
@@ -1582,9 +1467,163 @@ const GameContent: React.FC = () => {
         {/* קומפוננטת Overlay במסך מלא עבור זריקת משאבים כשהשודד מופעל */}
         <DiscardOverlay />
 
+        {/* מודל תארים צף גדול במרכז */}
+        {activeTrophyModal && (() => {
+          const isRoad = activeTrophyModal === 'longest_road';
+          const title = isRoad ? 'תואר: הדרך הארוכה ביותר (Longest Road)' : 'תואר: הצבא הגדול ביותר (Largest Army)';
+          const img = isRoad ? '/badge_longest_road.png' : '/badge_largest_army.png';
+          const holderId = isRoad ? longestRoadPlayerId : largestArmyPlayerId;
+          const holder = players.find(p => p.id === holderId) || null;
+          const reqs = isRoad 
+            ? 'כדי לזכות בתואר אסטרטגי זה, עליך לבנות את רצף הכבישים הארוך ביותר של לפחות 5 כבישים רציפים ומחוברים. ברגע ששחקן אחר בונה רצף ארוך יותר משלך, התואר והנקודות עוברים אליו מיידית.' 
+            : 'כדי לזכות בתואר הצבאי הזה, עליך להפעיל לפחות 3 קלפי אביר (Knight) מחפיסת הפיתוח שלך. ברגע ששחקן אחר מפעיל מספר גדול יותר של קלפי אביר ממך, התואר והנקודות עוברים אליו מיידית.';
+          
+          return (
+            <div className="fixed inset-0 bg-slate-950/85 backdrop-blur-md flex items-center justify-center z-50 p-4">
+              <div className="bg-slate-900 border-2 border-amber-500/40 rounded-3xl w-full max-w-lg p-8 shadow-2xl relative text-center animate-fade-in" dir="rtl">
+                <button 
+                  onClick={() => setActiveTrophyModal(null)}
+                  className="absolute top-4 left-4 text-slate-400 hover:text-white transition-colors duration-200 cursor-pointer p-1.5 rounded-xl hover:bg-slate-800 flex items-center justify-center border border-slate-800"
+                >
+                  <CrossIcon size={16} />
+                </button>
+                
+                <div className="w-24 h-24 mx-auto mb-5 relative">
+                  <div className="absolute inset-0 bg-amber-500/15 rounded-full animate-ping" style={{ animationDuration: '3s' }} />
+                  <img src={img} alt={title} className="w-full h-full object-contain relative z-10 animate-bounce" style={{ animationDuration: '4s' }} />
+                </div>
+                
+                <h3 className="text-2xl font-black text-transparent bg-clip-text bg-gradient-to-r from-amber-400 to-orange-500 mb-4">
+                  {title}
+                </h3>
+
+                <div className="bg-slate-950/70 border border-slate-800/80 rounded-2xl p-4 mb-5 text-right">
+                  <div className="flex items-center justify-between mb-3 border-b border-slate-850/60 pb-2">
+                    <span className="text-xs text-slate-400 font-bold">מחזיק התואר הנוכחי:</span>
+                    {holder ? (
+                      <span className="text-sm font-black" style={{ color: holder.color }}>
+                        👑 {holder.name} {holder.isBot ? '(מחשב)' : '(אתה)'}
+                      </span>
+                    ) : (
+                      <span className="text-xs text-slate-500 italic">אין מחזיק כרגע</span>
+                    )}
+                  </div>
+                  <div className="flex items-center justify-between mb-1">
+                    <span className="text-xs text-slate-400 font-bold">בונוס נקודות ניצחון:</span>
+                    <span className="text-xs font-extrabold text-amber-400 font-mono">2 VP (נקודות ניצחון ציבוריות)</span>
+                  </div>
+                </div>
+
+                <div className="bg-slate-950/40 border border-slate-850 rounded-2xl p-4 mb-6 text-right leading-relaxed">
+                  <span className="block text-xs font-black text-slate-300 mb-1.5">כיצד זוכים בתואר?</span>
+                  <p className="text-xs text-slate-400 font-medium">{reqs}</p>
+                </div>
+
+                <button
+                  onClick={() => setActiveTrophyModal(null)}
+                  className="w-full bg-gradient-to-r from-amber-500 to-orange-500 text-slate-950 font-black py-3 rounded-xl shadow-lg hover:brightness-110 active:scale-95 transition-all text-sm cursor-pointer border border-amber-400"
+                >
+                  סגור תעודה
+                </button>
+              </div>
+            </div>
+          );
+        })()}
+
+        {/* מודל קלפי פיתוח צף גדול במרכז */}
+        {isDevCardsOverlayOpen && (() => {
+          const devCards = humanPlayer?.developmentCards || { KNIGHT: 0, MONOPOLY: 0, ROAD_BUILDING: 0, YEAR_OF_PLENTY: 0, VICTORY_POINT: 0 };
+          const isOurTurn = activePlayer?.id === humanPlayer?.id && turnSubPhase === 'TRADE_AND_BUILD';
+          
+          return (
+            <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-md flex items-center justify-center z-50 p-4 animate-fade-in">
+              <div className="bg-slate-900/95 border border-slate-700/50 backdrop-blur-xl rounded-3xl w-full max-w-3xl p-8 shadow-2xl relative text-right" dir="rtl">
+                <button 
+                  onClick={() => setIsDevCardsOverlayOpen(false)}
+                  className="absolute top-4 left-4 text-slate-400 hover:text-white transition-colors duration-200 cursor-pointer p-1.5 rounded-xl hover:bg-slate-800 flex items-center justify-center border border-slate-850"
+                >
+                  <CrossIcon size={16} />
+                </button>
+                
+                <h3 className="text-2xl font-black text-transparent bg-clip-text bg-gradient-to-r from-purple-400 via-pink-400 to-indigo-400 mb-6 border-b border-slate-800/65 pb-3 flex items-center gap-2">
+                  <CardIcon size={24} className="text-purple-400 inline-block animate-pulse" />
+                  <span>קלפי הפיתוח שלך (מלאי ומדריך מפורט)</span>
+                </h3>
+
+                <p className="text-xs text-slate-300 mb-6 font-medium">
+                  לחיצה על "הפעל" תפעיל את אפקט הקלף בתורך. קלפי נקודות ניצחון מופעלים אוטומטית באופן פסיבי.
+                </p>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 max-h-[50vh] overflow-y-auto pr-2 scrollbar-thin scrollbar-thumb-slate-800 scrollbar-track-transparent">
+                  {[
+                    { id: 'KNIGHT' as const, name: 'אביר (Knight)', desc: 'מזיז את השודד לאריח אחר ומאפשר לגנוב משאב משחקן שכן. מסייע בהשגת תואר הצבא הגדול.', img: '/knite.png', count: devCards.KNIGHT || 0, playable: true },
+                    { id: 'MONOPOLY' as const, name: 'מונופול (Monopoly)', desc: 'בחר משאב אחד. כל שחקני המחשב (בוטים) מחויבים למסור לך את כל הקלפים שברשותם מאותו סוג משאב.', img: '/monopoly.png', count: devCards.MONOPOLY || 0, playable: true },
+                    { id: 'ROAD_BUILDING' as const, name: 'בניית כבישים (Road Building)', desc: 'מאפשר לך לסלול שני כבישים חדשים על הלוח באופן מיידי וללא עלות משאבים. מסייע בהשגת הדרך הארוכה.', img: '/2_ways.png', count: devCards.ROAD_BUILDING || 0, playable: true },
+                    { id: 'YEAR_OF_PLENTY' as const, name: 'שנת שפע (Year of Plenty)', desc: 'קבל שני משאבים חופשיים לבחירתך מהבנק באופן מיידי.', img: '/year_of_plenty.png', count: devCards.YEAR_OF_PLENTY || 0, playable: true },
+                    { id: 'VICTORY_POINT' as const, name: 'קלף נקודת ניצחון (Victory Point)', desc: 'מעניק לך נקודת ניצחון אחת באופן מיידי ופסיבי (נשמר בסוד משאר השחקנים).', img: '/win1.png', count: devCards.VICTORY_POINT || 0, playable: false },
+                  ].map((card) => {
+                    const hasCard = card.count > 0;
+                    return (
+                      <div key={card.id} className={`flex gap-4 p-4 rounded-2xl border transition-all ${hasCard ? 'bg-slate-950/60 border-purple-500/30 shadow-[0_0_15px_rgba(168,85,247,0.1)]' : 'bg-slate-950/20 border-slate-900 opacity-50'}`}>
+                        <div className="w-[60px] h-[84px] flex-none rounded-xl overflow-hidden border border-slate-800 shadow-md bg-slate-900">
+                          <img src={card.img} alt={card.name} className="w-full h-full object-cover" />
+                        </div>
+                        <div className="flex-1 flex flex-col justify-between">
+                          <div>
+                            <div className="flex items-center justify-between">
+                              <span className="text-sm font-black text-slate-100">{card.name}</span>
+                              <span className="text-xs font-mono font-black text-amber-400 bg-slate-950 px-2 py-0.5 rounded border border-slate-800">
+                                כמות: {card.count}
+                              </span>
+                            </div>
+                            <p className="text-[11px] text-slate-400 mt-1.5 leading-relaxed">{card.desc}</p>
+                          </div>
+                          <div className="flex justify-end mt-2">
+                            {card.playable ? (
+                              <button
+                                disabled={!isOurTurn || !hasCard}
+                                onClick={() => {
+                                  if (card.id !== 'VICTORY_POINT') {
+                                    handlePlayCard(card.id);
+                                  }
+                                  setIsDevCardsOverlayOpen(false);
+                                }}
+                                className={`px-4 py-1.5 rounded-xl text-xs font-black transition-all cursor-pointer ${
+                                  isOurTurn && hasCard
+                                    ? 'bg-gradient-to-r from-purple-600 to-purple-500 text-white hover:from-purple-500 hover:to-purple-400 shadow-lg border border-purple-400 active:scale-95'
+                                    : 'bg-slate-900/60 text-slate-600 border border-slate-800/80 cursor-not-allowed opacity-50'
+                                }`}
+                              >
+                                הפעל קלף
+                              </button>
+                            ) : (
+                              <span className="text-[10px] font-black uppercase tracking-wider text-slate-500 bg-slate-950 px-2 py-1 rounded border border-slate-850">
+                                אפקט פסיבי
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+
+                <div className="mt-8 border-t border-slate-800/80 pt-4 flex justify-end">
+                  <button
+                    onClick={() => setIsDevCardsOverlayOpen(false)}
+                    className="px-6 py-2.5 bg-slate-800 text-slate-300 font-bold rounded-xl hover:bg-slate-700 hover:text-white transition-all text-xs cursor-pointer"
+                  >
+                    סגור חלון
+                  </button>
+                </div>
+              </div>
+            </div>
+          );
+        })()}
+
         {/* מודל סיום המשחק */}
         {gamePhase === 'GAME_OVER' && (() => {
-          const winner = players.find(p => p.victoryPoints >= 10) || players.reduce((max, p) => p.victoryPoints > max.victoryPoints ? p : max, players[0]);
+          const winner = players.find(p => getPlayerTotalVP(p, longestRoadPlayerId, largestArmyPlayerId, true) >= 10) || players.reduce((max, p) => getPlayerTotalVP(p, longestRoadPlayerId, largestArmyPlayerId, true) > getPlayerTotalVP(max, longestRoadPlayerId, largestArmyPlayerId, true) ? p : max, players[0]);
           return (
             <div className="fixed inset-0 bg-slate-950/90 backdrop-blur-md flex items-center justify-center z-50 p-4 animate-fade-in">
               <div className="bg-slate-900 border-4 border-amber-500 rounded-3xl w-full max-w-2xl p-10 shadow-2xl relative text-center" dir="rtl">
@@ -1605,7 +1644,7 @@ const GameContent: React.FC = () => {
                 </h1>
                 
                 <p className="text-xl text-slate-300 mb-8 font-medium">
-                  {winner ? `כל הכבוד! ${winner.name} הגיע/ה ל-${winner.victoryPoints} נקודות ניצחון והוכתר/ה כשליט/ת קטאן!` : ''}
+                  {winner ? `כל הכבוד! ${winner.name} הגיע/ה ל-${getPlayerTotalVP(winner, longestRoadPlayerId, largestArmyPlayerId, true)} נקודות ניצחון והוכתר/ה כשליט/ת קטאן!` : ''}
                 </p>
 
                 {/* Scoreboard table */}
@@ -1613,7 +1652,7 @@ const GameContent: React.FC = () => {
                   <h3 className="text-lg font-bold text-slate-400 mb-4 border-b border-slate-800 pb-2">טבלת הניקוד הסופית:</h3>
                   <div className="space-y-3">
                     {[...players]
-                      .sort((a, b) => b.victoryPoints - a.victoryPoints)
+                      .sort((a, b) => getPlayerTotalVP(b, longestRoadPlayerId, largestArmyPlayerId, true) - getPlayerTotalVP(a, longestRoadPlayerId, largestArmyPlayerId, true))
                       .map((p, index) => (
                         <div 
                           key={p.id} 
@@ -1626,7 +1665,7 @@ const GameContent: React.FC = () => {
                             {p.isBot && <span className="text-[10px] px-1.5 py-0.5 bg-slate-800 text-slate-400 rounded">בוט</span>}
                           </div>
                           <div className="flex items-center gap-1.5">
-                            <span className="text-lg font-black text-amber-400">{p.victoryPoints}</span>
+                            <span className="text-lg font-black text-amber-400">{getPlayerTotalVP(p, longestRoadPlayerId, largestArmyPlayerId, true)}</span>
                             <span className="text-xs text-slate-500">נק׳</span>
                           </div>
                         </div>
@@ -1648,7 +1687,6 @@ const GameContent: React.FC = () => {
             </div>
           );
         })()}
-      </main>
 
     </div>
   );

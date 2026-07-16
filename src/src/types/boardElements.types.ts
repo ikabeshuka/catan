@@ -12,4 +12,9 @@ export interface BoardEdge {
   id: string;                  // מזהה ייחודי בין שני צמתים
   playerId: string | null;     // מי השחקן שבנה כאן כביש
   hasRoad: boolean;            // האם בנוי כאן כביש?
+  isHarbor?: boolean;
+  harborType?: string;
+  harborAngle?: number;
+  hasShip?: boolean;           // האם בנויה כאן ספינה?
+  shipPlayerId?: string | null; // מזהה השחקן שבנה את הספינה
 }

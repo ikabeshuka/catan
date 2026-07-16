@@ -178,12 +178,12 @@ export const VertexNode: React.FC<VertexNodeProps> = ({
 
   const getHarborTooltipText = (type?: string) => {
     switch (type) {
-      case 'GENERIC': return '⛵ נמל כללי: יחס 3:1';
-      case 'WOOD': return '🪵 נמל עץ: יחס 2:1';
-      case 'BRICK': return '🧱 נמל לבנה: יחס 2:1';
-      case 'SHEEP': return '🐑 נמל כבש: יחס 2:1';
-      case 'WHEAT': return '🌾 נמל חיטה: יחס 2:1';
-      case 'ORE': return '🪨 נמל ברזל: יחס 2:1';
+      case 'GENERIC': return 'נמל כללי: יחס 3:1';
+      case 'WOOD': return 'נמל עץ: יחס 2:1';
+      case 'BRICK': return 'נמל לבנה: יחס 2:1';
+      case 'SHEEP': return 'נמל כבש: יחס 2:1';
+      case 'WHEAT': return 'נמל חיטה: יחס 2:1';
+      case 'ORE': return 'נמל ברזל: יחס 2:1';
       default: return 'נמל מסחר';
     }
   };
@@ -227,27 +227,63 @@ export const VertexNode: React.FC<VertexNodeProps> = ({
             }}
           />
           {/* Text/Label indicating port type floating higher */}
-          <text
-            textAnchor="middle"
-            dominantBaseline="central"
-            fill="#ffffff"
-            fontSize="8px"
-            fontWeight="900"
-            style={{
-              transform: is3DMode ? `translate(${x}px, ${y}px) translateZ(12px)` : `translate(${x}px, ${y}px)`,
-              transformStyle: 'preserve-3d',
-              fontFamily: 'system-ui, -apple-system, sans-serif',
-              textShadow: '1px 1px 2px #000, -1px -1px 2px #000, 1px -1px 2px #000, -1px 1px 2px #000',
-              pointerEvents: 'none',
-            }}
-          >
-            {vertex.harborType === 'GENERIC' && '⛵ 3:1'}
-            {vertex.harborType === 'WOOD' && '🪵 2:1'}
-            {vertex.harborType === 'BRICK' && '🧱 2:1'}
-            {vertex.harborType === 'SHEEP' && '🐑 2:1'}
-            {vertex.harborType === 'WHEAT' && '🌾 2:1'}
-            {vertex.harborType === 'ORE' && '🪨 2:1'}
-          </text>
+          {vertex.harborType === 'GENERIC' ? (
+            <g style={{ transform: is3DMode ? `translate(${x}px, ${y}px) translateZ(12px)` : `translate(${x}px, ${y}px)`, transformStyle: 'preserve-3d' }}>
+              <image
+                href="/favicon.svg"
+                x="-7"
+                y="-11"
+                width="14"
+                height="14"
+                style={{ pointerEvents: 'none' }}
+              />
+              <text
+                y="10"
+                textAnchor="middle"
+                fill="#ffffff"
+                fontSize="7px"
+                fontWeight="900"
+                style={{
+                  fontFamily: 'system-ui, -apple-system, sans-serif',
+                  textShadow: '1px 1px 2px #000, -1px -1px 2px #000, 1px -1px 2px #000, -1px 1px 2px #000',
+                  pointerEvents: 'none',
+                }}
+              >
+                3:1
+              </text>
+            </g>
+          ) : (
+            <g style={{ transform: is3DMode ? `translate(${x}px, ${y}px) translateZ(12px)` : `translate(${x}px, ${y}px)`, transformStyle: 'preserve-3d' }}>
+              <image
+                href={
+                  vertex.harborType === 'WOOD' ? '/wood1.png' :
+                  vertex.harborType === 'BRICK' ? '/brick1.png' :
+                  vertex.harborType === 'SHEEP' ? '/wool1.png' :
+                  vertex.harborType === 'WHEAT' ? '/wheat1.png' :
+                  '/rock1.png'
+                }
+                x="-7"
+                y="-11"
+                width="14"
+                height="14"
+                style={{ pointerEvents: 'none' }}
+              />
+              <text
+                y="10"
+                textAnchor="middle"
+                fill="#ffffff"
+                fontSize="7px"
+                fontWeight="900"
+                style={{
+                  fontFamily: 'system-ui, -apple-system, sans-serif',
+                  textShadow: '1px 1px 2px #000, -1px -1px 2px #000, 1px -1px 2px #000, -1px 1px 2px #000',
+                  pointerEvents: 'none',
+                }}
+              >
+                2:1
+              </text>
+            </g>
+          )}
         </g>
       )}
       
@@ -329,10 +365,28 @@ export const VertexNode: React.FC<VertexNodeProps> = ({
             stroke={isOwnedHarbor ? "#10b981" : "#f59e0b"}
             strokeWidth="1.5"
           />
+          {/* תמונת נמל בבועה */}
+          {vertex.harborType && (
+            <image
+              href={
+                vertex.harborType === 'GENERIC' ? '/favicon.svg' :
+                vertex.harborType === 'WOOD' ? '/wood1.png' :
+                vertex.harborType === 'BRICK' ? '/brick1.png' :
+                vertex.harborType === 'SHEEP' ? '/wool1.png' :
+                vertex.harborType === 'WHEAT' ? '/wheat1.png' :
+                '/rock1.png'
+              }
+              x="-54"
+              y="-35"
+              width="12"
+              height="12"
+            />
+          )}
           {/* טקסט בתוך הבועה */}
           <text
-            textAnchor="middle"
+            textAnchor="start"
             dominantBaseline="central"
+            x="-38"
             y="-29"
             fill="#f8fafc"
             fontSize="9px"

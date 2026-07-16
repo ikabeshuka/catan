@@ -1,15 +1,16 @@
 import { HexTile } from '../../types/hex.types';
 import { BoardVertex } from '../../types/boardElements.types';
 import { cubeToPixel } from '../hexMath/cubeToPixel';
+import { generateEdges } from './generateEdges';
+import { parseEdgeId } from '../hexMath/parseEdgeId';
 
 const HEX_SIZE = 60; // גודל קבוע של רדיוס אריח בפיקסלים
 
 /**
  * מייצרת מערך של צמתים ייחודיים מתוך רשימת האריחים הקיימת
  */
-export function generateVertices(tiles: HexTile[]): BoardVertex[] {
+export function generateVertices(tiles: HexTile[], activeExpansion?: string): BoardVertex[] {
   const vertexMap: Record<string, BoardVertex> = {};
-  const touchCounts: Record<string, number> = {};
 
   tiles.forEach((tile) => {
     // 1. מציאת מרכז האריח בפיקסלים
@@ -28,8 +29,6 @@ export function generateVertices(tiles: HexTile[]): BoardVertex[] {
       const roundedY = Math.round(y * 10) / 10;
       const vertexId = `v_${roundedX}_${roundedY}`;
 
-      touchCounts[vertexId] = (touchCounts[vertexId] || 0) + 1;
-
       // אם הצומת עדיין לא קיים במפה - נוסיף אותו
       if (!vertexMap[vertexId]) {
         vertexMap[vertexId] = {
@@ -42,47 +41,24 @@ export function generateVertices(tiles: HexTile[]): BoardVertex[] {
     }
   });
 
-  const allVertices = Object.values(vertexMap);
+  // החלת לוגיקת הנמלים מקצוות לקודקודים המחוברים אליהם
+  const edges = generateEdges(tiles, activeExpansion);
+  edges.forEach((edge) => {
+    if (edge.isHarbor && edge.harborType) {
+      const { x1, y1, x2, y2 } = parseEdgeId(edge.id);
+      const v1Id = `v_${x1}_${y1}`;
+      const v2Id = `v_${x2}_${y2}`;
 
-  // Filter coastal vertices (touching fewer than 3 tiles)
-  const coastalVertices = allVertices.filter(v => touchCounts[v.id] < 3);
-
-  // Sort coastal vertices by angle from board center (0,0)
-  coastalVertices.sort((a, b) => {
-    const [, aXStr, aYStr] = a.id.split('_');
-    const aX = parseFloat(aXStr);
-    const aY = parseFloat(aYStr);
-    const aAngle = Math.atan2(aY, aX);
-
-    const [, bXStr, bYStr] = b.id.split('_');
-    const bX = parseFloat(bXStr);
-    const bY = parseFloat(bYStr);
-    const bAngle = Math.atan2(bY, bX);
-
-    return aAngle - bAngle;
-  });
-
-  // Pick exactly 9 indices evenly spaced from coastalVertices
-  const portIndices = [0, 3, 7, 10, 14, 17, 21, 24, 28];
-  const portTypes: ('GENERIC' | 'WOOD' | 'BRICK' | 'SHEEP' | 'WHEAT' | 'ORE')[] = [
-    'GENERIC',
-    'WOOD',
-    'GENERIC',
-    'BRICK',
-    'GENERIC',
-    'SHEEP',
-    'WHEAT',
-    'GENERIC',
-    'ORE'
-  ];
-
-  portIndices.forEach((coastalIndex, idx) => {
-    if (coastalVertices[coastalIndex]) {
-      const targetVertex = coastalVertices[coastalIndex];
-      targetVertex.isHarbor = true;
-      targetVertex.harborType = portTypes[idx];
+      if (vertexMap[v1Id]) {
+        vertexMap[v1Id].isHarbor = true;
+        vertexMap[v1Id].harborType = edge.harborType as any;
+      }
+      if (vertexMap[v2Id]) {
+        vertexMap[v2Id].isHarbor = true;
+        vertexMap[v2Id].harborType = edge.harborType as any;
+      }
     }
   });
 
-  return allVertices;
+  return Object.values(vertexMap);
 }

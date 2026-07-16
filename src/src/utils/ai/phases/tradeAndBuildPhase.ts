@@ -930,7 +930,6 @@ export function tradeAndBuildPhase({
           };
 
           if (randomCard === 'VICTORY_POINT') {
-            currentBot.victoryPoints += 1;
             currentBot.developmentCards = {
               ...currentBot.developmentCards,
               VICTORY_POINT: (currentBot.developmentCards.VICTORY_POINT || 0) + 1

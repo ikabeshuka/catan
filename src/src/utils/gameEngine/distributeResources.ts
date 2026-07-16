@@ -70,7 +70,13 @@ export function distributeResources(
           
           // הוספת המשאב לארנק של השחקן (רק עבור משאבים חוקיים שמיוצרים)
           const resourceType = tile.type;
-          if (resourceType !== 'DESERT') {
+          if (
+            resourceType === 'WOOD' ||
+            resourceType === 'BRICK' ||
+            resourceType === 'SHEEP' ||
+            resourceType === 'WHEAT' ||
+            resourceType === 'ORE'
+          ) {
             playerToReward.resources[resourceType] += amountToGive;
 
             // יצירת פריטי תנועה ("עופים") של המשאב לשחקן

@@ -31,7 +31,7 @@ export const ResourceContainer: React.FC<ResourceContainerProps> = ({
   return (
     <div
       className={`w-full bg-slate-900/80 backdrop-blur-md border border-slate-800 rounded-2xl shadow-2xl flex flex-col transition-all duration-300 ease-in-out overflow-hidden ${
-        isCollapsed && position === 'bottom' ? 'h-16 px-6 py-2' : 'h-auto p-4'
+        isCollapsed && position === 'bottom' ? 'h-16 px-6 py-2' : isCollapsed && position === 'right' ? 'h-auto p-2' : 'h-auto p-4'
       }`}
     >
       {/* שורת בקרה עליונה: בחירת מיקום וכיווץ (מוצגת במצב מורחב או בצד ימין) */}
@@ -50,32 +50,36 @@ export const ResourceContainer: React.FC<ResourceContainerProps> = ({
           )}
         </div>
 
-        {/* פאנל כפתורי בקרה */}
-        <div className={`flex items-center gap-1.5 ${isCollapsed && position === 'right' ? 'flex-col' : 'flex-row'}`}>
-          {/* כפתור החלפת מיקום */}
+        {/* פאנל כפתורי בקרה עם כפתורים מפורשים ומזמינים לפתיחת מרחב הראייה */}
+        <div className={`flex items-center gap-2 ${isCollapsed && position === 'right' ? 'flex-col' : 'flex-row'}`}>
+          {/* כפתור החלפת מיקום - 'הצידה' */}
           <button
             onClick={() => onPositionChange(position === 'bottom' ? 'right' : 'bottom')}
-            title={position === 'bottom' ? 'הצמד לימין' : 'הצמד לתחתית'}
-            className="p-1.5 rounded-lg bg-slate-800 border border-slate-700 text-slate-300 hover:text-white hover:bg-slate-700 transition-colors cursor-pointer text-xs"
+            title={position === 'bottom' ? 'הזז את הפאנל הצידה לימין לפתיחת מרחב הראייה' : 'החזר את הפאנל לתחתית'}
+            className={`rounded-xl bg-slate-800 hover:bg-slate-700 border border-slate-750 text-slate-200 hover:text-white shadow-md active:scale-95 transition-all cursor-pointer text-xs font-extrabold flex items-center justify-center gap-1 ${
+              isCollapsed && position === 'right' ? 'w-10 h-8 p-0 text-base' : 'py-1.5 px-3'
+            }`}
           >
-            {position === 'bottom' ? '➡️ ימין' : '⬇️ תחתית'}
+            <span>{isCollapsed && position === 'right' ? '⬇️' : (position === 'bottom' ? '➡️ הצידה' : '⬇️ תחתית')}</span>
           </button>
 
-          {/* כפתור כיווץ / פריסה */}
+          {/* כפתור כיווץ / פריסה - 'צמצם' (כיווץ מטה) */}
           <button
             onClick={onToggleCollapsed}
-            title={isCollapsed ? 'פרוס קלפים' : 'כווץ לערימה'}
-            className="p-1.5 rounded-lg bg-slate-800 border border-slate-700 text-slate-300 hover:text-white hover:bg-slate-700 transition-colors cursor-pointer text-xs font-bold flex items-center gap-1"
+            title={isCollapsed ? 'פרוס את הפאנל מחדש' : 'כווץ את הפאנל מטה לפתיחת מרחב הראייה'}
+            className={`rounded-xl bg-slate-800 hover:bg-slate-700 border border-slate-750 text-slate-200 hover:text-white shadow-md active:scale-95 transition-all cursor-pointer text-xs font-extrabold flex items-center justify-center gap-1 ${
+              isCollapsed && position === 'right' ? 'w-10 h-8 p-0' : 'py-1.5 px-3'
+            }`}
           >
             {isCollapsed ? (
               <>
                 <SearchIcon size={12} />
-                <span>הרחב</span>
+                {!isCollapsed || position !== 'right' ? <span>הרחב</span> : null}
               </>
             ) : (
               <>
                 <CompressIcon size={12} />
-                <span>צמצם</span>
+                <span>⬇️ צמצם</span>
               </>
             )}
           </button>
@@ -87,19 +91,19 @@ export const ResourceContainer: React.FC<ResourceContainerProps> = ({
         {position === 'right' ? (
           /* ================== פריסה ימנית (ללא שינוי מהותי, תומכת במצבים הרגילים) ================== */
           isCollapsed ? (
-            <div className="flex flex-col w-full gap-2.5 py-1 w-full animate-fade-in">
+            <div className="flex flex-col items-center gap-2.5 py-1 w-full animate-fade-in justify-center">
               {resourceTypes.map((res) => {
                 const count = resources[res.type] || 0;
                 return (
                   <div
                     key={res.type}
-                    className="relative flex items-center gap-2 px-2 py-1.5 rounded-xl border bg-slate-900/40 border-slate-700/40 justify-between w-full group hover:scale-105 transition-all"
+                    className="relative flex items-center justify-center w-11 h-11 rounded-xl border border-slate-700/30 bg-slate-900/60 p-1 group hover:scale-115 transition-all cursor-pointer"
                     title={`${res.label}: ${count}`}
                   >
-                    <span className="filter drop-shadow">{res.iconSvg}</span>
-                    <span className="text-sm font-black text-slate-100 font-mono bg-slate-850 px-1.5 py-0.5 rounded-md border border-slate-800 shadow-sm">
+                    <span className="filter drop-shadow scale-90">{res.iconSvg}</span>
+                    <div className="absolute -top-1 -right-1 flex items-center justify-center min-w-[18px] h-4.5 px-1 rounded bg-slate-950 border border-slate-750 text-slate-200 font-mono text-[9px] font-black shadow-md">
                       {count}
-                    </span>
+                    </div>
                   </div>
                 );
               })}

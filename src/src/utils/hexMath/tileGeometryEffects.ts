@@ -76,6 +76,30 @@ export function applyLowPolyHeights(geometry: THREE.BufferGeometry, type: Resour
         z += (Math.sin(x * 0.8 + y * 0.5) * 0.14) + (noise * 0.02);
         break;
 
+      case 'CASTLE': // טירה: פלאטו מעוצב ושטוח במרכז
+        if (distanceFromCenter < 2.5) {
+          z += 0.4 + noise * 0.05;
+        }
+        break;
+
+      case 'QUARRY': // מחצבה: סדקים וחפירה גסה
+        if (distanceFromCenter < 2.5) {
+          z -= 0.3 + (noise * 0.12);
+        }
+        break;
+
+      case 'GLASSWORKS': // מפעל זכוכית: גבישים קטנים במישור
+        z += (Math.sin(x * 2.0) * Math.cos(y * 2.0) * 0.1) + (noise * 0.05);
+        break;
+
+      case 'WATER': // מים/ים: שטח נמוך ושטוח לחלוטין
+        z -= 0.1;
+        break;
+
+      case 'GOLD_FIELD': // נהר הזהב: שטח הררי קלות עם נתיב זרימה במרכז
+        z += 0.2 + (noise * 0.1);
+        break;
+
       default:
         break;
     }

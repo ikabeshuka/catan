@@ -1,4 +1,4 @@
-import { useGame } from '../context/GameContext';
+import { useGame, getPlayerTotalVP } from '../context/GameContext';
 import { rollDice } from '../utils/gameEngine/rollDice';
 import { distributeResources } from '../utils/gameEngine/distributeResources';
 import { distributeInitialResources } from '../utils/gameEngine/distributeInitialResources';
@@ -10,6 +10,7 @@ export function useTurnManager() {
   const {
     tiles,
     vertices,
+    edges,
     players,
     currentPlayerIndex,
     gamePhase,
@@ -25,7 +26,11 @@ export function useTurnManager() {
     isRolling,
     setIsRolling,
     setRollValues,
-    setLastRoll
+    setLastRoll,
+    longestRoadPlayerId,
+    largestArmyPlayerId,
+    activeExpansion,
+    setGoldCoins
   } = useGame();
 
   const { devCardDeck, setDevCardDeck, createTurnSnapshot, undoTurnActions } = useGame();
@@ -52,6 +57,26 @@ export function useTurnManager() {
 
   const startTurn = () => {
     console.log(`[TurnManager] Turn Started for: ${currentPlayer?.name} (ID: ${currentPlayer?.id}). Phase: ${gamePhase}, SubPhase: ${turnSubPhase}`);
+    
+    // Initialize or reset remainingMovementPoints based on wagonLevel
+    if (currentPlayer && gamePhase === 'MAIN_GAME') {
+      setPlayers((prevPlayers: Player[]) => prevPlayers.map(p => {
+        if (p.id === currentPlayer.id) {
+          const level = p.wagonLevel || 1;
+          const maxPoints = level === 1 ? 4 : level === 2 ? 5 : 6;
+          const playerSettlements = vertices.filter(v => v.playerId === p.id && v.structure !== 'NONE');
+          const defaultPos = playerSettlements.length > 0 ? playerSettlements[0].id : '';
+          return {
+            ...p,
+            wagonLevel: p.wagonLevel || 1,
+            wagonPosition: p.wagonPosition || defaultPos,
+            remainingMovementPoints: maxPoints
+          };
+        }
+        return p;
+      }));
+    }
+
     if (currentPlayer && !currentPlayer.isBot) {
       createTurnSnapshot();
     }
@@ -148,6 +173,40 @@ export function useTurnManager() {
             }
           }
         });
+
+        // Gold coins logic for Merchants & Barbarians expansion
+        if (activeExpansion === 'MERCHANTS_AND_BARBARIANS') {
+          const playersWithBuildings = players.filter(p => 
+            vertices.some(v => v.playerId === p.id && v.structure !== 'NONE')
+          );
+
+          const goldUpdates: Record<string, number> = {};
+          playersWithBuildings.forEach(p => {
+            const oldPlayer = p;
+            const newPlayer = updatedPlayers.find(up => up.id === p.id);
+            if (newPlayer) {
+              const totalOld = Object.values(oldPlayer.resources).reduce((sum, count) => sum + count, 0);
+              const totalNew = Object.values(newPlayer.resources).reduce((sum, count) => sum + count, 0);
+              const receivedNone = totalNew === totalOld;
+              
+              if (receivedNone) {
+                goldUpdates[p.id] = 1;
+              }
+            }
+          });
+
+          if (Object.keys(goldUpdates).length > 0) {
+            setGoldCoins((prevGold: Record<string, number>) => {
+              const nextGold = { ...prevGold };
+              Object.entries(goldUpdates).forEach(([pid, amount]) => {
+                nextGold[pid] = (nextGold[pid] || 0) + amount;
+                const pName = players.find(p => p.id === pid)?.name || pid;
+                addLog(`🪙 ${pName} לא קיבל/ה משאבים בסיבוב זה וקיבל/ה מטבע זהב אחד!`);
+              });
+              return nextGold;
+            });
+          }
+        }
 
         setPlayers(updatedPlayers);
         setTurnSubPhase('TRADE_AND_BUILD');
@@ -262,7 +321,6 @@ export function useTurnManager() {
         };
         // If it's a victory point card (win1, win2, win3, wun4, win5, win6)
         if (drawnCard.startsWith('win') || drawnCard.startsWith('wun')) {
-          updatedPlayer.victoryPoints += 1;
           updatedPlayer.developmentCards = {
             ...updatedPlayer.developmentCards,
             VICTORY_POINT: (updatedPlayer.developmentCards.VICTORY_POINT || 0) + 1
@@ -334,6 +392,20 @@ export function useTurnManager() {
       if (config.nextPhase === 'MAIN_GAME') {
         setTurnSubPhase('BEFORE_ROLL');
         addLog(`סבב ההקמה הסתיים! המשחק מתחיל.`);
+        
+        // Initialize wagon state for all players
+        setPlayers((prevPlayers: Player[]) => {
+          return prevPlayers.map(p => {
+            const playerSettlements = vertices.filter(v => v.playerId === p.id && v.structure === 'SETTLEMENT');
+            const initialVertexId = playerSettlements.length > 0 ? playerSettlements[0].id : '';
+            return {
+              ...p,
+              wagonPosition: initialVertexId,
+              wagonLevel: 1,
+              remainingMovementPoints: 4
+            };
+          });
+        });
       }
       return;
     }
@@ -345,12 +417,59 @@ export function useTurnManager() {
   };
 
   const checkIfGameEnds = (player: Player) => {
-    if (player.victoryPoints >= 10) {
+    const totalVP = getPlayerTotalVP(player, longestRoadPlayerId, largestArmyPlayerId, true);
+    if (totalVP >= 10) {
       setGamePhase('GAME_OVER');
-      addLog(`המשחק נגמר! ${player.name} ניצח/ה עם ${player.victoryPoints} נקודות ניצחון!`);
+      addLog(`המשחק נגמר! ${player.name} ניצח/ה עם ${totalVP} נקודות ניצחון!`);
       return true;
     }
     return false;
+  };
+
+  const moveWagon = (playerId: string, targetVertexId: string) => {
+    const player = players.find(p => p.id === playerId);
+    if (!player) return false;
+
+    const currentPos = player.wagonPosition;
+    if (!currentPos) {
+      addLog(`❌ שגיאה: לא נמצא מיקום לעגלה.`);
+      return false;
+    }
+
+    // Find the edge connecting currentPos and targetVertexId
+    const sorted = [currentPos, targetVertexId].sort();
+    const edgeId = `e_${sorted[0]}_${sorted[1]}`;
+    const connectingEdge = edges.find((e: any) => e.id === edgeId);
+
+    if (!connectingEdge) {
+      addLog(`❌ שגיאה: היעד אינו מחובר ישירות לקודקוד הנוכחי.`);
+      return false;
+    }
+
+    // Cost: 1 if active player's road, 2 otherwise
+    const isOwner = connectingEdge.hasRoad && connectingEdge.playerId === playerId;
+    const movementCost = isOwner ? 1 : 2;
+
+    const points = player.remainingMovementPoints !== undefined ? player.remainingMovementPoints : 4;
+
+    if (points < movementCost) {
+      addLog(`❌ אין מספיק נקודות תנועה לעגלה (נדרש: ${movementCost}, נותר: ${points}).`);
+      return false;
+    }
+
+    setPlayers((prevPlayers: Player[]) => prevPlayers.map(p => {
+      if (p.id === playerId) {
+        return {
+          ...p,
+          wagonPosition: targetVertexId,
+          remainingMovementPoints: points - movementCost
+        };
+      }
+      return p;
+    }));
+
+    addLog(`🚚 העגלה של ${player.name} נעה אל ${targetVertexId} בעלות של ${movementCost} נקודות תנועה.`);
+    return true;
   };
 
   return {
@@ -365,6 +484,9 @@ export function useTurnManager() {
     buyDevelopmentCard,
     endTurn,
     startTurn,
-    undoTurnActions
+    undoTurnActions,
+    longestRoadPlayerId,
+    largestArmyPlayerId,
+    moveWagon
   };
 }

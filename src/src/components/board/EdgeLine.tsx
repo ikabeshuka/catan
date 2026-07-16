@@ -2,8 +2,11 @@ import React from 'react';
 import { useTurnManager } from '../../hooks/useTurnManager';
 import { BoardVertex, BoardEdge } from '../../types/boardElements.types';
 import { Player } from '../../types/player.types';
+import { HexTile } from '../../types/hex.types';
 import { parseEdgeId } from '../../utils/hexMath/parseEdgeId';
 import { validateRoadPlacement } from '../../utils/validation/validateRoadPlacement';
+import { validateShipPlacement } from '../../utils/validation/validateShipPlacement';
+import { useGame } from '../../context/GameContext';
 
 interface EdgeLineProps {
   edge: BoardEdge;
@@ -14,7 +17,7 @@ interface EdgeLineProps {
   setEdges: React.Dispatch<React.SetStateAction<BoardEdge[]>>;
   setPlayers: React.Dispatch<React.SetStateAction<Player[]>>;
   is3DMode: boolean;
-  showBuildingCostToast: (type: 'ROAD' | 'SETTLEMENT' | 'CITY', success: boolean, isFree?: boolean) => void;
+  showBuildingCostToast: (type: 'ROAD' | 'SETTLEMENT' | 'CITY' | 'SHIP', success: boolean, isFree?: boolean) => void;
   addLog: (message: string) => void;
   roadBuildingRemaining: number;
   onClick?: () => void;
@@ -22,6 +25,7 @@ interface EdgeLineProps {
   setupState?: any;
   recordSetupPlacement?: (type: 'SETTLEMENT' | 'ROAD', elementId: string) => void;
   turnSubPhase?: any;
+  tiles?: HexTile[];
 }
 
 export const EdgeLine: React.FC<EdgeLineProps> = ({
@@ -41,7 +45,9 @@ export const EdgeLine: React.FC<EdgeLineProps> = ({
   setupState: propSetupState,
   recordSetupPlacement: propRecordSetupPlacement,
   turnSubPhase: propTurnSubPhase,
+  tiles,
 }) => {
+  const { currentAction, setCurrentAction } = useGame();
   const turnManager = (!onClick && propIsSetupPhase === undefined) ? useTurnManager() : null;
   const isSetupPhase = propIsSetupPhase !== undefined ? propIsSetupPhase : turnManager?.isSetupPhase;
   const setupState = propSetupState !== undefined ? propSetupState : turnManager?.setupState;
@@ -61,7 +67,9 @@ export const EdgeLine: React.FC<EdgeLineProps> = ({
   // בדיקה האם הנתיב הזה חוקי לבנייה עבור השחקן שמשחק כרגע
   const isBlockedBySetup = isSetupPhase && setupState.hasPlacedRoad;
   const isValidPlacement = currentPlayer && !isBlockedBySetup
-    ? validateRoadPlacement(edge.id, currentPlayer.id, vertices, edges)
+    ? (currentAction === 'BUILD_SHIP'
+        ? validateShipPlacement(edge.id, currentPlayer.id, vertices, edges, tiles || [])
+        : validateRoadPlacement(edge.id, currentPlayer.id, vertices, edges, tiles))
     : false;
 
   const handleEdgeClick = () => {
@@ -71,6 +79,41 @@ export const EdgeLine: React.FC<EdgeLineProps> = ({
     }
     // אם המהלך לא חוקי או שזה תור של בוט - נחסום את הלחיצה
     if (currentPlayer?.isBot) return;
+
+    if (currentAction === 'BUILD_SHIP') {
+      if (!isValidPlacement) return;
+      if (turnSubPhase !== 'TRADE_AND_BUILD') return;
+
+      const hasResources = currentPlayer.resources.WOOD >= 1 && currentPlayer.resources.SHEEP >= 1;
+      showBuildingCostToast('SHIP', hasResources);
+
+      if (!hasResources) {
+        addLog(`אין לך מספיק משאבים לבניית ספינה! נדרש: 1 עץ, 1 כבש.`);
+        return;
+      }
+
+      setPlayers(prev => prev.map(p => p.id === currentPlayer.id 
+        ? {
+            ...p,
+            resources: {
+              ...p.resources,
+              WOOD: p.resources.WOOD - 1,
+              SHEEP: p.resources.SHEEP - 1
+            }
+          }
+        : p
+      ));
+
+      setEdges(prevEdges => prevEdges.map(e => 
+        e.id === edge.id 
+          ? { ...e, hasShip: true, shipPlayerId: currentPlayer.id } 
+          : e
+      ));
+
+      setCurrentAction(null);
+      addLog(`השחקן ${currentPlayer.name} בנה ספינה!`);
+      return;
+    }
 
     if (isSetupPhase) {
       if (!isValidPlacement) return;
@@ -125,9 +168,11 @@ export const EdgeLine: React.FC<EdgeLineProps> = ({
   };
 
   // קביעת צבע הכביש: אם הוא בנוי - צבע השחקן שבנה. אם הוא חוקי לבנייה - צבע השחקן הנוכחי בחצי שקופות. אחר כך - כמעט שקוף.
-  const builtPlayer = players.find(p => p.id === edge.playerId);
+  const builtPlayer = players.find(p => p.id === edge.playerId || p.id === edge.shipPlayerId);
   const playerColor = builtPlayer?.color || '#ff5722';
-  const roadColor = edge.hasRoad 
+  
+  const isBuilt = edge.hasRoad || edge.hasShip;
+  const roadColor = isBuilt 
     ? playerColor 
     : (isValidPlacement ? `${currentPlayer?.color}80` : '#1a237e1a');
 
@@ -199,7 +244,38 @@ export const EdgeLine: React.FC<EdgeLineProps> = ({
           </g>
         </g>
       )}
-      {!edge.hasRoad && !is3DMode && (
+
+      {/* הספינה הוויזואלית */}
+      {edge.hasShip && !is3DMode && (
+        <g transform={`translate(${mx}, ${my}) rotate(${angleDeg})`} pointerEvents="none">
+          {/* בסיס הספינה */}
+          <path 
+            d="M -15,-2 L 15,-2 L 10,6 L -10,6 Z" 
+            fill={playerColor} 
+            stroke="#ffffff" 
+            strokeWidth="1" 
+          />
+          {/* תורן */}
+          <line 
+            x1="0" 
+            y1="-2" 
+            x2="0" 
+            y2="-15" 
+            stroke="#8B4513" 
+            strokeWidth="2.5" 
+            strokeLinecap="round" 
+          />
+          {/* מפרש */}
+          <path 
+            d="M 0,-15 L 12,-4 L 0,-4 Z" 
+            fill="#ffffff" 
+            stroke={playerColor} 
+            strokeWidth="1.5" 
+          />
+        </g>
+      )}
+
+      {!edge.hasRoad && !edge.hasShip && !is3DMode && (
         <line
           x1={x1} y1={y1} x2={x2} y2={y2}
           stroke={roadColor}

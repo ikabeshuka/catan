@@ -1,4 +1,4 @@
-import React, { useMemo, useRef } from 'react';
+import React, { useMemo, useRef, useEffect } from 'react';
 import { useFrame } from '@react-three/fiber';
 import * as THREE from 'three';
 import { HexTile } from '../../types/hex.types';
@@ -29,13 +29,26 @@ export const HexTile3D: React.FC<HexTile3DProps> = ({
 }) => {
   const meshRef = useRef<THREE.Mesh>(null);
   const textureRef = useRef<THREE.Texture | null>(null);
+  const customTextureRef = useRef<THREE.CanvasTexture | null>(null);
   const shaderRef = useRef<any>(null);
+
+  const texturesRef = useRef(textures);
+  texturesRef.current = textures;
+
+  useEffect(() => {
+    return () => {
+      if (customTextureRef.current) {
+        customTextureRef.current.dispose();
+        customTextureRef.current = null;
+      }
+    };
+  }, [tile.type, is3DMode]);
 
   // 1. בניית הגיאומטריה הפיזית של המשושה עם חלוקה פנימית (Subdivisions)
   const subdividedHexGeometry = useMemo(() => {
     // נשתמש בגליל בעל 6 צלעות (משושה מושלם)
     // חלוקה של 8 מקטעי גובה (Height Segments) מעניקה לנו מספיק קודקודים פנימיים לעיוות גיאומטרי עשיר
-    const geometry = new THREE.CylinderGeometry(3.02, 3.02, 1.5, 6, 8, false, 0);
+    const geometry = new THREE.CylinderGeometry(3.02, 3.4, 1.5, 6, 8, false, 0);
     
     // סיבוב פנימי של נקודות הגיאומטריה כדי שהמשושה ישכב שטוח על מישור X-Y (ציר Z פונה למעלה)
     // זה מונע את הצורך ברוטציות מסורבלות ברמת ה-Mesh ומאפס את הצירים ל-[0,0,0]
@@ -47,17 +60,121 @@ export const HexTile3D: React.FC<HexTile3DProps> = ({
     return geometry;
   }, [tile.type, is3DMode]);
 
-  // 2. שליפה ואינטגרציה של הטקסטורות (צבע ומפת נורמלים)
+  // 2. שליפה ואינטגרציה של הטקסטורות (צבע ומפת נורמלים) עם מנגנון Canvas Texture Blending מובנה
   const currentTexture = useMemo(() => {
-    const tex = textures[tile.type] || null;
+    const tex = texturesRef.current[tile.type] || null;
+
+    try {
+      const canvas = document.createElement('canvas');
+      canvas.width = 512;
+      canvas.height = 512;
+      const ctx = canvas.getContext('2d');
+      if (ctx) {
+        if (tile.type === 'CASTLE' || tile.type === 'QUARRY' || tile.type === 'GLASSWORKS' || tile.type === 'GOLD_FIELD') {
+          // Special expansion tile styles
+          let bgColor = '#8e24aa'; // Castle Purple
+          let icon = '🏰';
+          let label = 'הטירה';
+          let subtitle = 'CASTLE';
+
+          if (tile.type === 'QUARRY') {
+            bgColor = '#555555'; // Quarry Gray
+            icon = '⛰️';
+            label = 'מחצבת שיש';
+            subtitle = 'QUARRY';
+          } else if (tile.type === 'GLASSWORKS') {
+            bgColor = '#0097a7'; // Glassworks Cyan
+            icon = '🏭';
+            label = 'בית מלאכת';
+            subtitle = 'GLASSWORKS';
+          } else if (tile.type === 'GOLD_FIELD') {
+            bgColor = '#d4af37'; // Luxurious metallic gold
+            icon = '🪙';
+            label = 'נהר הזהב';
+            subtitle = 'GOLD FIELD';
+          }
+
+          ctx.fillStyle = bgColor;
+          ctx.fillRect(0, 0, 512, 512);
+
+          // Draw double frame border
+          ctx.strokeStyle = 'rgba(255, 255, 255, 0.6)';
+          ctx.lineWidth = 12;
+          ctx.strokeRect(24, 24, 464, 464);
+          ctx.strokeStyle = 'rgba(255, 255, 255, 0.3)';
+          ctx.lineWidth = 4;
+          ctx.strokeRect(44, 44, 424, 424);
+
+          // Draw Icon
+          ctx.fillStyle = '#ffffff';
+          ctx.textAlign = 'center';
+          ctx.textBaseline = 'middle';
+          ctx.font = '120px sans-serif';
+          ctx.fillText(icon, 256, 170);
+
+          // Draw Hebrew label
+          ctx.font = 'bold 55px sans-serif';
+          ctx.fillText(label, 256, 310);
+
+          // Draw English label
+          ctx.font = 'black 38px monospace';
+          ctx.fillStyle = 'rgba(255, 255, 255, 0.8)';
+          ctx.fillText(subtitle, 256, 395);
+        } else if (tex && tex.image) {
+          // צביעת הרקע של הקנבס בצבע חול אטום וניטרלי
+          ctx.fillStyle = '#b59966';
+          ctx.fillRect(0, 0, 512, 512);
+
+          // ציור המשאב המקורי
+          ctx.drawImage(tex.image as any, 0, 0, 512, 512);
+        } else {
+          // Fallback static background for missing texture
+          ctx.fillStyle = '#b59966';
+          ctx.fillRect(0, 0, 512, 512);
+        }
+
+        if (is3DMode) {
+          // יצירת מעבר רך, הדרגתי ומטושטש (Feather/Blur) המתמוסס אל תוך רקע החול בשוליים (רק 5% הקיצוניים ביותר של השוליים: מפיקסל 243.2 עד 256)
+          const grad = ctx.createRadialGradient(256, 256, 243.2, 256, 256, 256);
+          grad.addColorStop(0, 'rgba(181, 153, 102, 0)');
+          grad.addColorStop(1, 'rgba(181, 153, 102, 1)');
+
+          ctx.fillStyle = grad;
+          ctx.fillRect(0, 0, 512, 512);
+        } else {
+          // צבע את רקע שולי הקנבס בצבע אחיד, חלק ושטוח לחלוטין (רק 5% הקיצוניים ביותר של השוליים: מפיקסל 243.2 עד 256)
+          ctx.beginPath();
+          ctx.rect(0, 0, 512, 512);
+          ctx.arc(256, 256, 243.2, 0, Math.PI * 2);
+          ctx.fillStyle = '#b59966';
+          ctx.fill('evenodd');
+        }
+
+        const blendedTexture = new THREE.CanvasTexture(canvas);
+        blendedTexture.center.set(0.5, 0.5);
+        blendedTexture.rotation = Math.PI / 2;
+        blendedTexture.needsUpdate = true;
+        
+        if (customTextureRef.current) {
+          customTextureRef.current.dispose();
+        }
+        customTextureRef.current = blendedTexture;
+        textureRef.current = blendedTexture;
+        return blendedTexture;
+      }
+    } catch (err) {
+      console.error("Blending error:", err);
+    }
+
     if (tex) {
       textureRef.current = tex;
       tex.center.set(0.5, 0.5);
-      tex.rotation = Math.PI / 2; // יישור מושלם של 90 מעלות נגד כיוון השעון
+      tex.rotation = Math.PI / 2;
       tex.needsUpdate = true;
+      return tex;
     }
-    return tex;
-  }, [textures, tile.type]);
+    return null;
+  }, [tile.type, is3DMode]);
 
   // מפת נורמלים משלימה (ככל שקיימת בתיקיית המשאבים כגון 'wood_normal.jpg')
   const currentNormalTexture = useMemo(() => {
@@ -70,11 +187,15 @@ export const HexTile3D: React.FC<HexTile3DProps> = ({
 
     const time = state.clock.getElapsedTime();
 
-    // אריחי ים: הזזה רציפה ואיטית של הפיקסלים (Texture Offset) ליצירת זרימת מים ריאליסטית ומנצנצת
-    if (tile.type === 'DESERT' && textureRef.current) { 
-      // הערה: במידה והים מוגדר כסוג משאב ייחודי (למשל SEA), נחליף את התנאי בהתאם
+    // אריחי ים: הזזה רציפה ואיטית של הפיקסלים (Texture Offset) ליצירת זרימת מים ריאליסטית ומנצנצת.
+    // שאר האריחים (כולל המדבר) נשארים סטטיים לחלוטין ומיושרים למרכז (ללא הזזה).
+    const isSea = (tile.type as string) === 'SEA' || tile.type === 'WATER';
+    if (is3DMode && isSea && textureRef.current) { 
       textureRef.current.offset.x = time * 0.005;
       textureRef.current.offset.y = Math.sin(time * 0.02) * 0.02;
+    } else if (textureRef.current) {
+      textureRef.current.offset.x = 0;
+      textureRef.current.offset.y = 0;
     }
 
     // עדכון uTime עבור שיידר הרוח ב-GPU במידה והוא קיים
@@ -115,8 +236,17 @@ export const HexTile3D: React.FC<HexTile3DProps> = ({
           document.body.style.cursor = 'default';
         }}
       >
-        {/* הגדרת חומר היברידי: שילוב של Flat Shading למשטחים חדים, יחד עם Normal Map לעושר הפיקסלים */}
+        {/* לחומר הצידי (attach="material-0") הגדר גוון חול קבוע, מט ועמוק: #b59966 */}
         <meshStandardMaterial
+          attach="material-0"
+          color="#b59966"
+          roughness={1.0}
+          flatShading={true}
+        />
+
+        {/* לחומר העליון (attach="material-1") הגדר את טקסטורת המשאב שמעורבבת עם החול המטושטש בשוליים */}
+        <meshStandardMaterial
+          attach="material-1"
           color="white"
           map={currentTexture}
           normalMap={currentNormalTexture}
@@ -126,7 +256,7 @@ export const HexTile3D: React.FC<HexTile3DProps> = ({
           metalness={tile.type === 'ORE' ? 0.2 : 0.0}
           side={THREE.DoubleSide}
           onBeforeCompile={
-            is3DMode && (tile.type === 'WHEAT' || tile.type === 'WOOD')
+            is3DMode && tile.type === 'WHEAT'
               ? (shader) => {
                   shader.uniforms.uTime = { value: 0 };
                   shaderRef.current = shader;
@@ -140,8 +270,8 @@ export const HexTile3D: React.FC<HexTile3DProps> = ({
                     `
                     #include <begin_vertex>
                     if (position.z > 0.15) {
-                      float swayX = sin(uTime * 1.5 + position.x * 0.4 + position.y * 0.3) * 0.08;
-                      float swayY = cos(uTime * 1.2 + position.x * 0.4 + position.y * 0.3) * 0.08;
+                      float swayX = sin(uTime * 0.9 + position.x * 0.25 + position.y * 0.2) * 0.05;
+                      float swayY = cos(uTime * 0.7 + position.x * 0.25 + position.y * 0.2) * 0.04;
                       transformed.x += swayX;
                       transformed.y += swayY;
                     }
@@ -151,14 +281,13 @@ export const HexTile3D: React.FC<HexTile3DProps> = ({
               : undefined
           }
         />
-      </mesh>
-      {/* פסי חול סביב האריח */}
-      <mesh position={[0, 0, is3DMode ? 0.85 : 0.76]} rotation={[0, 0, Math.PI / 6]}>
-        <ringGeometry args={[3.02, 3.14, 6]} />
+
+        {/* לחומר התחתון (attach="material-2") הגדר גוון חול קבוע */}
         <meshStandardMaterial
-          color="#dfc48c"
+          attach="material-2"
+          color="#b59966"
           roughness={1.0}
-          side={THREE.DoubleSide}
+          flatShading={true}
         />
       </mesh>
     </group>

@@ -170,6 +170,7 @@ export const GameBoard: React.FC = () => {
                 showBuildingCostToast={showBuildingCostToast}
                 addLog={addLog}
                 roadBuildingRemaining={roadBuildingRemaining}
+                tiles={tiles}
               />
             ))}
           </g>

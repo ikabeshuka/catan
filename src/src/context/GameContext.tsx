@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useRef, ReactNode } from 'react';
+import React, { createContext, useContext, useState, useRef, useMemo, ReactNode } from 'react';
 import { HexTile } from '../types/hex.types';
 import { BoardVertex, BoardEdge } from '../types/boardElements.types';
 import { generateBoard } from '../utils/gameEngine/generateBoard';
@@ -13,7 +13,7 @@ export type GamePhase = 'LOBBY' | 'SETUP_ROUND_1' | 'SETUP_ROUND_2' | 'MAIN_GAME
 
 // מבנה הנתונים שיהיה שמור בתוך ה-Context
 export interface BuildingToast {
-  type: 'ROAD' | 'SETTLEMENT' | 'CITY';
+  type: 'ROAD' | 'SETTLEMENT' | 'CITY' | 'SHIP';
   success: boolean;
   isFree?: boolean;
 }
@@ -58,7 +58,7 @@ interface GameContextType {
   initNewGame: () => void;
   buildingToast: BuildingToast | null;
   setBuildingToast: React.Dispatch<React.SetStateAction<BuildingToast | null>>;
-  showBuildingCostToast: (type: 'ROAD' | 'SETTLEMENT' | 'CITY', success: boolean, isFree?: boolean) => void;
+  showBuildingCostToast: (type: 'ROAD' | 'SETTLEMENT' | 'CITY' | 'SHIP', success: boolean, isFree?: boolean) => void;
   roadBuildingRemaining: number;
   setRoadBuildingRemaining: React.Dispatch<React.SetStateAction<number>>;
   resourceFlows: ResourceFlow[];
@@ -84,6 +84,22 @@ interface GameContextType {
   } | null;
   createTurnSnapshot: () => void;
   undoTurnActions: () => void;
+  longestRoadPlayerId: string | null;
+  largestArmyPlayerId: string | null;
+  boardType: 'RANDOM' | 'STARTER';
+  setBoardType: React.Dispatch<React.SetStateAction<'RANDOM' | 'STARTER'>>;
+  activeExpansion: 'BASE' | 'MERCHANTS_AND_BARBARIANS' | 'SEAFARERS';
+  setActiveExpansion: React.Dispatch<React.SetStateAction<'BASE' | 'MERCHANTS_AND_BARBARIANS' | 'SEAFARERS'>>;
+  goldCoins: Record<string, number>;
+  setGoldCoins: React.Dispatch<React.SetStateAction<Record<string, number>>>;
+  barbarianPositions?: any[];
+  setBarbarianPositions?: React.Dispatch<React.SetStateAction<any[]>>;
+  merchantConvoys?: any[];
+  setMerchantConvoys?: React.Dispatch<React.SetStateAction<any[]>>;
+  isMovingWagon?: boolean;
+  setIsMovingWagon?: React.Dispatch<React.SetStateAction<boolean>>;
+  currentAction: 'BUILD_ROAD' | 'BUILD_SHIP' | null;
+  setCurrentAction: React.Dispatch<React.SetStateAction<'BUILD_ROAD' | 'BUILD_SHIP' | null>>;
 }
 
 // יצירת ה-Context עצמו
@@ -91,6 +107,14 @@ const GameContext = createContext<GameContextType | undefined>(undefined);
 
 // רכיב ה-Provider שיעטוף את האפליקציה
 export const GameProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
+  const [boardType, setBoardType] = useState<'RANDOM' | 'STARTER'>('RANDOM');
+  const [activeExpansion, setActiveExpansion] = useState<'BASE' | 'MERCHANTS_AND_BARBARIANS' | 'SEAFARERS'>('BASE');
+  const [goldCoins, setGoldCoins] = useState<Record<string, number>>({});
+  const [barbarianPositions, setBarbarianPositions] = useState<any[]>([]);
+  const [merchantConvoys, setMerchantConvoys] = useState<any[]>([]);
+  const [isMovingWagon, setIsMovingWagon] = useState<boolean>(false);
+  const [currentAction, setCurrentAction] = useState<'BUILD_ROAD' | 'BUILD_SHIP' | null>(null);
+
   const [robberyState, setRobberyState] = useState<RobberyState | null>(null);
   const [tiles, setTiles] = useState<HexTile[]>([]);
   const [vertices, setVertices] = useState<BoardVertex[]>([]);
@@ -122,7 +146,71 @@ export const GameProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   } | null>(null);
   const toastTimeoutRef = useRef<any>(null);
 
-  const showBuildingCostToast = (type: 'ROAD' | 'SETTLEMENT' | 'CITY', success: boolean, isFree?: boolean) => {
+  const prevLongestRoadRef = useRef<string | null>(null);
+  const prevLargestArmyRef = useRef<string | null>(null);
+
+  const longestRoadPlayerId = useMemo(() => {
+    let prevLeader = prevLongestRoadRef.current;
+    let currentMax = prevLeader ? calculateLongestRoadForPlayer(prevLeader, edges, vertices) : 4;
+    if (currentMax < 4) currentMax = 4;
+
+    let leaderId = prevLeader;
+    players.forEach(p => {
+      if (p.id === prevLeader) return;
+      const roadLen = calculateLongestRoadForPlayer(p.id, edges, vertices);
+      if (roadLen > currentMax) {
+        currentMax = roadLen;
+        leaderId = p.id;
+      }
+    });
+
+    if (leaderId) {
+      const leaderRoadLen = calculateLongestRoadForPlayer(leaderId, edges, vertices);
+      if (leaderRoadLen < 5) {
+        let absoluteMax = 4;
+        let absoluteLeader: string | null = null;
+        players.forEach(p => {
+          const roadLen = calculateLongestRoadForPlayer(p.id, edges, vertices);
+          if (roadLen > absoluteMax) {
+            absoluteMax = roadLen;
+            absoluteLeader = p.id;
+          }
+        });
+        leaderId = absoluteLeader;
+      }
+    }
+
+    prevLongestRoadRef.current = leaderId;
+    return leaderId;
+  }, [edges, vertices, players]);
+
+  const largestArmyPlayerId = useMemo(() => {
+    let prevLeader = prevLargestArmyRef.current;
+    let currentMax = prevLeader ? (players.find(p => p.id === prevLeader)?.knightsPlayed || 0) : 2;
+    if (currentMax < 2) currentMax = 2;
+
+    let leaderId = prevLeader;
+    players.forEach(p => {
+      if (p.id === prevLeader) return;
+      const kp = p.knightsPlayed || 0;
+      if (kp > currentMax) {
+        currentMax = kp;
+        leaderId = p.id;
+      }
+    });
+
+    if (leaderId) {
+      const leaderKnights = players.find(p => p.id === leaderId)?.knightsPlayed || 0;
+      if (leaderKnights < 3) {
+        leaderId = null;
+      }
+    }
+
+    prevLargestArmyRef.current = leaderId;
+    return leaderId;
+  }, [players]);
+
+  const showBuildingCostToast = (type: 'ROAD' | 'SETTLEMENT' | 'CITY' | 'SHIP', success: boolean, isFree?: boolean) => {
     if (toastTimeoutRef.current) {
       clearTimeout(toastTimeoutRef.current);
     }
@@ -190,9 +278,9 @@ export const GameProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
    * פונקציה לאתחול משחק חדש - מפעילה את מנועי הייצור שכתבנו
    */
   const initNewGame = () => {
-    const newTiles = generateBoard(standardCatanConfig);
-    const newVertices = generateVertices(newTiles);
-    const newEdges = generateEdges(newTiles);
+    const newTiles = generateBoard(standardCatanConfig, boardType, activeExpansion);
+    const newVertices = generateVertices(newTiles, activeExpansion);
+    const newEdges = generateEdges(newTiles, activeExpansion);
 
     // Create 25 Catan development cards:
     // 14 KNIGHT
@@ -224,6 +312,15 @@ export const GameProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     setTiles(newTiles);
     setVertices(newVertices);
     setEdges(newEdges);
+    prevLongestRoadRef.current = null;
+    prevLargestArmyRef.current = null;
+
+    setGoldCoins({
+      p1: 0,
+      p2: 0,
+      p3: 0,
+      p4: 0
+    });
     setPlayers(initialPlayers);
     setGamePhase('SETUP_ROUND_1');
     setTurnSubPhase('BEFORE_ROLL');
@@ -284,11 +381,107 @@ export const GameProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       setDevCardDeck,
       turnStartSnapshot,
       createTurnSnapshot,
-      undoTurnActions
+      undoTurnActions,
+      longestRoadPlayerId,
+      largestArmyPlayerId,
+      boardType,
+      setBoardType,
+      activeExpansion,
+      setActiveExpansion,
+      goldCoins,
+      setGoldCoins,
+      barbarianPositions,
+      setBarbarianPositions,
+      merchantConvoys,
+      setMerchantConvoys,
+      isMovingWagon,
+      setIsMovingWagon,
+      currentAction,
+      setCurrentAction
     }}>
       {children}
     </GameContext.Provider>
   );
+};
+
+// Helper to parse edge vertices from edge ID
+const getEdgeVertices = (edgeId: string) => {
+  const withoutPrefix = edgeId.replace('e_', '');
+  const parts = withoutPrefix.split('_v_');
+  const v1 = parts[0];
+  const v2 = 'v_' + parts[1];
+  return [v1, v2];
+};
+
+// Helper to calculate longest road for a player
+const calculateLongestRoadForPlayer = (playerId: string, allEdges: any[], allVertices: any[]): number => {
+  const playerRoads = allEdges.filter(e => e.hasRoad && e.playerId === playerId);
+  if (playerRoads.length === 0) return 0;
+
+  const adj: Record<string, { edgeId: string, targetVertex: string }[]> = {};
+  
+  playerRoads.forEach(road => {
+    try {
+      const [v1, v2] = getEdgeVertices(road.id);
+      if (v1 && v2) {
+        if (!adj[v1]) adj[v1] = [];
+        if (!adj[v2]) adj[v2] = [];
+        adj[v1].push({ edgeId: road.id, targetVertex: v2 });
+        adj[v2].push({ edgeId: road.id, targetVertex: v1 });
+      }
+    } catch (err) {
+      // Safe fallback if parsing fails
+    }
+  });
+
+  const isVertexBroken = (vertexId: string) => {
+    const vertex = allVertices.find(v => v.id === vertexId);
+    if (!vertex) return false;
+    return vertex.playerId !== null && vertex.playerId !== playerId && vertex.structure !== 'NONE';
+  };
+
+  let maxPathLength = 0;
+  const visitedEdges = new Set<string>();
+
+  const dfs = (vertex: string, currentLength: number) => {
+    maxPathLength = Math.max(maxPathLength, currentLength);
+    
+    if (isVertexBroken(vertex)) return;
+
+    const neighbors = adj[vertex] || [];
+    for (const neighbor of neighbors) {
+      if (!visitedEdges.has(neighbor.edgeId)) {
+        visitedEdges.add(neighbor.edgeId);
+        dfs(neighbor.targetVertex, currentLength + 1);
+        visitedEdges.delete(neighbor.edgeId);
+      }
+    }
+  };
+
+  Object.keys(adj).forEach(v => {
+    dfs(v, 0);
+  });
+
+  return maxPathLength;
+};
+
+export const getPlayerTotalVP = (
+  player: Player,
+  longestRoadPlayerId: string | null,
+  largestArmyPlayerId: string | null,
+  includeHidden: boolean = false
+): number => {
+  let vp = player.victoryPoints || 0;
+  if (longestRoadPlayerId === player.id) {
+    vp += 2;
+  }
+  if (largestArmyPlayerId === player.id) {
+    vp += 2;
+  }
+  if (includeHidden) {
+    vp += player.developmentCards?.VICTORY_POINT || 0;
+  }
+  return vp;
 };
 
 // Hook מותאם אישית (Custom Hook) כדי לשלוף בקלות את המידע בכל רכיב זקוק לו

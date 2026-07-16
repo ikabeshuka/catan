@@ -11,6 +11,8 @@ interface Structure3DProps {
   getVertexConfig: (vertex: BoardVertex) => { isClickable: boolean; isValidPlacement: boolean };
   onVertexClick: (vertex: BoardVertex) => void;
   is3DMode?: boolean;
+  onHarborHover?: (harbor: BoardVertex, x: number, y: number) => void;
+  onHarborLeave?: () => void;
 }
 
 export const Structure3D: React.FC<Structure3DProps> = ({
@@ -20,6 +22,8 @@ export const Structure3D: React.FC<Structure3DProps> = ({
   getVertexConfig,
   onVertexClick,
   is3DMode = true,
+  onHarborHover,
+  onHarborLeave,
 }) => {
   const meshRef = useRef<THREE.Mesh>(null);
   const [isHovered, setIsHovered] = useState(false);
@@ -72,6 +76,7 @@ export const Structure3D: React.FC<Structure3DProps> = ({
         ref={meshRef}
         position={[0, 0, is3DMode ? 0.15 : 0.0]}
         scale={[0, 0, 0]} // מתחיל מאפס בשביל אנימציית הצמיחה
+        renderOrder={10}
         onClick={(e) => {
           e.stopPropagation();
           onVertexClick(vertex);
@@ -83,10 +88,22 @@ export const Structure3D: React.FC<Structure3DProps> = ({
             setIsHovered(true);
             document.body.style.cursor = 'pointer';
           }
+          if (vertex.isHarbor && onHarborHover) {
+            onHarborHover(vertex, e.clientX, e.clientY);
+          }
+        }}
+        onPointerMove={(e) => {
+          e.stopPropagation();
+          if (vertex.isHarbor && onHarborHover) {
+            onHarborHover(vertex, e.clientX, e.clientY);
+          }
         }}
         onPointerOut={() => {
           setIsHovered(false);
           document.body.style.cursor = 'default';
+          if (vertex.isHarbor && onHarborLeave) {
+            onHarborLeave();
+          }
         }}
       >
         <planeGeometry args={[size, size]} />
@@ -96,6 +113,8 @@ export const Structure3D: React.FC<Structure3DProps> = ({
           color={playerColor}
           side={THREE.DoubleSide}
           roughness={0.4}
+          depthTest={true}
+          depthWrite={true}
         />
       </mesh>
     </Billboard>

@@ -5,7 +5,7 @@ const escapeRegExp = (str: string) => str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 
 export const GameLog: React.FC = () => {
   const { logs, players } = useGame();
-  const [isCollapsed, setIsCollapsed] = useState(true);
+  const [isCollapsed, setIsCollapsed] = useState(false);
   const logContainerRef = useRef<HTMLDivElement>(null);
 
   // גלילה אוטומטית לתחתית הלוג בכל פעם שמתווספת הודעה חדשה (שימוש ב-scrollTop מונע גלילה לא רצויה של כל חלון האפליקציה)
@@ -47,35 +47,40 @@ export const GameLog: React.FC = () => {
       if (part === 'עץ' || part === 'WOOD') {
         return (
           <span key={index} className="inline-flex items-center gap-0.5 font-semibold text-emerald-400 bg-emerald-950/35 px-1 py-0.5 rounded border border-emerald-500/20 mx-0.5">
-            עץ 🪵
+            עץ
+            <img src="/wood1.png" className="h-4 w-4 inline-block align-middle ml-1" alt="עץ" />
           </span>
         );
       }
       if (part === 'לבנה' || part === 'BRICK') {
         return (
           <span key={index} className="inline-flex items-center gap-0.5 font-semibold text-orange-400 bg-orange-950/35 px-1 py-0.5 rounded border border-orange-500/20 mx-0.5">
-            לבנה 🧱
+            לבנה
+            <img src="/brick1.png" className="h-4 w-4 inline-block align-middle ml-1" alt="לבנה" />
           </span>
         );
       }
       if (part === 'כבש' || part === 'SHEEP') {
         return (
           <span key={index} className="inline-flex items-center gap-0.5 font-semibold text-pink-400 bg-pink-950/35 px-1 py-0.5 rounded border border-pink-500/20 mx-0.5">
-            כבש 🐑
+            כבש
+            <img src="/wool1.png" className="h-4 w-4 inline-block align-middle ml-1" alt="כבש" />
           </span>
         );
       }
       if (part === 'חיטה' || part === 'WHEAT') {
         return (
           <span key={index} className="inline-flex items-center gap-0.5 font-semibold text-amber-400 bg-amber-950/35 px-1 py-0.5 rounded border border-amber-500/20 mx-0.5">
-            חיטה 🌾
+            חיטה
+            <img src="/wheat1.png" className="h-4 w-4 inline-block align-middle ml-1" alt="חיטה" />
           </span>
         );
       }
       if (part === 'ברזל' || part === 'ORE') {
         return (
           <span key={index} className="inline-flex items-center gap-0.5 font-semibold text-slate-300 bg-slate-800/35 px-1 py-0.5 rounded border border-slate-700/20 mx-0.5">
-            ברזל 🪨
+            ברזל
+            <img src="/rock1.png" className="h-4 w-4 inline-block align-middle ml-1" alt="ברזל" />
           </span>
         );
       }

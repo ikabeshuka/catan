@@ -1,4 +1,6 @@
 import { BoardVertex, BoardEdge } from '../../types/boardElements.types';
+import { HexTile } from '../../types/hex.types';
+import { getTileEdgeIds } from '../gameEngine/generateEdges';
 
 /**
  * בודקת האם שחקן יכול לבנות כביש בנתיב מסוים על הלוח
@@ -7,11 +9,21 @@ export function validateRoadPlacement(
   edgeId: string,
   playerId: string,
   vertices: BoardVertex[],
-  edges: BoardEdge[]
+  edges: BoardEdge[],
+  tiles?: HexTile[]
 ): boolean {
   // 1. בדיקה שהנתיב פנוי
   const targetEdge = edges.find(e => e.id === edgeId);
   if (!targetEdge || targetEdge.hasRoad) return false;
+
+  // בדיקה שהצלע המבוקשת אינה גובלת בשני אריחי מים ('WATER') במקביל
+  if (tiles) {
+    const borderingTiles = tiles.filter(tile => getTileEdgeIds(tile).includes(edgeId));
+    const waterBorderingTiles = borderingTiles.filter(tile => tile.type === 'WATER');
+    if (waterBorderingTiles.length >= 2) {
+      return false; // חסום לחלוטין בלב ים!
+    }
+  }
 
   // 2. חילוץ מזהי שני הצמתים המרכיבים את הקצוות של הכביש הזה
   const parts = edgeId.replace('e_v_', '').split('_v_');

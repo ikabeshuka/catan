@@ -7,7 +7,7 @@ import { Road3D } from './Road3D';
 import { Structure3D } from './Structure3D';
 import { WoodIcon, BrickIcon, SheepIcon, WheatIcon, OreIcon } from '../common/Icons';
 import { Canvas, useFrame } from '@react-three/fiber';
-import { OrbitControls, useTexture, Text, Billboard } from '@react-three/drei';
+import { OrbitControls, useTexture, Billboard } from '@react-three/drei';
 import * as THREE from 'three';
 import { parseVertexId } from '../../utils/hexMath/parseVertexId';
 import { parseEdgeId } from '../../utils/hexMath/parseEdgeId';
@@ -16,7 +16,9 @@ import { moveRobber } from '../../utils/gameEngine/moveRobber';
 import { getEligibleRobberyTargets } from '../../utils/gameEngine/robberSteal';
 import { validateSettlementPlacement } from '../../utils/validation/validateSettlementPlacement';
 import { validateRoadPlacement } from '../../utils/validation/validateRoadPlacement';
+import { validateShipPlacement } from '../../utils/validation/validateShipPlacement';
 import { cubeToPixel } from '../../utils/hexMath/cubeToPixel';
+import { getTileEdgeIds } from '../../utils/gameEngine/generateEdges';
 
 const HEX_SIZE_2D = 60; // Base size for 2D calculations, remains consistent
 const HEX_HEIGHT_3D = 3.0; // Visual height for 3D hexes
@@ -64,13 +66,50 @@ interface Board3DSceneProps {
   onHarborHover: (harbor: any, x: number, y: number) => void;
   onHarborLeave: () => void;
   is3DMode: boolean;
+  isMovingWagon?: boolean;
 }
+
+interface Wagon3DProps {
+  playerColor: string;
+  position?: [number, number, number];
+}
+
+const Wagon3D: React.FC<Wagon3DProps> = ({ playerColor, position = [0, 0, 0] }) => {
+  return (
+    <group position={position}>
+      {/* Body of the wagon */}
+      <mesh position={[0, 0, 0.15]}>
+        <boxGeometry args={[0.5, 0.3, 0.25]} />
+        <meshStandardMaterial color={playerColor} roughness={0.5} metalness={0.1} />
+      </mesh>
+      {/* Wheels */}
+      <mesh position={[-0.18, 0.18, 0.05]} rotation={[Math.PI / 2, 0, 0]}>
+        <cylinderGeometry args={[0.12, 0.12, 0.08, 12]} />
+        <meshStandardMaterial color="#422e1b" roughness={0.9} />
+      </mesh>
+      <mesh position={[0.18, 0.18, 0.05]} rotation={[Math.PI / 2, 0, 0]}>
+        <cylinderGeometry args={[0.12, 0.12, 0.08, 12]} />
+        <meshStandardMaterial color="#422e1b" roughness={0.9} />
+      </mesh>
+      <mesh position={[-0.18, -0.18, 0.05]} rotation={[Math.PI / 2, 0, 0]}>
+        <cylinderGeometry args={[0.12, 0.12, 0.08, 12]} />
+        <meshStandardMaterial color="#422e1b" roughness={0.9} />
+      </mesh>
+      <mesh position={[0.18, -0.18, 0.05]} rotation={[Math.PI / 2, 0, 0]}>
+        <cylinderGeometry args={[0.12, 0.12, 0.08, 12]} />
+        <meshStandardMaterial color="#422e1b" roughness={0.9} />
+      </mesh>
+    </group>
+  );
+};
 
 interface HarborDock3DProps {
   vertex: any;
   vx: number;
   vy: number;
-  fontUrl: string;
+  tileX: number;
+  tileY: number;
+  harborAngle?: number;
   onPointerOver: (e: any) => void;
   onPointerMove: (e: any) => void;
   onPointerOut: () => void;
@@ -81,37 +120,38 @@ const HarborDock3D: React.FC<HarborDock3DProps> = ({
   vertex,
   vx,
   vy,
-  fontUrl,
+  tileX,
+  tileY,
+  harborAngle,
   onPointerOver,
   onPointerMove,
   onPointerOut,
   onClick,
 }) => {
   const groupRef = useRef<THREE.Group>(null);
-  const balloonRef = useRef<THREE.Group>(null);
-  const angle = Math.atan2(vy, vx);
+  const angle = harborAngle !== undefined ? (harborAngle * Math.PI) / 180 : Math.atan2(vy - tileY, vx - tileX);
 
-  useFrame((state) => {
-    if (balloonRef.current) {
-      const time = state.clock.getElapsedTime();
-      // Floating bobbing animation
-      balloonRef.current.position.z = 0.5 + Math.sin(time * 2.0) * 0.08;
-    }
-  });
+  const portTextureImage = useTexture('/port.png');
+  
+  // Prevent unused variable compilation error
+  if (vertex) {
+    // Read variable
+  }
 
   return (
     <group 
       ref={groupRef} 
       rotation={[0, 0, angle]}
+      scale={[1.2, 1.2, 1.2]}
       onClick={onClick}
       onPointerOver={onPointerOver}
       onPointerMove={onPointerMove}
       onPointerOut={onPointerOut}
     >
-      {/* Elongated box representing the wooden deck */}
-      <mesh position={[0.2, 0, -0.05]}>
-        <boxGeometry args={[0.6, 0.25, 0.08]} />
-        <meshStandardMaterial color="#4e342e" roughness={0.8} />
+      {/* Elongated bridge/dock represented by the clean transparent port.png texture */}
+      <mesh position={[0.4, 0, 0.05]} rotation={[0, 0, -Math.PI / 2]} scale={[1.0, 1.0, 1.0]}>
+        <planeGeometry args={[0.9, 0.9]} />
+        <meshStandardMaterial map={portTextureImage} transparent={true} roughness={0.6} side={THREE.DoubleSide} />
       </mesh>
 
       {/* Two thin vertical wooden columns/posts entering the water */}
@@ -123,34 +163,6 @@ const HarborDock3D: React.FC<HarborDock3DProps> = ({
         <cylinderGeometry args={[0.03, 0.03, 0.4, 12]} />
         <meshStandardMaterial color="#2d1c18" roughness={0.9} />
       </mesh>
-
-      {/* Floating Balloon Billboard */}
-      <group ref={balloonRef} position={[0.1, 0, 0.5]}>
-        <Billboard>
-          {/* Balloon backboard shape (glassmorphic circle/pill or golden shield) */}
-          <mesh rotation={[Math.PI / 2, 0, 0]}>
-            <cylinderGeometry args={[0.22, 0.22, 0.04, 16]} />
-            <meshStandardMaterial color="#ffc107" roughness={0.2} metalness={0.8} />
-          </mesh>
-          {/* Icon */}
-          <Text
-            position={[0, 0, 0.04]}
-            fontSize={0.2}
-            color="#000000"
-            fontWeight="bold"
-            anchorX="center"
-            anchorY="middle"
-            font={fontUrl}
-          >
-            {vertex.harborType === 'GENERIC' && '⛵'}
-            {vertex.harborType === 'WOOD' && '🪵'}
-            {vertex.harborType === 'BRICK' && '🧱'}
-            {vertex.harborType === 'SHEEP' && '🐑'}
-            {vertex.harborType === 'WHEAT' && '🌾'}
-            {vertex.harborType === 'ORE' && '🪨'}
-          </Text>
-        </Billboard>
-      </group>
     </group>
   );
 };
@@ -200,9 +212,9 @@ const Board3DScene: React.FC<Board3DSceneProps> = ({
   onHarborHover,
   onHarborLeave,
   is3DMode,
+  isMovingWagon = false,
 }) => {
   const handleVertexClick = onVertexClick;
-  const FONT_URL = typeof window !== 'undefined' ? `${window.location.origin}/fonts/Rubik-Bold.ttf` : '/fonts/Rubik-Bold.ttf';
   // Load element textures
   const textures = useTexture({
     settlement: '/settlement.png',
@@ -235,10 +247,11 @@ const Board3DScene: React.FC<Board3DSceneProps> = ({
 
   // Animate sea waves (offset of SEA texture)
   useFrame((state) => {
+    if (!is3DMode) return;
     if (textures.SEA) {
       const time = state.clock.getElapsedTime();
-      textures.SEA.offset.x = time * 0.002 + Math.sin(time * 0.05) * 0.01;
-      textures.SEA.offset.y = Math.cos(time * 0.05) * 0.01;
+      textures.SEA.offset.x = time * 0.012 + Math.sin(time * 0.15) * 0.035;
+      textures.SEA.offset.y = Math.cos(time * 0.18) * 0.025;
     }
   });
 
@@ -268,7 +281,7 @@ const Board3DScene: React.FC<Board3DSceneProps> = ({
     const currentPlayer = players[currentPlayerIndex];
     const isBlockedBySetup = isSetupPhase && setupState.hasPlacedRoad;
     const isValidPlacement = currentPlayer && !isBlockedBySetup
-      ? validateRoadPlacement(edge.id, currentPlayer.id, vertices, edges)
+      ? validateRoadPlacement(edge.id, currentPlayer.id, vertices, edges, tiles)
       : false;
     const isClickable = isValidPlacement && !currentPlayer?.isBot;
 
@@ -377,7 +390,7 @@ const Board3DScene: React.FC<Board3DSceneProps> = ({
         const length = Math.sqrt(dx * dx + dy * dy);
         const angle = Math.atan2(dy, dx);
 
-        const builtPlayer = players.find(p => p.id === edge.playerId);
+        const builtPlayer = players.find(p => p.id === edge.playerId || p.id === edge.shipPlayerId);
         const playerColor = builtPlayer?.color || '#ff5722';
         
         const { isValidPlacement } = getEdgeConfig(edge);
@@ -412,6 +425,8 @@ const Board3DScene: React.FC<Board3DSceneProps> = ({
             onEdgeClick={onEdgeClick}
             tiles={tiles}
             is3DMode={is3DMode}
+            hasShip={edge.hasShip}
+            shipPlayerId={edge.shipPlayerId}
           />
         );
       })}
@@ -428,32 +443,42 @@ const Board3DScene: React.FC<Board3DSceneProps> = ({
 
         const vertexZ = !is3DMode ? 0.77 : 0.85;
 
+        const currentPlayer = players[currentPlayerIndex];
+        const isWagonSelectable = (() => {
+          if (!isMovingWagon || !currentPlayer || !currentPlayer.wagonPosition || currentPlayer.wagonPosition === vertex.id) {
+            return false;
+          }
+          const sortedIds = [currentPlayer.wagonPosition, vertex.id].sort();
+          const edgeId = `e_${sortedIds[0]}_${sortedIds[1]}`;
+          const edge = edges.find(e => e.id === edgeId);
+          if (!edge) return false;
+          const isOwner = edge.hasRoad && edge.playerId === currentPlayer.id;
+          const cost = isOwner ? 1 : 2;
+          const remainingPoints = currentPlayer.remainingMovementPoints !== undefined ? currentPlayer.remainingMovementPoints : 4;
+          return remainingPoints >= cost;
+        })();
+
+        const playersWithWagons = players.filter(p => p.wagonPosition === vertex.id);
+
         return (
           <group key={vertex.id} position={[vx, vy, vertexZ]}>
-            {/* Harbor (Port) Visual Elements */}
-            {vertex.isHarbor && (
-              <HarborDock3D
-                vertex={vertex}
-                vx={vx}
-                vy={vy}
-                fontUrl={FONT_URL}
-                onPointerOver={(e) => {
-                  e.stopPropagation();
-                  onHarborHover(vertex, e.clientX, e.clientY);
-                }}
-                onPointerMove={(e) => {
-                  e.stopPropagation();
-                  onHarborHover(vertex, e.clientX, e.clientY);
-                }}
-                onPointerOut={() => {
-                  onHarborLeave();
-                }}
-                onClick={(e) => {
-                  e.stopPropagation();
-                  onVertexClick(vertex);
-                }}
-              />
+            {/* Glow Indicator for Wagon Movement */}
+            {isWagonSelectable && (
+              <mesh position={[0, 0, 0.25]}>
+                <torusGeometry args={[0.55, 0.09, 8, 24]} />
+                <meshBasicMaterial color="#ffcc00" transparent={true} opacity={0.8} />
+              </mesh>
             )}
+
+            {/* Render Wagons on this vertex */}
+            {playersWithWagons.map((p, idx) => (
+              <Wagon3D 
+                key={p.id} 
+                playerColor={p.color} 
+                position={[idx * 0.15, idx * 0.15, 0.2]} 
+              />
+            ))}
+
 
             {/* Visual element for unoccupied vertices */}
             {vertex.structure === 'NONE' && (
@@ -479,12 +504,24 @@ const Board3DScene: React.FC<Board3DSceneProps> = ({
               onPointerOver={(e) => {
                 e.stopPropagation();
                 const { isClickable } = getVertexConfig(vertex);
-                if (isClickable) {
+                if (isClickable || isWagonSelectable) {
                   document.body.style.cursor = 'pointer';
+                }
+                if (vertex.isHarbor) {
+                  onHarborHover(vertex, e.clientX, e.clientY);
+                }
+              }}
+              onPointerMove={(e) => {
+                e.stopPropagation();
+                if (vertex.isHarbor) {
+                  onHarborHover(vertex, e.clientX, e.clientY);
                 }
               }}
               onPointerOut={() => {
                 document.body.style.cursor = 'default';
+                if (vertex.isHarbor) {
+                  onHarborLeave();
+                }
               }}
             >
               <cylinderGeometry args={[0.35, 0.35, 2.5, 8]} />
@@ -498,6 +535,74 @@ const Board3DScene: React.FC<Board3DSceneProps> = ({
               getVertexConfig={getVertexConfig}
               onVertexClick={handleVertexClick}
               is3DMode={is3DMode}
+              onHarborHover={onHarborHover}
+              onHarborLeave={onHarborLeave}
+            />
+          </group>
+        );
+      })}
+
+      {/* Render Edge Harbors */}
+      {edges.map((edge) => {
+        if (!edge || !edge.isHarbor) return null;
+        
+        const { x1, y1, x2, y2 } = parseEdgeId(edge.id);
+        const vx1 = x1 * 0.05;
+        const vy1 = y1 * -0.05;
+        const vx2 = x2 * 0.05;
+        const vy2 = y2 * -0.05;
+
+        // Geometric center of the two vertices
+        const mx = (vx1 + vx2) / 2;
+        const my = (vy1 + vy2) / 2;
+        const mz = !is3DMode ? 0.77 : 0.85;
+
+        // Find the owner tile of this edge
+        const ownerTile = tiles.find(tile => {
+          const edgeIds = getTileEdgeIds(tile);
+          return edgeIds.includes(edge.id);
+        });
+
+        let tileX = 0;
+        let tileY = 0;
+        if (ownerTile) {
+          const center2D = cubeToPixel(ownerTile.coord, 60);
+          tileX = center2D.x * 0.05;
+          tileY = center2D.y * -0.05;
+        }
+
+        // Get one of the connected vertices for tooltips/actions
+        const v1Id = `v_${x1}_${y1}`;
+        const connectedVertex = vertices.find(v => v.id === v1Id) || {
+          id: v1Id,
+          isHarbor: true,
+          harborType: edge.harborType
+        };
+
+        return (
+          <group key={`harbor_${edge.id}`} position={[mx, my, mz]}>
+            <HarborDock3D
+              vertex={connectedVertex}
+              vx={mx}
+              vy={my}
+              tileX={tileX}
+              tileY={tileY}
+              harborAngle={edge.harborAngle}
+              onPointerOver={(e) => {
+                e.stopPropagation();
+                onHarborHover(connectedVertex, e.clientX, e.clientY);
+              }}
+              onPointerMove={(e) => {
+                e.stopPropagation();
+                onHarborHover(connectedVertex, e.clientX, e.clientY);
+              }}
+              onPointerOut={() => {
+                onHarborLeave();
+              }}
+              onClick={(e) => {
+                e.stopPropagation();
+                onVertexClick(connectedVertex);
+              }}
             />
           </group>
         );
@@ -514,7 +619,7 @@ const getHarborDescription = (type: string) => {
         ratio: '3:1',
         description: 'החלף 3 משאבים זהים עבור משאב 1 לבחירתך מהבנק.',
         color: 'from-blue-500/20 to-blue-950/40 border-blue-500/40 text-blue-300',
-        icon: '⛵'
+        img: '/favicon.svg'
       };
     case 'WOOD':
       return {
@@ -522,7 +627,7 @@ const getHarborDescription = (type: string) => {
         ratio: '2:1',
         description: 'החלף 2 עץ עבור משאב 1 לבחירתך מהבנק.',
         color: 'from-emerald-500/20 to-emerald-950/40 border-emerald-500/40 text-emerald-300',
-        icon: '🪵'
+        img: '/wood1.png'
       };
     case 'BRICK':
       return {
@@ -530,7 +635,7 @@ const getHarborDescription = (type: string) => {
         ratio: '2:1',
         description: 'החלף 2 לבנים עבור משאב 1 לבחירתך מהבנק.',
         color: 'from-red-500/20 to-red-950/40 border-red-500/40 text-red-300',
-        icon: '🧱'
+        img: '/brick1.png'
       };
     case 'SHEEP':
       return {
@@ -538,7 +643,7 @@ const getHarborDescription = (type: string) => {
         ratio: '2:1',
         description: 'החלף 2 כבשים עבור משאב 1 לבחירתך מהבנק.',
         color: 'from-lime-500/20 to-lime-950/40 border-lime-500/40 text-lime-300',
-        icon: '🐑'
+        img: '/wool1.png'
       };
     case 'WHEAT':
       return {
@@ -546,7 +651,7 @@ const getHarborDescription = (type: string) => {
         ratio: '2:1',
         description: 'החלף 2 חיטה עבור משאב 1 לבחירתך מהבנק.',
         color: 'from-amber-500/20 to-amber-950/40 border-amber-500/40 text-amber-300',
-        icon: '🌾'
+        img: '/wheat1.png'
       };
     case 'ORE':
       return {
@@ -554,7 +659,7 @@ const getHarborDescription = (type: string) => {
         ratio: '2:1',
         description: 'החלף 2 ברזל עבור משאב 1 לבחירתך מהבנק.',
         color: 'from-slate-400/20 to-slate-800/40 border-slate-500/40 text-slate-300',
-        icon: '🪨'
+        img: '/rock1.png'
       };
     default:
       return {
@@ -562,7 +667,7 @@ const getHarborDescription = (type: string) => {
         ratio: '3:1',
         description: 'החלף משאבים עם הבנק ביחס מועדף.',
         color: 'from-slate-500/20 to-slate-950/40 border-slate-500/40 text-slate-300',
-        icon: '⛵'
+        img: '/favicon.svg'
       };
   }
 };
@@ -573,7 +678,7 @@ const getTileTooltipInfo = (type: string) => {
       return {
         name: 'יער (Forest)',
         produces: 'עץ (Wood)',
-        icon: '🪵',
+        img: '/wood1.png',
         description: 'מייצר עץ יקר ערך לבניית כבישים ויישובים.',
         color: 'from-emerald-500/20 to-emerald-950/40 border-emerald-500/40 text-emerald-300'
       };
@@ -581,7 +686,7 @@ const getTileTooltipInfo = (type: string) => {
       return {
         name: 'גבעת חמר (Clay Pit)',
         produces: 'לבנים (Brick)',
-        icon: '🧱',
+        img: '/brick1.png',
         description: 'מייצר לבני חמר לבניית כבישים ויישובים.',
         color: 'from-red-500/20 to-red-950/40 border-red-500/40 text-red-300'
       };
@@ -589,7 +694,7 @@ const getTileTooltipInfo = (type: string) => {
       return {
         name: 'מרעה כבשים (Pasture)',
         produces: 'צמר (Wool)',
-        icon: '🐑',
+        img: '/wool1.png',
         description: 'מייצר צמר רך ועשיר להקמת יישובים וקניית קלפי פיתוח.',
         color: 'from-lime-500/20 to-lime-950/40 border-lime-500/40 text-lime-300'
       };
@@ -597,7 +702,7 @@ const getTileTooltipInfo = (type: string) => {
       return {
         name: 'שדה חיטה (Fields)',
         produces: 'חיטה (Wheat)',
-        icon: '🌾',
+        img: '/wheat1.png',
         description: 'מייצר חיטה מזינה להקמת יישובים, שדרוג ערים וקניית קלפי פיתוח.',
         color: 'from-amber-500/20 to-amber-950/40 border-amber-500/40 text-amber-300'
       };
@@ -605,7 +710,7 @@ const getTileTooltipInfo = (type: string) => {
       return {
         name: 'הרים (Mountains)',
         produces: 'ברזל (Ore)',
-        icon: '🪨',
+        img: '/rock1.png',
         description: 'מפיק עפרת ברזל חזקה לשדרוג ערים וקניית קלפי פיתוח.',
         color: 'from-slate-400/20 to-slate-800/40 border-slate-500/40 text-slate-300'
       };
@@ -613,7 +718,7 @@ const getTileTooltipInfo = (type: string) => {
       return {
         name: 'מדבר (Desert)',
         produces: 'אין (Desert)',
-        icon: '🏜️',
+        img: '/robber.png',
         description: 'מדבר שומם וצחיח שאינו מייצר משאבים. מקום מושבו של השודד.',
         color: 'from-orange-500/10 to-amber-950/20 border-orange-700/20 text-orange-200'
       };
@@ -621,7 +726,7 @@ const getTileTooltipInfo = (type: string) => {
       return {
         name: 'אריח משאב',
         produces: 'משאב',
-        icon: '❓',
+        img: '/favicon.svg',
         description: 'מייצר משאבים עבור השחקנים.',
         color: 'from-slate-500/20 to-slate-950/40 border-slate-500/40 text-slate-300'
       };
@@ -671,23 +776,33 @@ export const GameBoard3D: React.FC = () => {
     setEdges,
     roadBuildingRemaining,
     showBuildingCostToast,
-    setActivePortTrade
+    setActivePortTrade,
+    isMovingWagon,
+    setIsMovingWagon,
+    activeExpansion,
+    currentAction,
+    setCurrentAction
   } = useGame();
 
-  const { isSetupPhase, setupState, recordSetupPlacement } = useTurnManager();
+  const { isSetupPhase, setupState, recordSetupPlacement, moveWagon } = useTurnManager();
 
   React.useEffect(() => {
     const updateCamera = () => {
       if (orbitControlsRef.current) {
         const controls = orbitControlsRef.current;
-        const camera = controls.object;
+        const camera = controls.object as THREE.PerspectiveCamera;
         if (camera) {
+          const isSeafarers = activeExpansion === 'SEAFARERS' || tiles.length === 37;
           if (!is3DMode) {
-            camera.position.set(0, 0, 40);
+            camera.position.set(0, 0, isSeafarers ? 58 : 46);
+            camera.fov = isSeafarers ? 35 : 30;
+            camera.updateProjectionMatrix();
             controls.target.set(0, 0, 0);
             controls.update();
           } else {
-            camera.position.set(0, -25, 35);
+            camera.position.set(0, isSeafarers ? -38 : -29, isSeafarers ? 54 : 41);
+            camera.fov = isSeafarers ? 35 : 30;
+            camera.updateProjectionMatrix();
             controls.target.set(0, 0, 0);
             controls.update();
           }
@@ -702,7 +817,7 @@ export const GameBoard3D: React.FC = () => {
       clearTimeout(timer);
       clearTimeout(timer2);
     };
-  }, [is3DMode]);
+  }, [is3DMode, activeExpansion, tiles.length]);
 
   const [hoveredTile, setHoveredTile] = useState<{
     tile: any;
@@ -761,6 +876,37 @@ export const GameBoard3D: React.FC = () => {
   const handleVertexClick = (vertex: any) => {
     const currentPlayer = players[currentPlayerIndex];
     if (currentPlayer?.isBot) return;
+
+    // Wagon movement click
+    if (isMovingWagon) {
+      const isWagonSelectable = (() => {
+        if (!currentPlayer || !currentPlayer.wagonPosition || currentPlayer.wagonPosition === vertex.id) {
+          return false;
+        }
+        const sortedIds = [currentPlayer.wagonPosition, vertex.id].sort();
+        const edgeId = `e_${sortedIds[0]}_${sortedIds[1]}`;
+        const edge = edges.find(e => e.id === edgeId);
+        if (!edge) return false;
+        const isOwner = edge.hasRoad && edge.playerId === currentPlayer.id;
+        const cost = isOwner ? 1 : 2;
+        const remainingPoints = currentPlayer.remainingMovementPoints !== undefined ? currentPlayer.remainingMovementPoints : 4;
+        return remainingPoints >= cost;
+      })();
+
+      if (isWagonSelectable) {
+        moveWagon?.(currentPlayer.id, vertex.id);
+        const sortedIds = [currentPlayer.wagonPosition, vertex.id].sort();
+        const edgeId = `e_${sortedIds[0]}_${sortedIds[1]}`;
+        const edge = edges.find(e => e.id === edgeId);
+        const isOwner = edge && edge.hasRoad && edge.playerId === currentPlayer.id;
+        const cost = isOwner ? 1 : 2;
+        const updatedPoints = (currentPlayer.remainingMovementPoints !== undefined ? currentPlayer.remainingMovementPoints : 4) - cost;
+        if (updatedPoints <= 0 && setIsMovingWagon) {
+          setIsMovingWagon(false);
+        }
+        return;
+      }
+    }
 
     const { isValidPlacement, canUpgradeToCity, isOwnedHarbor } = getVertexConfig(vertex);
 
@@ -862,6 +1008,15 @@ export const GameBoard3D: React.FC = () => {
   const getEdgeConfig = (edge: any) => {
     const currentPlayer = players[currentPlayerIndex];
     const isBlockedBySetup = isSetupPhase && setupState.hasPlacedRoad;
+    
+    if (currentAction === 'BUILD_SHIP') {
+      const isValidPlacement = currentPlayer && !isBlockedBySetup
+        ? validateShipPlacement(edge.id, currentPlayer.id, vertices, edges, tiles)
+        : false;
+      const isClickable = isValidPlacement && !currentPlayer?.isBot;
+      return { isValidPlacement, isClickable };
+    }
+
     const isValidPlacement = currentPlayer && !isBlockedBySetup
       ? validateRoadPlacement(edge.id, currentPlayer.id, vertices, edges)
       : false;
@@ -875,6 +1030,41 @@ export const GameBoard3D: React.FC = () => {
     if (currentPlayer?.isBot) return;
 
     const { isValidPlacement } = getEdgeConfig(edge);
+
+    if (currentAction === 'BUILD_SHIP') {
+      if (!isValidPlacement) return;
+      if (turnSubPhase !== 'TRADE_AND_BUILD') return;
+
+      const hasResources = currentPlayer.resources.WOOD >= 1 && currentPlayer.resources.SHEEP >= 1;
+      showBuildingCostToast('SHIP', hasResources);
+
+      if (!hasResources) {
+        addLog(`אין לך מספיק משאבים לבניית ספינה! נדרש: 1 עץ, 1 כבש.`);
+        return;
+      }
+
+      setPlayers(prev => prev.map(p => p.id === currentPlayer.id 
+        ? {
+            ...p,
+            resources: {
+              ...p.resources,
+              WOOD: p.resources.WOOD - 1,
+              SHEEP: p.resources.SHEEP - 1
+            }
+          }
+        : p
+      ));
+
+      setEdges(prevEdges => prevEdges.map(e => 
+        e.id === edge.id 
+          ? { ...e, hasShip: true, shipPlayerId: currentPlayer.id } 
+          : e
+      ));
+
+      setCurrentAction(null);
+      addLog(`השחקן ${currentPlayer.name} בנה ספינה!`);
+      return;
+    }
 
     if (isSetupPhase) {
       if (!isValidPlacement) return;
@@ -991,6 +1181,14 @@ export const GameBoard3D: React.FC = () => {
                 <span className="inline-flex items-center gap-1"><WheatIcon size={12} /> חיטה x2</span>
               </span>
             )}
+            {buildingToast.type === 'SHIP' && (
+              <span className="inline-flex items-center gap-1.5 flex-wrap justify-center">
+                <span>עלות בניית ספינה:</span>
+                <span className="inline-flex items-center gap-1"><WoodIcon size={12} /> עץ x1</span>
+                <span>,</span>
+                <span className="inline-flex items-center gap-1"><SheepIcon size={12} /> כבש x1</span>
+              </span>
+            )}
           </div>
         </div>
       )}
@@ -1104,6 +1302,7 @@ export const GameBoard3D: React.FC = () => {
               onHarborHover={(harbor, x, y) => setHoveredHarbor({ harbor, x, y })}
               onHarborLeave={() => setHoveredHarbor(null)}
               is3DMode={is3DMode}
+              isMovingWagon={isMovingWagon}
             />
           </Suspense>
         </Canvas>
@@ -1135,7 +1334,7 @@ export const GameBoard3D: React.FC = () => {
                 {/* Header with Icon & Name */}
                 <div className="flex items-center justify-between gap-3 border-b border-white/10 pb-2 mb-1.5">
                   <div className="flex items-center gap-2">
-                    <span className="text-xl filter drop-shadow-md">{info.icon}</span>
+                    <img src={info.img} className="h-5 w-5 object-contain ml-1 inline-block align-middle" alt={info.title} />
                     <span className="text-sm font-black text-white leading-none">{info.title}</span>
                   </div>
                   <div className="bg-slate-950/50 px-2.5 py-1 rounded-lg border border-white/5 shadow flex items-center justify-center font-black text-xs text-amber-400">
@@ -1182,7 +1381,7 @@ export const GameBoard3D: React.FC = () => {
                 {/* Header with Icon & Name */}
                 <div className="flex items-center justify-between gap-3 border-b border-white/10 pb-2 mb-1.5">
                   <div className="flex items-center gap-2">
-                    <span className="text-xl filter drop-shadow-md">{info.icon}</span>
+                    <img src={info.img} className="h-5 w-5 object-contain ml-1 inline-block align-middle" alt={info.name} />
                     <span className="text-sm font-black text-white leading-none">{info.name}</span>
                   </div>
                   {/* Small SVG Resource Icon */}

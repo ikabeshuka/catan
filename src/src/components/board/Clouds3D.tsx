@@ -12,13 +12,19 @@ interface CloudInfo {
 }
 
 export const Clouds3D: React.FC = () => {
-  // Generate 5 clouds with slightly different initial positions, speeds, and sizes
+  // Generate 11 clouds with slightly different initial positions, speeds, and sizes
   const cloudsData = useMemo<CloudInfo[]>(() => [
-    { x: -20, y: 10, z: 6.5, speed: 0.8, scaleX: 6, scaleY: 3 },
-    { x: -10, y: -8, z: 6.5, speed: 1.1, scaleX: 7, scaleY: 3.5 },
-    { x: 5, y: 15, z: 6.5, speed: 0.6, scaleX: 5, scaleY: 2.5 },
-    { x: 15, y: -12, z: 6.5, speed: 1.3, scaleX: 8, scaleY: 4 },
-    { x: 0, y: 2, z: 6.5, speed: 0.9, scaleX: 6.5, scaleY: 3.2 },
+    { x: -20, y: 10, z: 5.5, speed: 0.5, scaleX: 6, scaleY: 3 },
+    { x: -10, y: -8, z: 7.2, speed: 1.1, scaleX: 7, scaleY: 3.5 },
+    { x: 5, y: 15, z: 6.0, speed: 0.6, scaleX: 5, scaleY: 2.5 },
+    { x: 15, y: -12, z: 8.5, speed: 1.5, scaleX: 8, scaleY: 4 },
+    { x: 0, y: 2, z: 6.8, speed: 0.9, scaleX: 6.5, scaleY: 3.2 },
+    { x: -15, y: -4, z: 5.8, speed: 0.4, scaleX: 4.5, scaleY: 2.2 },
+    { x: -5, y: 12, z: 8.0, speed: 1.3, scaleX: 7.5, scaleY: 3.8 },
+    { x: 10, y: -2, z: 6.3, speed: 0.8, scaleX: 6, scaleY: 3 },
+    { x: 18, y: 8, z: 7.6, speed: 1.2, scaleX: 5.5, scaleY: 2.8 },
+    { x: -22, y: -14, z: 7.0, speed: 1.0, scaleX: 7, scaleY: 3.5 },
+    { x: -2, y: -10, z: 8.2, speed: 1.6, scaleX: 8.5, scaleY: 4.2 },
   ], []);
 
   const groupRef = useRef<THREE.Group>(null);
