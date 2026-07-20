@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { useTurnManager } from '../../hooks/useTurnManager';
 import { BoardVertex, BoardEdge } from '../../types/boardElements.types';
 import { Player } from '../../types/player.types';
@@ -7,6 +7,8 @@ import { parseEdgeId } from '../../utils/hexMath/parseEdgeId';
 import { validateRoadPlacement } from '../../utils/validation/validateRoadPlacement';
 import { validateShipPlacement } from '../../utils/validation/validateShipPlacement';
 import { useGame } from '../../context/GameContext';
+import { getTileEdgeIds } from '../../utils/gameEngine/generateEdges';
+import { getOpenShipsForPlayer } from '../../utils/gameEngine/getOpenShipsForPlayer';
 
 interface EdgeLineProps {
   edge: BoardEdge;
@@ -47,12 +49,20 @@ export const EdgeLine: React.FC<EdgeLineProps> = ({
   turnSubPhase: propTurnSubPhase,
   tiles,
 }) => {
-  const { currentAction, setCurrentAction } = useGame();
-  const turnManager = (!onClick && propIsSetupPhase === undefined) ? useTurnManager() : null;
-  const isSetupPhase = propIsSetupPhase !== undefined ? propIsSetupPhase : turnManager?.isSetupPhase;
-  const setupState = propSetupState !== undefined ? propSetupState : turnManager?.setupState;
-  const recordSetupPlacement = propRecordSetupPlacement !== undefined ? propRecordSetupPlacement : turnManager?.recordSetupPlacement;
-  const turnSubPhase = propTurnSubPhase !== undefined ? propTurnSubPhase : turnManager?.turnSubPhase;
+  const { 
+    currentAction, 
+    setCurrentAction, 
+    selectedShipIdToMove, 
+    setSelectedShipIdToMove, 
+    setHasMovedShipThisTurn, 
+    currentTurnBuiltShips,
+    activeExpansion
+  } = useGame();
+  const turnManager = useTurnManager();
+  const isSetupPhase = propIsSetupPhase !== undefined ? propIsSetupPhase : turnManager.isSetupPhase;
+  const setupState = propSetupState !== undefined ? propSetupState : turnManager.setupState;
+  const recordSetupPlacement = propRecordSetupPlacement !== undefined ? propRecordSetupPlacement : turnManager.recordSetupPlacement;
+  const turnSubPhase = propTurnSubPhase !== undefined ? propTurnSubPhase : turnManager.turnSubPhase;
 
   const { x1, y1, x2, y2 } = parseEdgeId(edge.id);
   const mx = (x1 + x2) / 2;
@@ -64,59 +74,59 @@ export const EdgeLine: React.FC<EdgeLineProps> = ({
 
   const currentPlayer = players[currentPlayerIndex];
 
+  const [showCoastPopup, setShowCoastPopup] = useState(false);
+
+  const isCoast = React.useMemo(() => {
+    if (!tiles || tiles.length === 0) return false;
+    const bordering = tiles.filter(t => getTileEdgeIds(t).includes(edge.id));
+    const hasLand = bordering.some(t => t.type !== 'WATER');
+    const hasWater = bordering.some(t => t.type === 'WATER');
+    return hasLand && hasWater;
+  }, [edge.id, tiles]);
+
   // בדיקה האם הנתיב הזה חוקי לבנייה עבור השחקן שמשחק כרגע
-  const isBlockedBySetup = isSetupPhase && setupState.hasPlacedRoad;
-  const isValidPlacement = currentPlayer && !isBlockedBySetup
-    ? (currentAction === 'BUILD_SHIP'
-        ? validateShipPlacement(edge.id, currentPlayer.id, vertices, edges, tiles || [])
-        : validateRoadPlacement(edge.id, currentPlayer.id, vertices, edges, tiles))
-    : false;
-
-  const handleEdgeClick = () => {
-    if (onClick) {
-      onClick();
-      return;
+  const isBlockedBySetup = isSetupPhase && setupState?.hasPlacedRoad;
+  let isValidPlacement = false;
+  if (currentAction === 'MOVE_SHIP_SELECT') {
+    const openShips = getOpenShipsForPlayer(currentPlayer.id, edges, vertices, currentTurnBuiltShips);
+    isValidPlacement = openShips.some(s => s.id === edge.id);
+  } else if (currentAction === 'MOVE_SHIP_PLACE') {
+    if (!edge.hasRoad && !edge.hasShip) {
+      const edgesWithoutMovingShip = edges.map(e => 
+        e.id === selectedShipIdToMove ? { ...e, hasShip: false, shipPlayerId: null } : e
+      );
+      isValidPlacement = validateShipPlacement(edge.id, currentPlayer.id, vertices, edgesWithoutMovingShip, tiles || []);
     }
-    // אם המהלך לא חוקי או שזה תור של בוט - נחסום את הלחיצה
-    if (currentPlayer?.isBot) return;
+  } else if (roadBuildingRemaining > 0 && activeExpansion === 'SEAFARERS') {
+    const isValidRoad = currentPlayer && !isBlockedBySetup && validateRoadPlacement(edge.id, currentPlayer.id, vertices, edges, tiles);
+    const isValidShip = currentPlayer && !isBlockedBySetup && validateShipPlacement(edge.id, currentPlayer.id, vertices, edges, tiles || []);
+    isValidPlacement = isValidRoad || isValidShip;
+  } else if (isCoast) {
+    const isValidRoad = currentPlayer && !isBlockedBySetup && validateRoadPlacement(edge.id, currentPlayer.id, vertices, edges, tiles);
+    const isValidShip = currentPlayer && !isBlockedBySetup && validateShipPlacement(edge.id, currentPlayer.id, vertices, edges, tiles || []);
+    isValidPlacement = isValidRoad || isValidShip;
+  } else if (currentAction === 'BUILD_SHIP') {
+    isValidPlacement = currentPlayer && !isBlockedBySetup
+      ? validateShipPlacement(edge.id, currentPlayer.id, vertices, edges, tiles || [])
+      : false;
+  } else {
+    isValidPlacement = currentPlayer && !isBlockedBySetup
+      ? validateRoadPlacement(edge.id, currentPlayer.id, vertices, edges, tiles)
+      : false;
+  }
 
-    if (currentAction === 'BUILD_SHIP') {
-      if (!isValidPlacement) return;
-      if (turnSubPhase !== 'TRADE_AND_BUILD') return;
-
-      const hasResources = currentPlayer.resources.WOOD >= 1 && currentPlayer.resources.SHEEP >= 1;
-      showBuildingCostToast('SHIP', hasResources);
-
-      if (!hasResources) {
-        addLog(`אין לך מספיק משאבים לבניית ספינה! נדרש: 1 עץ, 1 כבש.`);
-        return;
-      }
-
-      setPlayers(prev => prev.map(p => p.id === currentPlayer.id 
-        ? {
-            ...p,
-            resources: {
-              ...p.resources,
-              WOOD: p.resources.WOOD - 1,
-              SHEEP: p.resources.SHEEP - 1
-            }
-          }
-        : p
-      ));
-
-      setEdges(prevEdges => prevEdges.map(e => 
-        e.id === edge.id 
-          ? { ...e, hasShip: true, shipPlayerId: currentPlayer.id } 
-          : e
-      ));
-
-      setCurrentAction(null);
-      addLog(`השחקן ${currentPlayer.name} בנה ספינה!`);
-      return;
+  // בשלב ההקמה, נגביל את בחירת ה-Edge כך שחייב להתחבר פיזית במדויק ל-lastSettlementVertexId
+  if (isValidPlacement && isSetupPhase && setupState?.lastSettlementVertexId) {
+    const parts = edge.id.replace('e_v_', '').split('_v_');
+    const v1Id = `v_${parts[0]}`;
+    const v2Id = `v_${parts[1]}`;
+    if (v1Id !== setupState.lastSettlementVertexId && v2Id !== setupState.lastSettlementVertexId) {
+      isValidPlacement = false;
     }
+  }
 
+  const buildRoadOnEdge = () => {
     if (isSetupPhase) {
-      if (!isValidPlacement) return;
       setEdges(prevEdges => prevEdges.map(e => 
         e.id === edge.id 
           ? { ...e, hasRoad: true, playerId: currentPlayer.id } 
@@ -128,42 +138,145 @@ export const EdgeLine: React.FC<EdgeLineProps> = ({
       return;
     }
 
-    if (isValidPlacement) {
-      if (turnSubPhase !== 'TRADE_AND_BUILD') return;
+    if (turnSubPhase !== 'TRADE_AND_BUILD') return;
 
-      const isFreeRoad = roadBuildingRemaining > 0;
-      const hasResources = isFreeRoad || (currentPlayer.resources.WOOD >= 1 && currentPlayer.resources.BRICK >= 1);
+    const isFreeRoad = roadBuildingRemaining > 0;
+    const hasResources = isFreeRoad || (currentPlayer.resources.WOOD >= 1 && currentPlayer.resources.BRICK >= 1);
 
-      // תמיד נציג את העלות בכל לחיצה
-      showBuildingCostToast('ROAD', hasResources, isFreeRoad);
+    showBuildingCostToast('ROAD', hasResources, isFreeRoad);
 
-      if (!hasResources) {
-        addLog(`אין לך מספיק משאבים לבניית כביש! נדרש: 1 עץ, 1 לבנה.`);
-        return;
-      }
+    if (!hasResources) {
+      addLog(`אין לך מספיק משאבים לבניית כביש! נדרש: 1 עץ, 1 לבנה.`);
+      return;
+    }
 
-      // הפחתת משאבים אם זה לא כביש חינם
-      if (!isFreeRoad) {
-        setPlayers(prev => prev.map(p => p.id === currentPlayer.id 
-          ? {
-              ...p,
-              resources: {
-                ...p.resources,
-                WOOD: p.resources.WOOD - 1,
-                BRICK: p.resources.BRICK - 1
-              }
+    if (!isFreeRoad) {
+      setPlayers(prev => prev.map(p => p.id === currentPlayer.id 
+        ? {
+            ...p,
+            resources: {
+              ...p.resources,
+              WOOD: p.resources.WOOD - 1,
+              BRICK: p.resources.BRICK - 1
             }
-          : p
-        ));
-      }
+          }
+        : p
+      ));
+    }
 
+    setEdges(prevEdges => prevEdges.map(e => 
+      e.id === edge.id 
+        ? { ...e, hasRoad: true, playerId: currentPlayer.id } 
+        : e
+    ));
+
+    addLog(`שחקן ${currentPlayer.name} בנה כביש! ${isFreeRoad ? '(חינם - קלף בניית כבישים)' : 'עלות: 1 עץ, 1 לבנה.'}`);
+  };
+
+  const buildShipOnEdge = () => {
+    if (isSetupPhase) {
       setEdges(prevEdges => prevEdges.map(e => 
         e.id === edge.id 
-          ? { ...e, hasRoad: true, playerId: currentPlayer.id } 
+          ? { ...e, hasShip: true, shipPlayerId: currentPlayer.id } 
           : e
       ));
+      recordSetupPlacement?.('ROAD', edge.id);
+      showBuildingCostToast('SHIP', true, true);
+      addLog(`שחקן ${currentPlayer.name} בנה ספינה בשלב ההקמה (חינם).`);
+      return;
+    }
 
-      addLog(`שחקן ${currentPlayer.name} בנה כביש! ${isFreeRoad ? '(חינם - קלף בניית כבישים)' : 'עלות: 1 עץ, 1 לבנה.'}`);
+    if (turnSubPhase !== 'TRADE_AND_BUILD') return;
+
+    const isFreeShip = roadBuildingRemaining > 0 && activeExpansion === 'SEAFARERS';
+    const hasResources = isFreeShip || (currentPlayer.resources.WOOD >= 1 && currentPlayer.resources.SHEEP >= 1);
+    showBuildingCostToast('SHIP', hasResources, isFreeShip);
+
+    if (!hasResources) {
+      addLog(`אין לך מספיק משאבים לבניית ספינה! נדרש: 1 עץ, 1 כבש.`);
+      return;
+    }
+
+    if (!isFreeShip) {
+      setPlayers(prev => prev.map(p => p.id === currentPlayer.id 
+        ? {
+            ...p,
+            resources: {
+              ...p.resources,
+              WOOD: p.resources.WOOD - 1,
+              SHEEP: p.resources.SHEEP - 1
+            }
+          }
+        : p
+      ));
+    }
+
+    setEdges(prevEdges => prevEdges.map(e => 
+      e.id === edge.id 
+        ? { ...e, hasShip: true, shipPlayerId: currentPlayer.id } 
+        : e
+    ));
+
+    if (!isFreeShip) {
+      setCurrentAction(null);
+    }
+    
+    addLog(`השחקן ${currentPlayer.name} בנה ספינה! ${isFreeShip ? '(חינם - קלף בניית כבישים)' : 'עלות: 1 עץ, 1 כבש.'}`);
+  };
+
+  const handleEdgeClick = () => {
+    if (onClick) {
+      onClick();
+      return;
+    }
+    if (currentPlayer?.isBot) return;
+    if (!isValidPlacement) return;
+
+    if (currentAction === 'MOVE_SHIP_SELECT') {
+      setSelectedShipIdToMove(edge.id);
+      setCurrentAction('MOVE_SHIP_PLACE');
+      addLog(`בחרת ספינה פתוחה להזזה. בחר כעת יעד חוקי.`);
+      return;
+    }
+
+    if (currentAction === 'MOVE_SHIP_PLACE') {
+      setEdges(prevEdges => prevEdges.map(e => {
+        if (e.id === selectedShipIdToMove) {
+          return { ...e, hasShip: false, shipPlayerId: undefined };
+        }
+        if (e.id === edge.id) {
+          return { ...e, hasShip: true, shipPlayerId: currentPlayer.id };
+        }
+        return e;
+      }));
+
+      setHasMovedShipThisTurn(true);
+      setSelectedShipIdToMove(null);
+      setCurrentAction(null);
+      addLog(`השחקן ${currentPlayer.name} הזיז ספינה פתוחה למיקום חדש!`);
+      return;
+    }
+
+    if (isCoast) {
+      setShowCoastPopup(true);
+      return;
+    }
+
+    if (roadBuildingRemaining > 0 && activeExpansion === 'SEAFARERS') {
+      const isValidRoad = currentPlayer && !isBlockedBySetup && validateRoadPlacement(edge.id, currentPlayer.id, vertices, edges, tiles);
+      const isValidShip = currentPlayer && !isBlockedBySetup && validateShipPlacement(edge.id, currentPlayer.id, vertices, edges, tiles || []);
+      if (isValidRoad && !isValidShip) {
+        buildRoadOnEdge();
+      } else if (isValidShip && !isValidRoad) {
+        buildShipOnEdge();
+      }
+      return;
+    }
+
+    if (currentAction === 'BUILD_SHIP') {
+      buildShipOnEdge();
+    } else {
+      buildRoadOnEdge();
     }
   };
 
@@ -172,9 +285,10 @@ export const EdgeLine: React.FC<EdgeLineProps> = ({
   const playerColor = builtPlayer?.color || '#ff5722';
   
   const isBuilt = edge.hasRoad || edge.hasShip;
+  const isMovingThisShip = currentAction === 'MOVE_SHIP_PLACE' && selectedShipIdToMove === edge.id;
   const roadColor = isBuilt 
-    ? playerColor 
-    : (isValidPlacement ? `${currentPlayer?.color}80` : '#1a237e1a');
+    ? (isMovingThisShip ? '#facc15' : playerColor)
+    : (isValidPlacement ? (currentAction === 'MOVE_SHIP_PLACE' ? '#38bdf8' : `${currentPlayer?.color}80`) : '#1a237e1a');
 
   return (
     <g 
@@ -284,6 +398,68 @@ export const EdgeLine: React.FC<EdgeLineProps> = ({
           strokeLinecap="round"
           pointerEvents="none"
         />
+      )}
+
+      {showCoastPopup && (
+        <foreignObject
+          x={mx - 90}
+          y={my - 50}
+          width="180"
+          height="100"
+          style={{ overflow: 'visible', zIndex: 100 }}
+          onClick={(e) => e.stopPropagation()}
+        >
+          <div className="bg-slate-900 border border-slate-700 rounded-xl p-2.5 shadow-2xl flex flex-col gap-1.5 text-center" dir="rtl">
+            <span className="text-[10px] text-slate-200 font-bold leading-tight">בחר מה לבנות בקו החוף:</span>
+            <div className="flex gap-1 justify-center my-0.5">
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  buildRoadOnEdge();
+                  setShowCoastPopup(false);
+                }}
+                className="bg-emerald-600 hover:bg-emerald-500 text-white text-[9px] font-bold px-2.5 py-1 rounded shadow cursor-pointer active:scale-95"
+              >
+                כביש 🛣️
+              </button>
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  buildShipOnEdge();
+                  setShowCoastPopup(false);
+                }}
+                className="bg-blue-600 hover:bg-blue-500 text-white text-[9px] font-bold px-2.5 py-1 rounded shadow cursor-pointer active:scale-95"
+              >
+                ספינה ⛵
+              </button>
+            </div>
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                setShowCoastPopup(false);
+              }}
+              className="text-[8px] text-slate-400 hover:text-white transition-colors cursor-pointer"
+            >
+              ביטול
+            </button>
+          </div>
+        </foreignObject>
+      )}
+
+      {edge.isHarbor && (
+        <g transform={`translate(${mx}, ${my})`}>
+          <circle r="6" fill="#1e3a8a" stroke="#fbbf24" strokeWidth="1" />
+          <text
+            y="3"
+            textAnchor="middle"
+            fontSize="9"
+            fontWeight="black"
+            fill="#fbbf24"
+            className="select-none pointer-events-none font-sans"
+          >
+            ⚓
+          </text>
+        </g>
       )}
     </g>
   );

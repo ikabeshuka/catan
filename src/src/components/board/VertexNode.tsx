@@ -4,6 +4,7 @@ import { BoardVertex, BoardEdge } from '../../types/boardElements.types';
 import { Player } from '../../types/player.types';
 import { parseVertexId } from '../../utils/hexMath/parseVertexId';
 import { validateSettlementPlacement } from '../../utils/validation/validateSettlementPlacement';
+import { useGame } from '../../context/GameContext';
 
 interface VertexNodeProps {
   vertex: BoardVertex;
@@ -44,12 +45,13 @@ export const VertexNode: React.FC<VertexNodeProps> = ({
   recordSetupPlacement: propRecordSetupPlacement,
   turnSubPhase: propTurnSubPhase,
 }) => {
-  const turnManager = (!onClick && propIsSetupPhase === undefined) ? useTurnManager() : null;
-  const isSetupPhase = propIsSetupPhase !== undefined ? propIsSetupPhase : turnManager?.isSetupPhase;
-  const setupState = propSetupState !== undefined ? propSetupState : turnManager?.setupState;
-  const recordSetupPlacement = propRecordSetupPlacement !== undefined ? propRecordSetupPlacement : turnManager?.recordSetupPlacement;
-  const turnSubPhase = propTurnSubPhase !== undefined ? propTurnSubPhase : turnManager?.turnSubPhase;
+  const turnManager = useTurnManager();
+  const isSetupPhase = propIsSetupPhase !== undefined ? propIsSetupPhase : turnManager.isSetupPhase;
+  const setupState = propSetupState !== undefined ? propSetupState : turnManager.setupState;
+  const recordSetupPlacement = propRecordSetupPlacement !== undefined ? propRecordSetupPlacement : turnManager.recordSetupPlacement;
+  const turnSubPhase = propTurnSubPhase !== undefined ? propTurnSubPhase : turnManager.turnSubPhase;
 
+  const { tiles } = useGame();
   const [isHovered, setIsHovered] = useState(false);
   
   const { x, y } = parseVertexId(vertex.id);
@@ -58,7 +60,7 @@ export const VertexNode: React.FC<VertexNodeProps> = ({
   // בדיקת חוקיות לבניית יישוב
   const isBlockedBySetup = isSetupPhase && setupState.hasPlacedSettlement;
   const isValidPlacement = currentPlayer && !isBlockedBySetup
-    ? validateSettlementPlacement(vertex.id, currentPlayer.id, gamePhase, vertices, edges)
+    ? validateSettlementPlacement(vertex.id, currentPlayer.id, gamePhase, vertices, edges, tiles)
     : false;
 
   // בדיקת חוקיות לשדרוג לעיר

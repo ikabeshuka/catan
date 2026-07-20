@@ -30,7 +30,11 @@ export function useTurnManager() {
     longestRoadPlayerId,
     largestArmyPlayerId,
     activeExpansion,
-    setGoldCoins
+    selectedScenario,
+    setGoldCoins,
+    setGoldSelectionQueue,
+    setCurrentTurnBuiltShips,
+    setHasMovedShipThisTurn
   } = useGame();
 
   const { devCardDeck, setDevCardDeck, createTurnSnapshot, undoTurnActions } = useGame();
@@ -58,6 +62,10 @@ export function useTurnManager() {
   const startTurn = () => {
     console.log(`[TurnManager] Turn Started for: ${currentPlayer?.name} (ID: ${currentPlayer?.id}). Phase: ${gamePhase}, SubPhase: ${turnSubPhase}`);
     
+    // Reset turn variables for ships
+    setCurrentTurnBuiltShips([]);
+    setHasMovedShipThisTurn(false);
+
     // Initialize or reset remainingMovementPoints based on wagonLevel
     if (currentPlayer && gamePhase === 'MAIN_GAME') {
       setPlayers((prevPlayers: Player[]) => prevPlayers.map(p => {
@@ -153,7 +161,7 @@ export function useTurnManager() {
           return p;
         }));
       } else {
-        const { updatedPlayers, flows } = distributeResources(diceResult.total, tiles, vertices, players);
+        const { updatedPlayers, flows, goldSelections } = distributeResources(diceResult.total, tiles, vertices, players);
         setResourceFlows(flows);
         
         // Compare resources before and after distribution to log who received what
@@ -209,7 +217,14 @@ export function useTurnManager() {
         }
 
         setPlayers(updatedPlayers);
-        setTurnSubPhase('TRADE_AND_BUILD');
+        
+        if (goldSelections && goldSelections.length > 0) {
+          setGoldSelectionQueue(goldSelections);
+          setTurnSubPhase('GOLD_RESOURCE_SELECTION');
+          addLog(`🪙 אריח זהב הופעל! יש לבחור משאבים עבור ${goldSelections.length} קודקודים.`);
+        } else {
+          setTurnSubPhase('TRADE_AND_BUILD');
+        }
       }
     }, 600);
 
@@ -352,7 +367,7 @@ export function useTurnManager() {
   const recordSetupPlacement = (type: 'SETTLEMENT' | 'ROAD', targetId: string) => {
     if (!isSetupPhase) return;
     if (type === 'SETTLEMENT') {
-      setSetupState(prev => ({ ...prev, hasPlacedSettlement: true }));
+      setSetupState(prev => ({ ...prev, hasPlacedSettlement: true, lastSettlementVertexId: targetId }));
       if (gamePhase === 'SETUP_ROUND_2') {
         const oldPlayer = players.find(p => p.id === currentPlayer.id);
         const updatedPlayers = distributeInitialResources(targetId, tiles, players, currentPlayer.id);
@@ -386,7 +401,7 @@ export function useTurnManager() {
       const isBot = currentPlayer?.isBot;
       if (!isBot && (!setupState.hasPlacedSettlement || !setupState.hasPlacedRoad)) return;
       const config = getNextTurnConfig(currentPlayerIndex, gamePhase, players.length);
-      setSetupState({ hasPlacedSettlement: false, hasPlacedRoad: false });
+      setSetupState({ hasPlacedSettlement: false, hasPlacedRoad: false, lastSettlementVertexId: undefined });
       setCurrentPlayerIndex(config.nextIndex);
       setGamePhase(config.nextPhase);
       if (config.nextPhase === 'MAIN_GAME') {
@@ -411,14 +426,29 @@ export function useTurnManager() {
     }
 
     if (turnSubPhase !== 'TRADE_AND_BUILD') return;
+    
+    // Reset turn variables for ships
+    setCurrentTurnBuiltShips([]);
+    setHasMovedShipThisTurn(false);
+
     const nextIndex = (currentPlayerIndex + 1) % players.length;
     setCurrentPlayerIndex(nextIndex);
     setTurnSubPhase('BEFORE_ROLL');
   };
 
   const checkIfGameEnds = (player: Player) => {
-    const totalVP = getPlayerTotalVP(player, longestRoadPlayerId, largestArmyPlayerId, true);
-    if (totalVP >= 10) {
+    const totalVP = getPlayerTotalVP(player, longestRoadPlayerId, largestArmyPlayerId, true, vertices, tiles);
+    
+    let victoryGoal = 10;
+    if (activeExpansion === 'SEAFARERS') {
+      if (selectedScenario === 'HEADING_FOR_NEW_SHORES') {
+        victoryGoal = 14;
+      } else if (selectedScenario === 'FOUR_ISLANDS') {
+        victoryGoal = 13;
+      }
+    }
+
+    if (totalVP >= victoryGoal) {
       setGamePhase('GAME_OVER');
       addLog(`המשחק נגמר! ${player.name} ניצח/ה עם ${totalVP} נקודות ניצחון!`);
       return true;

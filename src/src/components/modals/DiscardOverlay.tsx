@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useGame } from '../../context/GameContext';
 import { ResourceCards } from '../../types/resources.types';
 
@@ -29,14 +29,6 @@ const CARD_COLORS: Record<string, string> = {
 export const DiscardOverlay: React.FC = () => {
   const { players, setPlayers, setTurnSubPhase, addLog, turnSubPhase } = useGame();
 
-  if (turnSubPhase !== 'DISCARD_PHASE') return null;
-
-  const humanPlayer = players.find(p => !p.isBot);
-  if (!humanPlayer) return null;
-
-  const totalCards = Object.values(humanPlayer.resources).reduce((a, b) => a + b, 0);
-  const toDiscard = Math.floor(totalCards / 2);
-
   const [discardCount, setDiscardCount] = useState<Record<string, number>>({
     WOOD: 0,
     BRICK: 0,
@@ -44,6 +36,26 @@ export const DiscardOverlay: React.FC = () => {
     WHEAT: 0,
     ORE: 0,
   });
+
+  useEffect(() => {
+    if (turnSubPhase === 'DISCARD_PHASE') {
+      setDiscardCount({
+        WOOD: 0,
+        BRICK: 0,
+        SHEEP: 0,
+        WHEAT: 0,
+        ORE: 0,
+      });
+    }
+  }, [turnSubPhase]);
+
+  if (turnSubPhase !== 'DISCARD_PHASE') return null;
+
+  const humanPlayer = players.find(p => !p.isBot);
+  if (!humanPlayer) return null;
+
+  const totalCards = Object.values(humanPlayer.resources).reduce((a, b) => a + b, 0);
+  const toDiscard = Math.floor(totalCards / 2);
 
   const chosenTotal = Object.values(discardCount).reduce((a, b) => a + b, 0);
   const remaining = toDiscard - chosenTotal;

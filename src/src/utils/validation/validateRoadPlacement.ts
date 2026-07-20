@@ -14,7 +14,7 @@ export function validateRoadPlacement(
 ): boolean {
   // 1. בדיקה שהנתיב פנוי
   const targetEdge = edges.find(e => e.id === edgeId);
-  if (!targetEdge || targetEdge.hasRoad) return false;
+  if (!targetEdge || targetEdge.hasRoad || targetEdge.hasShip) return false;
 
   // בדיקה שהצלע המבוקשת אינה גובלת בשני אריחי מים ('WATER') במקביל
   if (tiles) {
@@ -30,30 +30,27 @@ export function validateRoadPlacement(
   const v1Id = `v_${parts[0]}`;
   const v2Id = `v_${parts[1]}`;
 
-  // 3. בדיקה א': האם יש לשחקן יישוב או עיר באחד משני הקצוות?
   const vertex1 = vertices.find(v => v.id === v1Id);
   const vertex2 = vertices.find(v => v.id === v2Id);
 
-  if (
-    (vertex1 && vertex1.playerId === playerId && vertex1.structure !== 'NONE') ||
-    (vertex2 && vertex2.playerId === playerId && vertex2.structure !== 'NONE')
-  ) {
-    return true; // מחובר ישירות למבנה שלו
-  }
+  const edgeTouchesVertex = (eId: string, vId: string) => {
+    const parts = eId.replace('e_v_', '').split('_v_');
+    return `v_${parts[0]}` === vId || `v_${parts[1]}` === vId;
+  };
 
-  // 4. בדיקה ב': האם הכביש מחובר לכביש אחר של השחקן?
-  // נמצא את כל הכבישים האחרים שנוגעים בצומת הראשון או השני
-  const neighboringEdges = edges.filter(edge => {
-    if (edge.id === edgeId) return false;
-    const parts = edge.id.replace('e_v_', '').split('_v_');
-    const edgeV1Id = `v_${parts[0]}`;
-    const edgeV2Id = `v_${parts[1]}`;
-    return edgeV1Id === v1Id || edgeV2Id === v1Id || edgeV1Id === v2Id || edgeV2Id === v2Id;
-  });
+  const touchesRoadAtV1 = edges.some(edge => edge.id !== edgeId && !!edge.hasRoad && edge.playerId === playerId && edgeTouchesVertex(edge.id, v1Id));
+  const touchesShipAtV1 = edges.some(edge => edge.id !== edgeId && !!edge.hasShip && edge.shipPlayerId === playerId && edgeTouchesVertex(edge.id, v1Id));
+  const hasOwnStructureAtV1 = !!(vertex1 && vertex1.playerId === playerId && vertex1.structure !== 'NONE');
+  const v1IsBlocked = !!(vertex1 && vertex1.structure !== 'NONE' && vertex1.playerId !== playerId);
 
-  const hasConnectedRoad = neighboringEdges.some(
-    edge => edge.hasRoad && edge.playerId === playerId
-  );
+  const canConnectAtV1 = hasOwnStructureAtV1 || (touchesRoadAtV1 && !v1IsBlocked) || (touchesShipAtV1 && hasOwnStructureAtV1);
 
-  return hasConnectedRoad;
+  const touchesRoadAtV2 = edges.some(edge => edge.id !== edgeId && !!edge.hasRoad && edge.playerId === playerId && edgeTouchesVertex(edge.id, v2Id));
+  const touchesShipAtV2 = edges.some(edge => edge.id !== edgeId && !!edge.hasShip && edge.shipPlayerId === playerId && edgeTouchesVertex(edge.id, v2Id));
+  const hasOwnStructureAtV2 = !!(vertex2 && vertex2.playerId === playerId && vertex2.structure !== 'NONE');
+  const v2IsBlocked = !!(vertex2 && vertex2.structure !== 'NONE' && vertex2.playerId !== playerId);
+
+  const canConnectAtV2 = hasOwnStructureAtV2 || (touchesRoadAtV2 && !v2IsBlocked) || (touchesShipAtV2 && hasOwnStructureAtV2);
+
+  return canConnectAtV1 || canConnectAtV2;
 }

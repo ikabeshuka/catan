@@ -2,7 +2,13 @@ import { HexTile, HexCoordinate } from '../../types/hex.types';
 import { GameConfig } from '../../config/standardVersion';
 import { shuffleArray } from '../array/shuffleArray';
 import { starterBoardPreset } from '../../config/starterBoardPreset';
-import { seafarersNewShoresPreset } from '../../config/seafarersBoardPreset';
+import { SeafarersScenario } from '../../types/game.types';
+import { 
+  seafarers3PlayersNewShores, 
+  seafarers4PlayersNewShores, 
+  seafarers3PlayersFourIslands, 
+  seafarers4PlayersFourIslands 
+} from '../../config/seafarersPresets';
 
 /**
  * פונקציית עזר לבדיקת שכנות קובייה (isNeighbor שבה המרחק הגיאומטרי בין המשושים שווה ל-1)
@@ -14,34 +20,325 @@ function isNeighbor(c1: HexCoordinate, c2: HexCoordinate): boolean {
 /**
  * מייצרת לוח משחק מלא (מערך של אריחים משושים) על פי חוקי הקונפיגורציה שסופקה
  */
-export function generateBoard(config: GameConfig, boardType?: 'RANDOM' | 'STARTER', expansion?: 'BASE' | 'MERCHANTS_AND_BARBARIANS' | 'SEAFARERS'): HexTile[] {
-  if (boardType === 'STARTER') {
-    if (expansion === 'SEAFARERS') {
-      const tiles = JSON.parse(JSON.stringify(seafarersNewShoresPreset)) as HexTile[];
-      tiles.sort((a, b) => a.coord.r - b.coord.r || a.coord.q - b.coord.q);
-      const preset = seafarersNewShoresPreset;
-      tiles.forEach((tile, index) => {
-        tile.type = preset[index].type;
-        tile.numberToken = preset[index].numberToken;
-        tile.hasRobber = preset[index].hasRobber;
-        tile.id = `hex_${index + 1}`;
-      });
-      return tiles;
-    }
+export function generateBoard(
+  config: GameConfig,
+  boardType?: 'RANDOM' | 'STARTER',
+  expansion?: 'BASE' | 'MERCHANTS_AND_BARBARIANS' | 'SEAFARERS',
+  scenario?: SeafarersScenario,
+  playerCount: number = 4
+): HexTile[] {
+  if (expansion === 'SEAFARERS') {
+    switch (scenario) {
+      case 'HEADING_FOR_NEW_SHORES': {
+        const preset = playerCount === 3 ? seafarers3PlayersNewShores : seafarers4PlayersNewShores;
+        const tiles = JSON.parse(JSON.stringify(preset)) as HexTile[];
 
+        if (boardType === 'RANDOM') {
+          // 1. Shuffling main island (islandId === 1) land tiles
+          const mainIslandLandTiles = tiles.filter(t => t.islandId === 1 && t.type !== 'WATER');
+          const mainResources = shuffleArray(mainIslandLandTiles.map(t => t.type));
+          const mainTokens = shuffleArray(mainIslandLandTiles.filter(t => t.type !== 'DESERT').map(t => t.numberToken as number));
+
+          let mainResourceIndex = 0;
+          let mainTokenIndex = 0;
+
+          // Assign them back
+          mainIslandLandTiles.forEach(tile => {
+            tile.type = mainResources[mainResourceIndex++];
+            if (tile.type === 'DESERT') {
+              tile.numberToken = null;
+            } else {
+              tile.numberToken = mainTokens[mainTokenIndex++];
+            }
+          });
+
+          // Shuffle main island harbors (defined on island 1, or on water tiles pointing to island 1)
+          const mainHarborTiles = tiles.filter(t => {
+            const hasMainParent = t.islandId === 1;
+            const hasMainTo = t.harbors?.some(h => {
+              const toTile = tiles.find(x => x.id === h.toTileId);
+              return toTile && toTile.islandId === 1;
+            });
+            return hasMainParent || hasMainTo;
+          });
+
+          const mainHarborsList: { tileId: string; harborIndex: number; type: string }[] = [];
+          mainHarborTiles.forEach(tile => {
+            if (tile.harbors) {
+              tile.harbors.forEach((h, idx) => {
+                mainHarborsList.push({ tileId: tile.id, harborIndex: idx, type: h.type });
+              });
+            }
+          });
+
+          const mainHarborTypes = shuffleArray(mainHarborsList.map(h => h.type));
+          let mainHarborTypeIndex = 0;
+          mainHarborsList.forEach(item => {
+            const tile = tiles.find(t => t.id === item.tileId);
+            if (tile && tile.harbors && tile.harbors[item.harborIndex]) {
+              tile.harbors[item.harborIndex].type = mainHarborTypes[mainHarborTypeIndex++] as any;
+            }
+          });
+
+          // Resolve conflicts of adjacent red numbers (6 and 8) on the main island
+          let hasConflict = true;
+          let attempts = 0;
+          while (hasConflict && attempts < 50) {
+            hasConflict = false;
+            attempts++;
+            for (let i = 0; i < mainIslandLandTiles.length; i++) {
+              const tileA = mainIslandLandTiles[i];
+              if (tileA.type === 'DESERT' || tileA.numberToken === null) continue;
+              const valA = tileA.numberToken;
+              if (valA === 6 || valA === 8) {
+                const hasConflictNeighbor = mainIslandLandTiles.some(tileB =>
+                  tileB.id !== tileA.id &&
+                  tileB.type !== 'DESERT' &&
+                  (tileB.numberToken === 6 || tileB.numberToken === 8) &&
+                  isNeighbor(tileA.coord, tileB.coord)
+                );
+                if (hasConflictNeighbor) {
+                  // Find a swap candidate on the main island
+                  const candidate = mainIslandLandTiles.find(tileC => {
+                    if (tileC.id === tileA.id) return false;
+                    if (tileC.type === 'DESERT' || tileC.numberToken === null) return false;
+                    if (tileC.numberToken === 6 || tileC.numberToken === 8) return false;
+                    const hasNeighbor6or8 = mainIslandLandTiles.some(n =>
+                      n.id !== tileC.id &&
+                      (n.numberToken === 6 || n.numberToken === 8) &&
+                      isNeighbor(tileC.coord, n.coord)
+                    );
+                    return !hasNeighbor6or8;
+                  });
+                  if (candidate) {
+                    const temp = tileA.numberToken;
+                    tileA.numberToken = candidate.numberToken;
+                    candidate.numberToken = temp;
+                    hasConflict = true;
+                    break;
+                  }
+                }
+              }
+            }
+          }
+
+          // 2. Shuffling perimeter land tiles (islandId > 1, type !== 'WATER')
+          const perimeterLandTiles = tiles.filter(t => t.islandId !== undefined && t.islandId > 1 && t.type !== 'WATER');
+          if (perimeterLandTiles.length > 0) {
+            const perimeterResources = shuffleArray(perimeterLandTiles.map(t => t.type));
+            const perimeterTokens = shuffleArray(perimeterLandTiles.map(t => t.numberToken).filter(n => n !== null) as number[]);
+
+            let periResIndex = 0;
+            let periTokenIndex = 0;
+            perimeterLandTiles.forEach(tile => {
+              tile.type = perimeterResources[periResIndex++];
+              tile.numberToken = perimeterTokens[periTokenIndex++];
+            });
+
+            // Ensure no adjacent 6 and 8 on the small islands (activated for 4 players)
+            if (playerCount === 4) {
+              let periConflict = true;
+              let periAttempts = 0;
+              while (periConflict && periAttempts < 50) {
+                periConflict = false;
+                periAttempts++;
+                for (let i = 0; i < perimeterLandTiles.length; i++) {
+                  const tileA = perimeterLandTiles[i];
+                  if (tileA.numberToken === null) continue;
+                  const valA = tileA.numberToken;
+                  if (valA === 6 || valA === 8) {
+                    const hasConflictNeighbor = perimeterLandTiles.some(tileB =>
+                      tileB.id !== tileA.id &&
+                      (tileB.numberToken === 6 || tileB.numberToken === 8) &&
+                      isNeighbor(tileA.coord, tileB.coord)
+                    );
+                    if (hasConflictNeighbor) {
+                      const candidate = perimeterLandTiles.find(tileC => {
+                        if (tileC.id === tileA.id) return false;
+                        if (tileC.numberToken === null || tileC.numberToken === 6 || tileC.numberToken === 8) return false;
+                        const hasNeighbor6or8 = perimeterLandTiles.some(n =>
+                          n.id !== tileC.id &&
+                          (n.numberToken === 6 || n.numberToken === 8) &&
+                          isNeighbor(tileC.coord, n.coord)
+                        );
+                        return !hasNeighbor6or8;
+                      });
+                      if (candidate) {
+                        const temp = tileA.numberToken;
+                        tileA.numberToken = candidate.numberToken;
+                        candidate.numberToken = temp;
+                        periConflict = true;
+                        break;
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+
+        // Set initial pirate and robber positions
+        const pirateTargetId = playerCount === 3 ? 'hex_3p_22' : 'hex_4p_26';
+        tiles.forEach(t => {
+          t.hasPirate = t.id === pirateTargetId;
+          t.hasRobber = false;
+        });
+
+        const desertTile = tiles.find(t => t.type === 'DESERT');
+        if (desertTile) {
+          desertTile.hasRobber = true;
+        } else {
+          const token12Tile = tiles.find(t => t.numberToken === 12);
+          if (token12Tile) {
+            token12Tile.hasRobber = true;
+          }
+        }
+
+        return tiles;
+      }
+      case 'FOUR_ISLANDS': {
+        const preset = playerCount === 3 ? seafarers3PlayersFourIslands : seafarers4PlayersFourIslands;
+        const tiles = JSON.parse(JSON.stringify(preset)) as HexTile[];
+
+        if (boardType === 'RANDOM') {
+          // Shuffle land tiles across all islands (type !== 'WATER')
+          const landTiles = tiles.filter(t => t.type !== 'WATER');
+          const resources = shuffleArray(landTiles.map(t => t.type));
+          const tokens = shuffleArray(landTiles.map(t => t.numberToken).filter(n => n !== null) as number[]);
+          const harborTypes = shuffleArray(landTiles.flatMap(t => t.harbors || []).map(h => h.type));
+
+          let resIndex = 0;
+          let tokenIndex = 0;
+          let harborTypeIndex = 0;
+
+          landTiles.forEach(tile => {
+            tile.type = resources[resIndex++];
+            tile.numberToken = tokens[tokenIndex++];
+            if (tile.harbors) {
+              tile.harbors = tile.harbors.map(h => ({
+                ...h,
+                type: harborTypes[harborTypeIndex++]
+              }));
+            }
+          });
+
+          // Resolve adjacent 6/8 conflicts globally
+          let hasConflict = true;
+          let attempts = 0;
+          while (hasConflict && attempts < 50) {
+            hasConflict = false;
+            attempts++;
+            for (let i = 0; i < landTiles.length; i++) {
+              const tileA = landTiles[i];
+              if (tileA.numberToken === null) continue;
+              const valA = tileA.numberToken;
+              if (valA === 6 || valA === 8) {
+                const hasConflictNeighbor = landTiles.some(tileB =>
+                  tileB.id !== tileA.id &&
+                  (tileB.numberToken === 6 || tileB.numberToken === 8) &&
+                  isNeighbor(tileA.coord, tileB.coord)
+                );
+                if (hasConflictNeighbor) {
+                  const candidate = landTiles.find(tileC => {
+                    if (tileC.id === tileA.id) return false;
+                    if (tileC.numberToken === null || tileC.numberToken === 6 || tileC.numberToken === 8) return false;
+                    const hasNeighbor6or8 = landTiles.some(n =>
+                      n.id !== tileC.id &&
+                      (n.numberToken === 6 || n.numberToken === 8) &&
+                      isNeighbor(tileC.coord, n.coord)
+                    );
+                    return !hasNeighbor6or8;
+                  });
+                  if (candidate) {
+                    const temp = tileA.numberToken;
+                    tileA.numberToken = candidate.numberToken;
+                    candidate.numberToken = temp;
+                    hasConflict = true;
+                    break;
+                  }
+                }
+              }
+            }
+          }
+        }
+
+        // Set initial pirate and robber positions
+        const pirateTargetId = playerCount === 3 ? 'hex_fi3_36' : 'hex_fi4_36';
+        tiles.forEach(t => {
+          t.hasPirate = t.id === pirateTargetId;
+          t.hasRobber = false;
+        });
+
+        if (boardType === 'RANDOM') {
+          const token12Tile = tiles.find(t => t.numberToken === 12);
+          if (token12Tile) {
+            token12Tile.hasRobber = true;
+          } else {
+            const defaultRobberId = playerCount === 3 ? 'hex_fi3_35' : 'hex_fi4_8';
+            const defaultTile = tiles.find(t => t.id === defaultRobberId);
+            if (defaultTile) defaultTile.hasRobber = true;
+          }
+        } else {
+          const robberTargetId = playerCount === 3 ? 'hex_fi3_35' : 'hex_fi4_8';
+          const t = tiles.find(x => x.id === robberTargetId);
+          if (t) t.hasRobber = true;
+        }
+
+        return tiles;
+      }
+      case 'FOG_ISLAND': {
+        // החזר שלד ראשוני, ודא שיש אריחים ברדיוס 3 המוגדרים כ-type: 'FOG' כפי שמיפינו באבחון
+        const tiles: HexTile[] = [];
+        let hexIdCounter = 1;
+        const radius = 3;
+        for (let q = -radius; q <= radius; q++) {
+          const rMin = Math.max(-radius, -q - radius);
+          const rMax = Math.min(radius, -q + radius);
+          for (let r = rMin; r <= rMax; r++) {
+            const s = -q - r;
+            tiles.push({
+              id: `hex_${hexIdCounter++}`,
+              coord: { q, r, s },
+              type: 'FOG',
+              numberToken: null,
+              hasRobber: false
+            });
+          }
+        }
+        return tiles;
+      }
+      default: {
+        const preset = playerCount === 3 ? seafarers3PlayersNewShores : seafarers4PlayersNewShores;
+        const tiles = JSON.parse(JSON.stringify(preset)) as HexTile[];
+
+        // Set initial pirate and robber positions (Heading for New Shores rules)
+        const pirateTargetId = playerCount === 3 ? 'hex_3p_22' : 'hex_4p_26';
+        tiles.forEach(t => {
+          t.hasPirate = t.id === pirateTargetId;
+          t.hasRobber = false;
+        });
+
+        const desertTile = tiles.find(t => t.type === 'DESERT');
+        if (desertTile) {
+          desertTile.hasRobber = true;
+        } else {
+          const token12Tile = tiles.find(t => t.numberToken === 12);
+          if (token12Tile) {
+            token12Tile.hasRobber = true;
+          }
+        }
+
+        return tiles;
+      }
+    }
+  }
+
+  if (boardType === 'STARTER') {
     const tiles = JSON.parse(JSON.stringify(starterBoardPreset)) as HexTile[];
     
     // Sort 19 tiles row-by-row by coordinates
     tiles.sort((a, b) => a.coord.r - b.coord.r || a.coord.q - b.coord.q);
-    
-    // Dress with resources, tokens, robber and id from the original starterBoardPreset order
-    const preset = starterBoardPreset;
-    tiles.forEach((tile, index) => {
-      tile.type = preset[index].type;
-      tile.numberToken = preset[index].numberToken;
-      tile.hasRobber = preset[index].hasRobber;
-      tile.id = `hex_${index + 1}`;
-    });
 
     if (expansion === 'MERCHANTS_AND_BARBARIANS') {
       tiles.forEach(tile => {
@@ -71,17 +368,8 @@ export function generateBoard(config: GameConfig, boardType?: 'RANDOM' | 'STARTE
   let tokenIndex = 0;
   let hexIdCounter = 1;
 
-  // Pools for Seafarers outer ring (radius 3)
-  const seafarersOuterPool: HexTile['type'][] = expansion === 'SEAFARERS' ? shuffleArray([
-    'WATER', 'WATER', 'WATER', 'WATER', 'WATER', 'WATER', 'WATER', 'WATER', 'WATER',
-    'GOLD_FIELD', 'GOLD_FIELD', 'WOOD', 'BRICK', 'SHEEP', 'WHEAT', 'ORE', 'GOLD_FIELD', 'ORE'
-  ]) : [];
-  const seafarersOuterTokens = expansion === 'SEAFARERS' ? shuffleArray([3, 4, 5, 6, 8, 9, 10, 11, 12]) : [];
-  let outerResIndex = 0;
-  let outerTokenIndex = 0;
-
   // 2. יצירת רשת הקואורדינטות הגיאומטרית לפי הרדיוס
-  const radius = expansion === 'SEAFARERS' ? 3 : config.boardRadius;
+  const radius = config.boardRadius;
   for (let q = -radius; q <= radius; q++) {
     const rMin = Math.max(-radius, -q - radius);
     const rMax = Math.min(radius, -q + radius);
@@ -89,48 +377,40 @@ export function generateBoard(config: GameConfig, boardType?: 'RANDOM' | 'STARTE
     for (let r = rMin; r <= rMax; r++) {
       const s = -q - r; // הכלל בקואורדינטות קוביה: q + r + s = 0
       const coord: HexCoordinate = { q, r, s };
-      const isOuterRing = Math.abs(q) === 3 || Math.abs(r) === 3 || Math.abs(s) === 3;
 
       let type: HexTile['type'];
       let numberToken: number | null = null;
       let hasRobber = false;
 
-      if (expansion === 'SEAFARERS' && isOuterRing) {
-        type = seafarersOuterPool[outerResIndex++];
-        if (type !== 'WATER') {
-          numberToken = seafarersOuterTokens[outerTokenIndex++];
-        }
-      } else {
-        // שליפת המשאב הבא מהמערך המעורבב
-        type = shuffledResources[resourceIndex];
-        resourceIndex++;
+      // שליפת המשאב הבא מהמערך המעורבב
+      type = shuffledResources[resourceIndex];
+      resourceIndex++;
 
-        // התאמת מספר אסימון: למדבר אין מספר, והשודד מתחיל עליו
-        if (type === 'DESERT') {
-          hasRobber = true;
-        } else {
-          let currentToken = shuffledTokens[tokenIndex];
-          if (currentToken === 6 || currentToken === 8) {
-            const hasHighRiskNeighbor = tiles.some(t => 
-              t.numberToken !== null && 
-              (t.numberToken === 6 || t.numberToken === 8) && 
-              isNeighbor(coord, t.coord)
-            );
-            if (hasHighRiskNeighbor) {
-              let swapIndex = tokenIndex + 1;
-              while (swapIndex < shuffledTokens.length && (shuffledTokens[swapIndex] === 6 || shuffledTokens[swapIndex] === 8)) {
-                swapIndex++;
-              }
-              if (swapIndex < shuffledTokens.length) {
-                shuffledTokens[tokenIndex] = shuffledTokens[swapIndex];
-                shuffledTokens[swapIndex] = currentToken;
-                currentToken = shuffledTokens[tokenIndex];
-              }
+      // התאמת מספר אסימון: למדבר אין מספר, והשודד מתחיל עליו
+      if (type === 'DESERT') {
+        hasRobber = true;
+      } else {
+        let currentToken = shuffledTokens[tokenIndex];
+        if (currentToken === 6 || currentToken === 8) {
+          const hasHighRiskNeighbor = tiles.some(t => 
+            t.numberToken !== null && 
+            (t.numberToken === 6 || t.numberToken === 8) && 
+            isNeighbor(coord, t.coord)
+          );
+          if (hasHighRiskNeighbor) {
+            let swapIndex = tokenIndex + 1;
+            while (swapIndex < shuffledTokens.length && (shuffledTokens[swapIndex] === 6 || shuffledTokens[swapIndex] === 8)) {
+              swapIndex++;
+            }
+            if (swapIndex < shuffledTokens.length) {
+              shuffledTokens[tokenIndex] = shuffledTokens[swapIndex];
+              shuffledTokens[swapIndex] = currentToken;
+              currentToken = shuffledTokens[tokenIndex];
             }
           }
-          numberToken = currentToken;
-          tokenIndex++;
         }
+        numberToken = currentToken;
+        tokenIndex++;
       }
 
       // הוספת האריח המוכן למערך הלוח

@@ -1,5 +1,7 @@
 import { BoardVertex, BoardEdge } from '../../types/boardElements.types';
 import { GamePhase } from '../../context/GameContext';
+import { HexTile } from '../../types/hex.types';
+import { cubeToPixel } from '../hexMath/cubeToPixel';
 
 /**
  * בודקת האם שחקן יכול לבנות יישוב בצומת מסוים על הלוח
@@ -9,7 +11,8 @@ export function validateSettlementPlacement(
   playerId: string,
   gamePhase: GamePhase,
   vertices: BoardVertex[],
-  edges: BoardEdge[]
+  edges: BoardEdge[],
+  tiles?: HexTile[]
 ): boolean {
   // 1. בדיקה שהצומת ריק לחלוטין
   const targetVertex = vertices.find(v => v.id === vertexId);
@@ -50,6 +53,43 @@ export function validateSettlementPlacement(
       edge => edge.hasRoad && edge.playerId === playerId
     );
     if (!hasConnectedRoad) return false;
+  }
+
+  // 4. חסימת יישוב בלב ים (לפחות אריח יבשה אחד משיק לצומת)
+  if (tiles) {
+    const [, xStr, yStr] = vertexId.split('_');
+    const vX = parseFloat(xStr);
+    const vY = parseFloat(yStr);
+
+    const borderingTiles = tiles.filter((tile) => {
+      const center = cubeToPixel(tile.coord, 60);
+      for (let i = 0; i < 6; i++) {
+        const angleRad = (Math.PI / 180) * (60 * i - 30);
+        const x = center.x + 60 * Math.cos(angleRad);
+        const y = center.y + 60 * Math.sin(angleRad);
+        
+        const roundedX = Math.round(x * 10) / 10;
+        const roundedY = Math.round(y * 10) / 10;
+
+        if (roundedX === vX && roundedY === vY) {
+          return true;
+        }
+      }
+      return false;
+    });
+
+    if (borderingTiles.length > 0 && borderingTiles.every(tile => tile.type === 'WATER')) {
+      return false;
+    }
+
+    // Seafarers Setup Restriction: Setup settlements allowed ONLY on the main island (islandId === 1)
+    if (gamePhase === 'SETUP_ROUND_1' || gamePhase === 'SETUP_ROUND_2') {
+      const touchesMainIsland = borderingTiles.some(tile => tile.islandId === 1);
+      const touchesForeignIsland = borderingTiles.some(tile => tile.islandId !== undefined && tile.islandId > 1);
+      if (touchesForeignIsland && !touchesMainIsland) {
+        return false;
+      }
+    }
   }
 
   return true;

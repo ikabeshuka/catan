@@ -1,15 +1,17 @@
-import { BoardVertex } from '../../../types/boardElements.types';
+import { BoardVertex, BoardEdge } from '../../../types/boardElements.types';
 import { Player } from '../../../types/player.types';
 import { HexTile } from '../../../types/hex.types';
 import { TurnSubPhase } from '../../../types/game.types';
 import { cubeToPixel } from '../../hexMath/cubeToPixel';
 import { moveRobber } from '../../gameEngine/moveRobber';
 import { getEligibleRobberyTargets, stealRandomCard } from '../../gameEngine/robberSteal';
+import { parseEdgeId } from '../../hexMath/parseEdgeId';
 
 interface RobberPhaseParams {
   botPlayer: Player;
   tiles: HexTile[];
   vertices: BoardVertex[];
+  edges?: BoardEdge[];
   players: Player[];
   addLog?: (message: string) => void;
   setPlayers: React.Dispatch<React.SetStateAction<Player[]>>;
@@ -17,10 +19,23 @@ interface RobberPhaseParams {
   setTurnSubPhase?: React.Dispatch<React.SetStateAction<TurnSubPhase>>;
 }
 
+export function movePirate(targetTileId: string, tiles: HexTile[]): HexTile[] {
+  return tiles.map((tile) => {
+    if (tile.id === targetTileId) {
+      return { ...tile, hasPirate: true };
+    }
+    if (tile.hasPirate) {
+      return { ...tile, hasPirate: false };
+    }
+    return tile;
+  });
+}
+
 export function robberPhase({
   botPlayer,
   tiles,
   vertices,
+  edges = [],
   players,
   addLog,
   setPlayers,
@@ -28,8 +43,7 @@ export function robberPhase({
   setTurnSubPhase
 }: RobberPhaseParams): void {
   setTimeout(() => {
-    const possibleTiles = tiles.filter(t => !t.hasRobber && t.type !== 'DESERT');
-    if (possibleTiles.length === 0 || !setTiles || !setTurnSubPhase) {
+    if (!setTiles || !setTurnSubPhase) {
       if (setTurnSubPhase) {
         setTurnSubPhase('TRADE_AND_BUILD');
       }
@@ -46,10 +60,12 @@ export function robberPhase({
 
     const HEX_SIZE = 60;
 
-    let bestTileId = possibleTiles[0].id;
-    let highestScore = -1;
+    // --- 1. EVALUATE LAND ROBBER ---
+    const possibleLandTiles = tiles.filter(t => t.type !== 'WATER' && t.type !== 'DESERT' && !t.hasRobber);
+    let bestLandTileId = possibleLandTiles.length > 0 ? possibleLandTiles[0].id : null;
+    let highestLandScore = -1;
 
-    possibleTiles.forEach(tile => {
+    possibleLandTiles.forEach(tile => {
       let tileScore = 0;
       const center = cubeToPixel(tile.coord, HEX_SIZE);
 
@@ -88,62 +104,166 @@ export function robberPhase({
         }
       });
 
-      if (tileScore > highestScore) {
-        highestScore = tileScore;
-        bestTileId = tile.id;
+      if (tileScore > highestLandScore) {
+        highestLandScore = tileScore;
+        bestLandTileId = tile.id;
       }
     });
 
-    const chosenTile = tiles.find(t => t.id === bestTileId);
-    if (chosenTile) {
-      setTiles(prevTiles => moveRobber(bestTileId, prevTiles));
-      if (addLog) {
-        const resourceLabels: Record<string, string> = {
-          WOOD: 'עץ',
-          BRICK: 'לבנה',
-          SHEEP: 'כבש',
-          WHEAT: 'חיטה',
-          ORE: 'ברזל',
-          DESERT: 'מדבר'
-        };
-        const tileLabel = resourceLabels[chosenTile.type] || chosenTile.type;
-        addLog(`[שודד] הבוט ${botPlayer.name} הזיז את השודד לאריח מסוג ${tileLabel}.`);
+    // --- 2. EVALUATE WATER PIRATE ---
+    const possibleWaterTiles = tiles.filter(t => t.type === 'WATER' && !t.hasPirate);
+    let bestWaterTileId = possibleWaterTiles.length > 0 ? possibleWaterTiles[0].id : null;
+    let highestWaterScore = -1;
+
+    possibleWaterTiles.forEach(tile => {
+      let tileScore = 0;
+      const center = cubeToPixel(tile.coord, HEX_SIZE);
+
+      const tileVertexIds = new Set<string>();
+      vertices.forEach(vertex => {
+        for (let i = 0; i < 6; i++) {
+          const angleRad = (Math.PI / 180) * (60 * i - 30);
+          const x = center.x + HEX_SIZE * Math.cos(angleRad);
+          const y = center.y + HEX_SIZE * Math.sin(angleRad);
+
+          const roundedX = Math.round(x * 10) / 10;
+          const roundedY = Math.round(y * 10) / 10;
+          const checkId = `v_${roundedX}_${roundedY}`;
+
+          if (checkId === vertex.id) {
+            tileVertexIds.add(vertex.id);
+            break;
+          }
+        }
+      });
+
+      edges.forEach(edge => {
+        if (edge.hasShip && edge.shipPlayerId && edge.shipPlayerId !== botPlayer.id) {
+          const { x1, y1, x2, y2 } = parseEdgeId(edge.id);
+          const v1Id = `v_${x1}_${y1}`;
+          const v2Id = `v_${x2}_${y2}`;
+          if (tileVertexIds.has(v1Id) && tileVertexIds.has(v2Id)) {
+            let baseScore = 3; // base weight for a ship
+            if (botPlayer.difficulty === 'HARD') {
+              const targetPlayer = players.find(p => p.id === edge.shipPlayerId);
+              if (targetPlayer && targetPlayer.victoryPoints >= 7) {
+                baseScore += 50;
+              }
+            }
+            tileScore += baseScore;
+          }
+        }
+      });
+
+      if (tileScore > highestWaterScore) {
+        highestWaterScore = tileScore;
+        bestWaterTileId = tile.id;
       }
+    });
 
-      // HARD bot: Anti-leader strategy for robber placement and stealing
-      if (botPlayer.difficulty === 'HARD') {
-        const otherPlayers = players.filter(p => p.id !== botPlayer.id);
-        const leadingPlayers = otherPlayers.filter(p => p.victoryPoints >= 7);
+    // --- 3. MAKE DECISION: LAND ROBBER OR WATER PIRATE? ---
+    const isSeafarers = tiles.some(t => t.type === 'WATER');
+    const shouldPlacePirate = isSeafarers && bestWaterTileId !== null && (highestWaterScore > highestLandScore || bestLandTileId === null);
 
-        let bestVictim = null;
-
-        // Prioritize stealing from leading players on this tile
-        const eligibleTargets = getEligibleRobberyTargets(chosenTile, vertices, players, botPlayer.id);
-        const leadingTargets = eligibleTargets.filter(t => leadingPlayers.some(lp => lp.id === t.id));
-
-        if (leadingTargets.length > 0) {
-          // Steal from the leading player with most cards
-          bestVictim = leadingTargets.sort((a, b) => Object.values(b.resources).reduce((sum, count) => sum + count, 0) - Object.values(a.resources).reduce((sum, count) => sum + count, 0))[0];
-        } else if (eligibleTargets.length > 0) {
-          // If no leading players on this tile, steal from any player with most cards
-          bestVictim = eligibleTargets.sort((a, b) => Object.values(b.resources).reduce((sum, count) => sum + count, 0) - Object.values(a.resources).reduce((sum, count) => sum + count, 0))[0];
+    if (shouldPlacePirate && bestWaterTileId) {
+      // Place Pirate
+      const chosenTile = tiles.find(t => t.id === bestWaterTileId);
+      if (chosenTile) {
+        setTiles(prevTiles => movePirate(bestWaterTileId!, prevTiles));
+        if (addLog) {
+          addLog(`[שודד ים] הבוט ${botPlayer.name} הזיז את שודד הים לאריח מים.`);
         }
 
-        if (bestVictim) {
-          const { updatedPlayers } = stealRandomCard(botPlayer.id, bestVictim.id, players);
+        // Identify pirate victims (players with ships bordering this water tile)
+        const center = cubeToPixel(chosenTile.coord, HEX_SIZE);
+        const tileVertexIds = new Set<string>();
+        vertices.forEach(vertex => {
+          for (let i = 0; i < 6; i++) {
+            const angleRad = (Math.PI / 180) * (60 * i - 30);
+            const x = center.x + HEX_SIZE * Math.cos(angleRad);
+            const y = center.y + HEX_SIZE * Math.sin(angleRad);
+
+            const roundedX = Math.round(x * 10) / 10;
+            const roundedY = Math.round(y * 10) / 10;
+            const checkId = `v_${roundedX}_${roundedY}`;
+
+            if (checkId === vertex.id) {
+              tileVertexIds.add(vertex.id);
+              break;
+            }
+          }
+        });
+
+        const candidatePlayerIds = new Set<string>();
+        edges.forEach(edge => {
+          if (edge.hasShip && edge.shipPlayerId && edge.shipPlayerId !== botPlayer.id) {
+            const { x1, y1, x2, y2 } = parseEdgeId(edge.id);
+            const v1Id = `v_${x1}_${y1}`;
+            const v2Id = `v_${x2}_${y2}`;
+            if (tileVertexIds.has(v1Id) && tileVertexIds.has(v2Id)) {
+              candidatePlayerIds.add(edge.shipPlayerId);
+            }
+          }
+        });
+
+        const eligibleTargets = players.filter(p => {
+          if (!candidatePlayerIds.has(p.id)) return false;
+          const totalCards = Object.values(p.resources).reduce((sum, count) => sum + (count as number), 0);
+          return totalCards > 0;
+        });
+
+        if (eligibleTargets.length > 0) {
+          let chosenVictim = eligibleTargets[Math.floor(Math.random() * eligibleTargets.length)];
+          if (botPlayer.difficulty === 'HARD') {
+            const leadingVictims = eligibleTargets.filter(p => p.victoryPoints >= 7);
+            if (leadingVictims.length > 0) {
+              chosenVictim = leadingVictims.sort((a, b) => Object.values(b.resources).reduce((sum, count) => sum + count, 0) - Object.values(a.resources).reduce((sum, count) => sum + count, 0))[0];
+            } else {
+              chosenVictim = eligibleTargets.sort((a, b) => Object.values(b.resources).reduce((sum, count) => sum + count, 0) - Object.values(a.resources).reduce((sum, count) => sum + count, 0))[0];
+            }
+          }
+
+          const { updatedPlayers } = stealRandomCard(botPlayer.id, chosenVictim.id, players);
           setPlayers(updatedPlayers);
           if (addLog) {
-            addLog(`[שודד] הבוט ${botPlayer.name} שדד קלף אקראי מ-${bestVictim.name}.`);
+            addLog(`[שודד ים] הבוט ${botPlayer.name} שדד קלף אקראי מ-${chosenVictim.name}.`);
           }
         } else {
           if (addLog) {
-            addLog(`[שודד] אין שחקנים יריבים עם קלפים באריח זה.`);
+            addLog(`[שודד ים] אין שחקנים יריבים עם קלפים באריח זה.`);
           }
         }
-      } else { // Existing logic for MEDIUM and EASY bots
+      }
+    } else if (bestLandTileId) {
+      // Place Robber
+      const chosenTile = tiles.find(t => t.id === bestLandTileId);
+      if (chosenTile) {
+        setTiles(prevTiles => moveRobber(bestLandTileId!, prevTiles));
+        if (addLog) {
+          const resourceLabels: Record<string, string> = {
+            WOOD: 'עץ',
+            BRICK: 'לבנה',
+            SHEEP: 'כבש',
+            WHEAT: 'חיטה',
+            ORE: 'ברזל',
+            DESERT: 'מדבר'
+          };
+          const tileLabel = resourceLabels[chosenTile.type] || chosenTile.type;
+          addLog(`[שודד] הבוט ${botPlayer.name} הזיז את השודד לאריח מסוג ${tileLabel}.`);
+        }
+
         const eligibleTargets = getEligibleRobberyTargets(chosenTile, vertices, players, botPlayer.id);
         if (eligibleTargets.length > 0) {
-          const chosenVictim = eligibleTargets[Math.floor(Math.random() * eligibleTargets.length)];
+          let chosenVictim = eligibleTargets[Math.floor(Math.random() * eligibleTargets.length)];
+          if (botPlayer.difficulty === 'HARD') {
+            const leadingVictims = eligibleTargets.filter(p => p.victoryPoints >= 7);
+            if (leadingVictims.length > 0) {
+              chosenVictim = leadingVictims.sort((a, b) => Object.values(b.resources).reduce((sum, count) => sum + count, 0) - Object.values(a.resources).reduce((sum, count) => sum + count, 0))[0];
+            } else {
+              chosenVictim = eligibleTargets.sort((a, b) => Object.values(b.resources).reduce((sum, count) => sum + count, 0) - Object.values(a.resources).reduce((sum, count) => sum + count, 0))[0];
+            }
+          }
+
           const { updatedPlayers } = stealRandomCard(botPlayer.id, chosenVictim.id, players);
           setPlayers(updatedPlayers);
           if (addLog) {

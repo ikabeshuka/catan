@@ -64,6 +64,12 @@ export const GameBoard: React.FC = () => {
           <pattern id="tex-SEA" patternUnits="objectBoundingBox" width="1" height="1">
             <image href="/see.jpg" x="0" y="0" width="100%" height="100%" preserveAspectRatio="xMidYMid slice" />
           </pattern>
+          <pattern id="tex-GOLD_FIELD" patternUnits="objectBoundingBox" width="1" height="1">
+            <image href="/gold.jpg" x="0" y="0" width="100%" height="100%" preserveAspectRatio="xMidYMid slice" />
+          </pattern>
+          <pattern id="tex-FOG" patternUnits="objectBoundingBox" width="1" height="1">
+            <image href="/fog.jpg" x="0" y="0" width="100%" height="100%" preserveAspectRatio="xMidYMid slice" />
+          </pattern>
 
           {/* Luxurious Gradient Defs - Linear & Radial SVG Gradients for each resource */}
           <radialGradient id="grad-WOOD" cx="50%" cy="50%" r="75%">

@@ -6,54 +6,29 @@ import { ResourceContainer } from './components/playerPanel/ResourceContainer';
 import { GameLog } from './components/notifications/GameLog';
 import { DevelopmentCardsPanel } from './components/playerPanel/DevelopmentCardsPanel';
 import { runAITurn } from './utils/ai/aiController';
-import { getMediumBotTarget } from './utils/ai/getMediumBotTarget';
 import { useTurnManager } from './hooks/useTurnManager';
 import { stealRandomCard } from './utils/gameEngine/robberSteal';
 import { 
   WoodIcon, BrickIcon, SheepIcon, WheatIcon, OreIcon,
-  DealIcon, MonopolyIcon, CardIcon,
+  DealIcon, CardIcon,
   CrossIcon, WarningIcon
 } from './components/common/Icons';
 import { LobbyScreen } from './components/lobby/LobbyScreen';
 import { DiscardOverlay } from './components/modals/DiscardOverlay';
+import { MonopolyModal } from './components/modals/MonopolyModal';
+import { YearOfPlentyModal } from './components/modals/YearOfPlentyModal';
+import { GoldFieldSelectionModal } from './components/modals/GoldFieldSelectionModal';
+import { TrophyPopup, TrophyDetailModal } from './components/modals/TrophyModal';
+import { useAppTrade } from './hooks/useAppTrade';
+import { useAppTrophies } from './hooks/useAppTrophies';
 
 const GameContent: React.FC = () => {
   const lastProcessedTurnRef = useRef<string>("");
   const lastStartedTurnRef = useRef<string>("");
 
-  const [playerCount, setPlayerCount] = useState<3 | 4>(4);
+  const [botTimeLimit, setBotTimeLimit] = useState<number>(10);
+  const [botTimeRemaining, setBotTimeRemaining] = useState<number>(10 * 1000);
 
-  const [lobbyPlayers, setLobbyPlayers] = useState<Array<{
-    id: string;
-    name: string;
-    color: string;
-    isBot: boolean;
-    difficulty?: 'קל' | 'בינוני' | 'קשה' | 'סופר קשה';
-  }>>([
-    { id: 'p1', name: 'אתה', color: '#e53935', isBot: false, difficulty: undefined },
-    { id: 'p2', name: 'בוט אומץ', color: '#1e88e5', isBot: true, difficulty: 'בינוני' },
-    { id: 'p3', name: 'בוט ברזל', color: '#fdd835', isBot: true, difficulty: 'בינוני' },
-    { id: 'p4', name: 'בוט פלדה', color: '#43a047', isBot: true, difficulty: 'בינוני' },
-  ]);
-
-  const togglePlayerType = (id: string, isBot: boolean) => {
-    setLobbyPlayers(prev => prev.map((item, idx) => {
-      if (item.id === id) {
-        let newName = item.name;
-        if (isBot) {
-          newName = idx === 1 ? 'בוט אומץ' : idx === 2 ? 'בוט ברזל' : idx === 3 ? 'בוט פלדה' : 'בוט סופה';
-        } else {
-          newName = idx === 0 ? 'אתה' : `שחקן ${idx + 1}`;
-        }
-        return {
-          ...item,
-          isBot,
-          name: newName
-        };
-      }
-      return item;
-    }));
-  };
   const { 
     gamePhase, 
     setGamePhase,
@@ -71,7 +46,6 @@ const GameContent: React.FC = () => {
     setCurrentPlayerIndex,
     addLog,
     roadBuildingRemaining,
-    setRoadBuildingRemaining,
     resourcePosition,
     setResourcePosition,
     isResourceCollapsed,
@@ -83,7 +57,11 @@ const GameContent: React.FC = () => {
     setRobberyState,
     showBuildingCostToast,
     longestRoadPlayerId,
-    largestArmyPlayerId
+    largestArmyPlayerId,
+    activeExpansion,
+    activeRobberType,
+    setActiveRobberType,
+    goldSelectionQueue
   } = useGame();
 
   const { recordSetupPlacement, endTurn, handleDiceRoll, startTurn } = useTurnManager();
@@ -92,95 +70,42 @@ const GameContent: React.FC = () => {
 
   const humanPlayer = players.find(p => !p.isBot) || players[0];
 
-  // States for trade system
-  const [isDevCardsOverlayOpen, setIsDevCardsOverlayOpen] = useState(false);
-  const [isTradeModalOpen, setIsTradeModalOpen] = useState(false);
-  const [isMonopolyModalOpen, setIsMonopolyModalOpen] = useState(false);
-  const [isYearOfPlentyModalOpen, setIsYearOfPlentyModalOpen] = useState(false);
-  const [yopRes1, setYopRes1] = useState<'WOOD' | 'BRICK' | 'SHEEP' | 'WHEAT' | 'ORE'>('WOOD');
-  const [yopRes2, setYopRes2] = useState<'WOOD' | 'BRICK' | 'SHEEP' | 'WHEAT' | 'ORE'>('BRICK');
-  const [prevRoadCount, setPrevRoadCount] = useState<number>(0);
+  const {
+    isDevCardsOverlayOpen,
+    setIsDevCardsOverlayOpen,
+    isTradeModalOpen,
+    setIsTradeModalOpen,
+    isMonopolyModalOpen,
+    setIsMonopolyModalOpen,
+    isYearOfPlentyModalOpen,
+    setIsYearOfPlentyModalOpen,
+    giveRes,
+    setGiveRes,
+    giveAmt,
+    setGiveAmt,
+    receiveRes,
+    setReceiveRes,
+    receiveAmt,
+    setReceiveAmt,
+    targetBotId,
+    setTargetBotId,
+    harborGiveRes,
+    setHarborGiveRes,
+    harborReceiveRes,
+    setHarborReceiveRes,
+    handlePlayCard,
+    executeHarborTrade,
+    handleProposeTrade,
+  } = useAppTrade();
 
-  // States for award popups
-  const [armyPopup, setArmyPopup] = useState<{ player: any; prevPlayer: any } | null>(null);
-  const [roadPopup, setRoadPopup] = useState<{ player: any; prevPlayer: any } | null>(null);
-  const [activeTrophyModal, setActiveTrophyModal] = useState<'longest_road' | 'largest_army' | null>(null);
-
-  const prevLargestArmyRef = useRef<string | null>(null);
-  const prevLongestRoadRef = useRef<string | null>(null);
-
-  useEffect(() => {
-    if (gamePhase === 'LOBBY' || gamePhase === 'GAME_OVER') {
-      prevLargestArmyRef.current = null;
-      return;
-    }
-    if (largestArmyPlayerId && largestArmyPlayerId !== prevLargestArmyRef.current) {
-      const player = players.find(p => p.id === largestArmyPlayerId) || null;
-      const prevPlayer = players.find(p => p.id === prevLargestArmyRef.current) || null;
-      setArmyPopup({ player, prevPlayer });
-    }
-    prevLargestArmyRef.current = largestArmyPlayerId;
-  }, [largestArmyPlayerId, gamePhase, players]);
-
-  useEffect(() => {
-    if (gamePhase === 'LOBBY' || gamePhase === 'GAME_OVER') {
-      prevLongestRoadRef.current = null;
-      return;
-    }
-    if (longestRoadPlayerId && longestRoadPlayerId !== prevLongestRoadRef.current) {
-      const player = players.find(p => p.id === longestRoadPlayerId) || null;
-      const prevPlayer = players.find(p => p.id === prevLongestRoadRef.current) || null;
-      setRoadPopup({ player, prevPlayer });
-    }
-    prevLongestRoadRef.current = longestRoadPlayerId;
-  }, [longestRoadPlayerId, gamePhase, players]);
-
-  const [giveRes, setGiveRes] = useState<'WOOD' | 'BRICK' | 'SHEEP' | 'WHEAT' | 'ORE'>('WOOD');
-  const [giveAmt, setGiveAmt] = useState<number>(1);
-  const [receiveRes, setReceiveRes] = useState<'WOOD' | 'BRICK' | 'SHEEP' | 'WHEAT' | 'ORE'>('BRICK');
-  const [receiveAmt, setReceiveAmt] = useState<number>(1);
-  const [targetBotId, setTargetBotId] = useState<string>('ALL');
-
-  // States and execution for harbor trade
-  const [harborGiveRes, setHarborGiveRes] = useState<'WOOD' | 'BRICK' | 'SHEEP' | 'WHEAT' | 'ORE'>('WOOD');
-  const [harborReceiveRes, setHarborReceiveRes] = useState<'WOOD' | 'BRICK' | 'SHEEP' | 'WHEAT' | 'ORE'>('BRICK');
-
-  const executeHarborTrade = (giveType: 'WOOD' | 'BRICK' | 'SHEEP' | 'WHEAT' | 'ORE', receiveType: 'WOOD' | 'BRICK' | 'SHEEP' | 'WHEAT' | 'ORE', requiredGiveAmt: number) => {
-    if (giveType === receiveType) {
-      alert("לא ניתן להחליף משאב בעצמו!");
-      return;
-    }
-    const currentStock = humanPlayer.resources[giveType] || 0;
-    if (currentStock < requiredGiveAmt) {
-      alert(`אין לך מספיק משאבים מסוג ${giveType} (נדרש ${requiredGiveAmt}, יש לך ${currentStock})!`);
-      return;
-    }
-
-    setPlayers((prev: any[]) => prev.map(p => 
-      p.id === humanPlayer.id ? {
-        ...p,
-        resources: {
-          ...p.resources,
-          [giveType]: p.resources[giveType] - requiredGiveAmt,
-          [receiveType]: (p.resources[receiveType] || 0) + 1
-        }
-      } : p
-    ));
-
-    const resourceLabels: Record<string, string> = {
-      WOOD: 'עץ',
-      BRICK: 'לבנה',
-      SHEEP: 'כבש',
-      WHEAT: 'חיטה',
-      ORE: 'ברזל'
-    };
-
-    addLog(`[נמל] ${humanPlayer.name} ניצל נמל והחליף ${requiredGiveAmt} ${resourceLabels[giveType]} תמורת 1 ${resourceLabels[receiveType]}.`);
-    setActivePortTrade(null);
-  };
-
-  // הגדרות למגבלת זמן תגובה של בוטים וספירה לאחור
-  const [botTimeLimit, setBotTimeLimit] = useState<number>(10);
+  const {
+    armyPopup,
+    setArmyPopup,
+    roadPopup,
+    setRoadPopup,
+    activeTrophyModal,
+    setActiveTrophyModal,
+  } = useAppTrophies();
 
   // מעבר בטוח לתור הבא במקרה של עצירה ידנית או אוטומטית (זמן תם)
   const forceNextTurn = () => {
@@ -236,43 +161,71 @@ const GameContent: React.FC = () => {
     };
   }, [gamePhase]);
 
-  // מעקב אחר בניית כבישים חינם לצורך הפחתה של מונה קלף בניית כבישים
-  useEffect(() => {
-    if (!humanPlayer) return;
-    const currentRoadCount = edges.filter(e => e.hasRoad && e.playerId === humanPlayer.id).length;
-    if (roadBuildingRemaining > 0 && currentRoadCount > prevRoadCount) {
-      const diff = currentRoadCount - prevRoadCount;
-      const nextRemaining = Math.max(0, roadBuildingRemaining - diff);
-      setRoadBuildingRemaining(nextRemaining);
-      addLog(`[בניית כבישים] כביש חינם נבנה בהצלחה! נותרו עוד ${nextRemaining} כבישים חינם לבנייה.`);
-    }
-    setPrevRoadCount(currentRoadCount);
-  }, [edges, humanPlayer?.id, roadBuildingRemaining]);
 
-  // אפקט שעוקב אחר זמן התגובה של הבוטים ומריץ ספירה לאחור
+  // איפוס זמן התגובה בכל תחילת תור או החלפת שלב
   useEffect(() => {
-    if (gamePhase !== 'LOBBY' && activePlayer && activePlayer.isBot) {
-      const timerId = setTimeout(() => {
-        forceNextTurn();
-      }, botTimeLimit * 1000);
-
-      return () => {
-        clearTimeout(timerId);
-      };
-    }
+    setBotTimeRemaining(botTimeLimit * 1000);
   }, [currentPlayerIndex, turnSubPhase, gamePhase, activePlayer?.id, botTimeLimit]);
+
+  // זיהוי האם אנו ממתינים למהלך של השחקן האנושי (שיגרור הקפאה של הטיימר)
+  const isWaitingForPlayerAction = 
+    (turnSubPhase as string) === 'DISCARD_PHASE' ||
+    (turnSubPhase === 'GOLD_RESOURCE_SELECTION' && goldSelectionQueue && goldSelectionQueue.length > 0 && goldSelectionQueue.some(item => {
+      const p = players.find(pl => pl.id === item.playerId);
+      return p && !p.isBot;
+    })) ||
+    (typeof window !== 'undefined' && (window as any).isBotTimerPaused === true);
+
+  // אפקט שעוקב אחר זמן התגובה של הבוטים ומריץ ספירה לאחור עם אפשרות להקפאה והמשך
+  useEffect(() => {
+    if (gamePhase === 'LOBBY' || !activePlayer || !activePlayer.isBot) {
+      return;
+    }
+
+    if (isWaitingForPlayerAction) {
+      return;
+    }
+
+    const intervalId = setInterval(() => {
+      setBotTimeRemaining(prev => {
+        // בדיקה חוזרת בתוך הלולאה למקרה שהמצב השתנה ללא רינדור מחדש מיידי
+        const currentlyPaused = 
+          (turnSubPhase as string) === 'DISCARD_PHASE' ||
+          (turnSubPhase === 'GOLD_RESOURCE_SELECTION' && goldSelectionQueue && goldSelectionQueue.length > 0 && goldSelectionQueue.some(item => {
+            const p = players.find(pl => pl.id === item.playerId);
+            return p && !p.isBot;
+          })) ||
+          (typeof window !== 'undefined' && (window as any).isBotTimerPaused === true);
+
+        if (currentlyPaused) {
+          return prev;
+        }
+
+        if (prev <= 100) {
+          clearInterval(intervalId);
+          forceNextTurn();
+          return 0;
+        }
+        return prev - 100;
+      });
+    }, 100);
+
+    return () => {
+      clearInterval(intervalId);
+    };
+  }, [currentPlayerIndex, turnSubPhase, gamePhase, activePlayer?.id, isWaitingForPlayerAction, botTimeLimit]);
 
   // בדיקת תנאי ניצחון דינמית בזמן אמת (אנושי או בוט)
   useEffect(() => {
     if (gamePhase === 'MAIN_GAME') {
-      const winner = players.find(p => getPlayerTotalVP(p, longestRoadPlayerId, largestArmyPlayerId, true) >= 10);
+      const winner = players.find(p => getPlayerTotalVP(p, longestRoadPlayerId, largestArmyPlayerId, true, vertices, tiles) >= 10);
       if (winner) {
-        const totalVP = getPlayerTotalVP(winner, longestRoadPlayerId, largestArmyPlayerId, true);
+        const totalVP = getPlayerTotalVP(winner, longestRoadPlayerId, largestArmyPlayerId, true, vertices, tiles);
         setGamePhase('GAME_OVER');
         addLog(`המשחק נגמר! ${winner.name} ניצח/ה עם ${totalVP} נקודות ניצחון!`);
       }
     }
-  }, [players, longestRoadPlayerId, largestArmyPlayerId, gamePhase]);
+  }, [players, longestRoadPlayerId, largestArmyPlayerId, gamePhase, vertices, tiles]);
 
   // האפקט המרכזי שמזהה תור של בוט ומפעיל את ה-AI באופן אוטומטי
   useEffect(() => {
@@ -335,309 +288,35 @@ const GameContent: React.FC = () => {
     }
   }, [currentPlayerIndex, turnSubPhase, gamePhase, activePlayer, endTurn, recordSetupPlacement, handleDiceRoll, players, addLog, setTiles, setTurnSubPhase, startTurn]);
 
-  const handleStartGame = () => {
-    lastProcessedTurnRef.current = "";
-    lastStartedTurnRef.current = "";
-    initNewGame();
-    const selectedPlayers = lobbyPlayers.slice(0, playerCount).map((p, index) => {
-      const difficulty: 'EASY' | 'MEDIUM' | 'HARD' | 'SUPER_HARD' | undefined = p.isBot ? (p.difficulty === 'קל' ? 'EASY' : p.difficulty === 'קשה' ? 'HARD' : p.difficulty === 'סופר קשה' ? 'SUPER_HARD' : 'MEDIUM') : undefined;
-      const archetype: 'BUILDER' | 'DEVELOPER' | undefined = (p.isBot && difficulty === 'HARD') ? (Math.random() < 0.5 ? 'BUILDER' : 'DEVELOPER') : undefined;
-
-      return {
-        id: p.id,
-        name: p.name,
-        color: p.color,
-        isBot: p.isBot,
-        difficulty,
-        ...(archetype ? { archetype } : {}),
-        victoryPoints: 2,
-        resources: index === 0 ? { WOOD: 2, BRICK: 2, SHEEP: 1, WHEAT: 1, ORE: 0 } : { WOOD: 0, BRICK: 0, SHEEP: 0, WHEAT: 0, ORE: 0 },
-        developmentCards: { KNIGHT: 0, MONOPOLY: 0, ROAD_BUILDING: 0, YEAR_OF_PLENTY: 0, VICTORY_POINT: 0 },
-        knightsPlayed: 0
-      };
-    });
-    setPlayers(selectedPlayers);
-  };
-
-  const handlePlayCard = (cardType: 'KNIGHT' | 'MONOPOLY' | 'ROAD_BUILDING' | 'YEAR_OF_PLENTY') => {
-    if (activePlayer?.id !== humanPlayer.id || turnSubPhase !== 'TRADE_AND_BUILD') return;
-    const devCards = humanPlayer.developmentCards || { KNIGHT: 0, MONOPOLY: 0, ROAD_BUILDING: 0, YEAR_OF_PLENTY: 0 };
-    if ((devCards[cardType] || 0) <= 0) return;
-
-    if (cardType === 'KNIGHT') {
-      setPlayers(prevPlayers => prevPlayers.map(p => {
-        if (p.id === humanPlayer.id) {
-          return {
-            ...p,
-            knightsPlayed: (p.knightsPlayed || 0) + 1,
-            developmentCards: {
-              ...p.developmentCards,
-              KNIGHT: Math.max(0, p.developmentCards.KNIGHT - 1)
-            }
-          };
-        }
-        return p;
-      }));
-      setTurnSubPhase('ROBBER_PLACEMENT');
-      addLog(`[קלף פיתוח] ${humanPlayer.name} הפעיל קלף אביר ומזיז את השודד!`);
-    } else if (cardType === 'MONOPOLY') {
-      setIsMonopolyModalOpen(true);
-    } else if (cardType === 'ROAD_BUILDING') {
-      setPlayers(prevPlayers => prevPlayers.map(p => {
-        if (p.id === humanPlayer.id) {
-          return {
-            ...p,
-            developmentCards: {
-              ...p.developmentCards,
-              ROAD_BUILDING: Math.max(0, p.developmentCards.ROAD_BUILDING - 1)
-            }
-          };
-        }
-        return p;
-      }));
-      setRoadBuildingRemaining(2);
-      setPrevRoadCount(edges.filter(e => e.hasRoad && e.playerId === humanPlayer.id).length);
-      addLog(`[קלף פיתוח] ${humanPlayer.name} הפעיל קלף בניית כבישים ומקבל 2 כבישים חינם לבנייה!`);
-    } else if (cardType === 'YEAR_OF_PLENTY') {
-      setIsYearOfPlentyModalOpen(true);
-    }
-  };
-
-  const handleExecuteYearOfPlenty = () => {
-    setPlayers(prevPlayers => prevPlayers.map(p => {
-      if (p.id === humanPlayer.id) {
-        return {
-          ...p,
-          resources: {
-            ...p.resources,
-            [yopRes1]: (p.resources[yopRes1] || 0) + 1,
-            [yopRes2]: (p.resources[yopRes2] || 0) + 1
-          },
-          developmentCards: {
-            ...p.developmentCards,
-            YEAR_OF_PLENTY: Math.max(0, (p.developmentCards.YEAR_OF_PLENTY || 0) - 1)
-          }
-        };
-      }
-      return p;
-    }));
-
-    const resourceLabels: Record<string, string> = {
-      WOOD: 'עץ',
-      BRICK: 'לבנה',
-      SHEEP: 'כבש',
-      WHEAT: 'חיטה',
-      ORE: 'ברזל'
-    };
-
-    addLog(`[קלף פיתוח] ${humanPlayer.name} הפעיל קלף שנת שפע וקיבל 1 ${resourceLabels[yopRes1]} ו-1 ${resourceLabels[yopRes2]} מהקופה!`);
-    setIsYearOfPlentyModalOpen(false);
-  };
-
-  // Moved down outside GameContent below or defined properly
-
-
-  // AI bot decision logic for trade
-  const evaluateBotTradeDecision = (
-    bot: typeof humanPlayer,
-    offerResource: 'WOOD' | 'BRICK' | 'SHEEP' | 'WHEAT' | 'ORE',
-    offerAmount: number,
-    demandResource: 'WOOD' | 'BRICK' | 'SHEEP' | 'WHEAT' | 'ORE',
-    demandAmount: number
-  ): boolean => {
-    // Check if the bot has the requested resource
-    const botStock = bot.resources[demandResource] || 0;
-    if (botStock < demandAmount) {
-      return false; // Instant rejection if bot doesn't have enough
-    }
-
-    // Easy bot automatically accepts any fair trade (1 for 1) if it has the resource
-    if (bot.difficulty === 'EASY' && offerAmount === 1 && demandAmount === 1) {
-      return true;
-    }
-
-    // Bot resources structure
-    const res = bot.resources;
-
-    // Medium bot trading logic (direct target-oriented trading)
-    if (bot.difficulty === 'MEDIUM') {
-      const target = getMediumBotTarget(bot, gamePhase, tiles, vertices, edges);
-      if (target) {
-        // Must receive a resource we need for our target
-        const isNeeded = (bot.resources[offerResource] || 0) < (target.cost[offerResource] || 0);
-        if (!isNeeded) {
-          return false; // Reject if what we get doesn't advance our target
-        }
-        // Must not give away a resource we need for our target
-        const isGivingAwayNeeded = (target.cost[demandResource] || 0) > 0 && (bot.resources[demandResource] || 0) <= (target.cost[demandResource] || 0);
-        if (isGivingAwayNeeded) {
-          return false; // Reject if we give away something we need
-        }
-        
-        // If it passes both, the trade is directly advancing and safe.
-        // It'll accept with high probability, but also check ratio so it doesn't do a bad ratio trade.
-        const ratio = offerAmount / demandAmount;
-        let acceptProbability = 0.85;
-        if (ratio < 1) {
-          acceptProbability -= 0.35; // Bot dislikes giving more than receiving
-        }
-        return Math.random() < Math.max(0.1, acceptProbability);
-      }
-    }
-
-    // Building costs
-    const ROAD_COST = { WOOD: 1, BRICK: 1, SHEEP: 0, WHEAT: 0, ORE: 0 };
-    const SETTLEMENT_COST = { WOOD: 1, BRICK: 1, SHEEP: 1, WHEAT: 1, ORE: 0 };
-    const CITY_COST = { WOOD: 0, BRICK: 0, SHEEP: 0, WHEAT: 2, ORE: 3 };
-
-    // Function to calculate missing resources for a building
-    const getMissingResources = (cost: typeof ROAD_COST) => {
-      let missingCount = 0;
-      const missingMap: Record<string, number> = {};
-      let isAffordable = true;
-
-      for (const key of ['WOOD', 'BRICK', 'SHEEP', 'WHEAT', 'ORE'] as const) {
-        const needed = cost[key] || 0;
-        const current = res[key] || 0;
-        if (current < needed) {
-          isAffordable = false;
-          const diff = needed - current;
-          missingCount += diff;
-          missingMap[key] = diff;
-        }
-      }
-      return { isAffordable, missingCount, missingMap };
-    };
-
-    const roadInfo = getMissingResources(ROAD_COST);
-    const settlementInfo = getMissingResources(SETTLEMENT_COST);
-    const cityInfo = getMissingResources(CITY_COST);
-
-    // Filter pending goals (exclude already affordable ones)
-    const goals = [
-      { name: 'ROAD', ...roadInfo, cost: ROAD_COST },
-      { name: 'SETTLEMENT', ...settlementInfo, cost: SETTLEMENT_COST },
-      { name: 'CITY', ...cityInfo, cost: CITY_COST }
-    ];
-
-    const pendingGoals = goals.filter(g => !g.isAffordable && g.missingCount > 0);
-    // Sort so closest goal is first
-    pendingGoals.sort((a, b) => a.missingCount - b.missingCount);
-
-    const closestGoal = pendingGoals[0];
-
-    // Check if the resource player is giving (offerResource) is missing for the closest goal
-    const isNeededForClosestGoal = closestGoal && (closestGoal.missingMap[offerResource] || 0) > 0;
-
-    // Check if the resource player is requesting (demandResource) is critical for bot's closest goal
-    // It's critical if the closest goal requires it and the bot does not have excess resources of this type.
-    const isCritical = closestGoal && 
-      (closestGoal.cost[demandResource] || 0) > 0 && 
-      (res[demandResource] || 0) <= (closestGoal.cost[demandResource] || 0);
-
-    let acceptProbability = 0.3; // Default fair trade probability
-
-    if (isNeededForClosestGoal && !isCritical) {
-      acceptProbability = 0.85; // High agreement rate if it helps the bot build next
-    } else if (isCritical) {
-      acceptProbability = 0.10; // Low agreement if we take something they critically need
-    } else if (!isCritical && !isNeededForClosestGoal) {
-      acceptProbability = 0.40; // Moderate if not critical and not immediately needed
-    }
-
-    // Ratio multiplier (player offers more resources for less)
-    const ratio = offerAmount / demandAmount;
-    if (ratio >= 2) {
-      acceptProbability += 0.40; // Double resource trade bonus
-    } else if (ratio > 1) {
-      acceptProbability += 0.20;
-    } else if (ratio < 1) {
-      acceptProbability -= 0.35; // Bot hates giving more than they receive
-    }
-
-    // Clamp between 0 and 1
-    acceptProbability = Math.max(0, Math.min(1, acceptProbability));
-
-    return Math.random() < acceptProbability;
-  };
-
-  const handleProposeTrade = () => {
-    // Validate player resources
-    const playerStock = humanPlayer.resources[giveRes] || 0;
-    if (playerStock < giveAmt) {
-      alert(`אין לך מספיק משאבים מסוג ${giveRes} (יש לך ${playerStock})!`);
-      return;
-    }
-
-    if (giveRes === receiveRes) {
-      alert("לא ניתן לבצע עסקה על אותו משאב!");
-      return;
-    }
-
-    // Find bot(s) to trade with
-    const botsToTrade = players.filter(p => p.isBot && (targetBotId === 'ALL' || p.id === targetBotId));
-
-    if (botsToTrade.length === 0) {
-      alert("לא נמצאו בוטים מתאימים למסחר.");
-      return;
-    }
-
-    let tradeExecuted = false;
-
-    for (const bot of botsToTrade) {
-      const botAgreed = evaluateBotTradeDecision(bot, giveRes, giveAmt, receiveRes, receiveAmt);
-
-      if (botAgreed) {
-        // EXECUTE TRADE
-        setPlayers((prevPlayers: any[]) => prevPlayers.map(p => {
-          if (p.id === humanPlayer.id) {
-            return {
-              ...p,
-              resources: {
-                ...p.resources,
-                [giveRes]: (p.resources[giveRes] || 0) - giveAmt,
-                [receiveRes]: (p.resources[receiveRes] || 0) + receiveAmt
-              }
-            };
-          } else if (p.id === bot.id) {
-            return {
-              ...p,
-              resources: {
-                ...p.resources,
-                [giveRes]: (p.resources[giveRes] || 0) + giveAmt,
-                [receiveRes]: (p.resources[receiveRes] || 0) - receiveAmt
-              }
-            };
-          }
-          return p;
-        }));
-
-        addLog(`[מסחר] בוט ${bot.name} קיבל את ההצעה שלך והעסקה בוצעה!`);
-        tradeExecuted = true;
-        setIsTradeModalOpen(false);
-        break; // Trade is completed with the first bot that accepts
-      } else {
-        addLog(`[מסחר] בוט ${bot.name} סירב להצעת המסחר שלך.`);
-      }
-    }
-
-    if (!tradeExecuted) {
-      alert("כל הבוטים סירבו להצעת המסחר שלך.");
-    }
-  };
-
   // תצוגת מסך הלובי / פתיחה - תומכת בגלילה פנימית כדי למנוע גלילה גלובלית ביישום
   if (gamePhase === 'LOBBY') {
     return (
       <LobbyScreen
-        playerCount={playerCount}
-        setPlayerCount={setPlayerCount}
-        lobbyPlayers={lobbyPlayers}
-        setLobbyPlayers={setLobbyPlayers}
-        togglePlayerType={togglePlayerType}
-        botTimeLimit={botTimeLimit}
-        setBotTimeLimit={setBotTimeLimit}
-        handleStartGame={handleStartGame}
+        onStartGame={(pCount, lobbyP, limit) => {
+          setBotTimeLimit(limit);
+          
+          lastProcessedTurnRef.current = "";
+          lastStartedTurnRef.current = "";
+          initNewGame(pCount);
+          const selectedPlayers = lobbyP.slice(0, pCount).map((p) => {
+            const difficulty: 'EASY' | 'MEDIUM' | 'HARD' | 'SUPER_HARD' | undefined = p.isBot ? (p.difficulty === 'קל' ? 'EASY' : p.difficulty === 'קשה' ? 'HARD' : p.difficulty === 'סופר קשה' ? 'SUPER_HARD' : 'MEDIUM') : undefined;
+            const archetype: 'BUILDER' | 'DEVELOPER' | undefined = (p.isBot && difficulty === 'HARD') ? (Math.random() < 0.5 ? 'BUILDER' : 'DEVELOPER') : undefined;
+
+            return {
+              id: p.id,
+              name: p.name,
+              color: p.color,
+              isBot: p.isBot,
+              difficulty,
+              ...(archetype ? { archetype } : {}),
+              victoryPoints: 2,
+              resources: { WOOD: 0, BRICK: 0, SHEEP: 0, WHEAT: 0, ORE: 0 },
+              developmentCards: { KNIGHT: 0, MONOPOLY: 0, ROAD_BUILDING: 0, YEAR_OF_PLENTY: 0, VICTORY_POINT: 0 },
+              knightsPlayed: 0
+            };
+          });
+          setPlayers(selectedPlayers);
+        }}
       />
     );
   }
@@ -659,6 +338,24 @@ const GameContent: React.FC = () => {
       <main className="flex-grow w-full h-full relative flex flex-col gap-4 overflow-hidden">
         
         {/* ה-Header הוסר לחלוטין כדי לפנות שטח אנכי מקסימלי ללוח המשחק */}
+
+        {/* חיווי ויזואלי של טיימר הבוט כולל זמני הקפאה והמתנה */}
+        {activePlayer && activePlayer.isBot && (
+          <div className="flex-none mx-4 mb-2 p-3 bg-amber-500/10 border border-amber-500/20 rounded-xl text-right flex items-center justify-between" dir="rtl">
+            <div className="flex items-center gap-3">
+              <span className="text-xl animate-pulse">⏱️</span>
+              <div>
+                <div className="text-sm font-bold text-amber-400">תור הבוט {activePlayer.name} פעיל...</div>
+                <div className="text-xs text-slate-400">זמן שנותר למהלך: {Math.max(0, Math.ceil(botTimeRemaining / 1000))} שניות</div>
+              </div>
+            </div>
+            {isWaitingForPlayerAction && (
+              <div className="text-emerald-400 font-extrabold text-xs px-3 py-1 bg-emerald-500/20 border border-emerald-500/30 rounded-full animate-pulse">
+                ⏳ הטיימר מושהה - ממתין לפעולת השחקן האנושי (השלכת קלפים, בחירת זהב או מענה למסחר)
+              </div>
+            )}
+          </div>
+        )}
 
         {/* התראה על בניית כבישים חינם */}
         {roadBuildingRemaining > 0 && (
@@ -853,176 +550,26 @@ const GameContent: React.FC = () => {
         )}
 
         {/* מודל מונופול לקבלת משאבים */}
-        {isMonopolyModalOpen && (
-          <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-md flex items-center justify-center z-50 p-4">
-            <div className="bg-slate-900 border border-slate-800 rounded-2xl w-full max-w-md p-6 shadow-2xl relative text-right" dir="rtl">
-              <button 
-                onClick={() => setIsMonopolyModalOpen(false)}
-                className="absolute top-4 left-4 text-slate-400 hover:text-white transition-colors duration-200 cursor-pointer p-1 rounded-lg hover:bg-slate-800 flex items-center justify-center"
-              >
-                <CrossIcon size={16} />
-              </button>
-              
-              <h3 className="text-xl font-extrabold text-transparent bg-clip-text bg-gradient-to-r from-indigo-400 to-cyan-500 mb-6 border-b border-slate-800 pb-3 flex items-center gap-2">
-                <MonopolyIcon size={22} className="text-cyan-400 inline-block" />
-                <span>קלף מונופול - בחירת משאב</span>
-              </h3>
-
-              <p className="text-sm text-slate-300 mb-6">
-                בחר סוג משאב אחד. כל שאר הבוטים במשחק ייאלצו למסור לך את כל קלפי המשאב הזה שברשותם!
-              </p>
-
-              <div className="grid grid-cols-2 sm:grid-cols-5 gap-2">
-                {[
-                  { type: 'WOOD' as const, label: 'עץ', img: '/wood1.png', border: 'border-emerald-500/30', hover: 'hover:bg-emerald-950/30 hover:border-emerald-500' },
-                  { type: 'BRICK' as const, label: 'לבנה', img: '/brick1.png', border: 'border-orange-500/30', hover: 'hover:bg-orange-950/30 hover:border-orange-500' },
-                  { type: 'SHEEP' as const, label: 'כבש', img: '/wool1.png', border: 'border-lime-500/30', hover: 'hover:bg-lime-950/30 hover:border-lime-500' },
-                  { type: 'WHEAT' as const, label: 'חיטה', img: '/wheat1.png', border: 'border-amber-500/30', hover: 'hover:bg-amber-950/30 hover:border-amber-500' },
-                  { type: 'ORE' as const, label: 'ברזל', img: '/rock1.png', border: 'border-slate-500/30', hover: 'hover:bg-slate-800/30 hover:border-slate-500' },
-                ].map((res) => (
-                  <button
-                    key={res.type}
-                    onClick={() => {
-                      let stolen = 0;
-                      players.forEach(p => {
-                        if (p.id !== humanPlayer.id && p.isBot) {
-                          stolen += p.resources[res.type] || 0;
-                        }
-                      });
-
-                      setPlayers(prevPlayers => prevPlayers.map(p => {
-                        if (p.id === humanPlayer.id) {
-                          return {
-                            ...p,
-                            resources: {
-                              ...p.resources,
-                              [res.type]: (p.resources[res.type] || 0) + stolen
-                            },
-                            developmentCards: {
-                              ...p.developmentCards,
-                              MONOPOLY: Math.max(0, (p.developmentCards.MONOPOLY || 0) - 1)
-                            }
-                          };
-                        } else if (p.isBot) {
-                          return {
-                            ...p,
-                            resources: {
-                              ...p.resources,
-                              [res.type]: 0
-                            }
-                          };
-                        }
-                        return p;
-                      }));
-
-                      addLog(`[קלף פיתוח] ${humanPlayer.name} הפעיל קלף מונופול ומקבל את כל קלפי ה-${res.label}! נגזלו ${stolen} קלפים משאר השחקנים.`);
-                      setIsMonopolyModalOpen(false);
-                    }}
-                    className={`flex flex-col items-center justify-center p-3 rounded-xl border bg-slate-950/40 text-slate-200 text-xs font-bold transition-all ${res.border} ${res.hover} active:scale-[0.95] cursor-pointer gap-1.5`}
-                  >
-                    <img src={res.img} className="w-10 h-10 object-contain" alt={res.label} />
-                    <span>{res.label}</span>
-                  </button>
-                ))}
-              </div>
-            </div>
-          </div>
-        )}
+        <MonopolyModal
+          isOpen={isMonopolyModalOpen}
+          onClose={() => setIsMonopolyModalOpen(false)}
+          players={players}
+          humanPlayer={humanPlayer}
+          setPlayers={setPlayers}
+          addLog={addLog}
+        />
 
         {/* מודל שנת שפע לבחירת משאבים */}
-        {isYearOfPlentyModalOpen && (
-          <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-md flex items-center justify-center z-50 p-4">
-            <div className="bg-slate-900 border border-slate-800 rounded-2xl w-full max-w-md p-6 shadow-2xl relative text-right" dir="rtl">
-              <button 
-                onClick={() => setIsYearOfPlentyModalOpen(false)}
-                className="absolute top-4 left-4 text-slate-400 hover:text-white transition-colors duration-200 cursor-pointer p-1 rounded-lg hover:bg-slate-800 flex items-center justify-center"
-              >
-                <CrossIcon size={16} />
-              </button>
-              
-              <h3 className="text-xl font-extrabold text-transparent bg-clip-text bg-gradient-to-r from-amber-400 to-yellow-500 mb-6 border-b border-slate-800 pb-3 flex items-center gap-2">
-                <img src="/wheat1.png" className="h-5 w-5 inline-block align-middle ml-1" alt="חיטה" />
-                <span>קלף שנת שפע - קבלת 2 משאבים</span>
-              </h3>
+        <YearOfPlentyModal
+          isOpen={isYearOfPlentyModalOpen}
+          onClose={() => setIsYearOfPlentyModalOpen(false)}
+          humanPlayer={humanPlayer}
+          setPlayers={setPlayers}
+          addLog={addLog}
+        />
 
-              <p className="text-sm text-slate-300 mb-6">
-                בחר שני משאבים לקבלתם באופן מיידי מהבנק:
-              </p>
-
-              <div className="space-y-6">
-                <div>
-                  <label className="block text-slate-400 text-xs font-bold mb-3">משאב ראשון:</label>
-                  <div className="grid grid-cols-5 gap-2">
-                    {[
-                      { type: 'WOOD' as const, label: 'עץ', img: '/wood1.png', activeBg: 'bg-emerald-950/45 border-emerald-500' },
-                      { type: 'BRICK' as const, label: 'לבנה', img: '/brick1.png', activeBg: 'bg-orange-950/45 border-orange-500' },
-                      { type: 'SHEEP' as const, label: 'כבש', img: '/wool1.png', activeBg: 'bg-lime-950/45 border-lime-500' },
-                      { type: 'WHEAT' as const, label: 'חיטה', img: '/wheat1.png', activeBg: 'bg-amber-950/45 border-amber-500' },
-                      { type: 'ORE' as const, label: 'ברזל', img: '/rock1.png', activeBg: 'bg-slate-800/50 border-slate-500' },
-                    ].map((res) => {
-                      const isActive = yopRes1 === res.type;
-                      return (
-                        <button
-                          key={res.type}
-                          type="button"
-                          onClick={() => setYopRes1(res.type)}
-                          className={`flex flex-col items-center justify-center p-2.5 rounded-xl border text-[10px] font-black transition-all cursor-pointer gap-1
-                            ${isActive ? res.activeBg + ' ring-1 ring-amber-500/40 text-white' : 'bg-slate-950/40 border-slate-800/80 hover:bg-slate-950/70 text-slate-400'}`}
-                        >
-                          <img src={res.img} className="w-8 h-8 object-contain" alt={res.label} />
-                          <span>{res.label}</span>
-                        </button>
-                      );
-                    })}
-                  </div>
-                </div>
-
-                <div>
-                  <label className="block text-slate-400 text-xs font-bold mb-3">משאב שני:</label>
-                  <div className="grid grid-cols-5 gap-2">
-                    {[
-                      { type: 'WOOD' as const, label: 'עץ', img: '/wood1.png', activeBg: 'bg-emerald-950/45 border-emerald-500' },
-                      { type: 'BRICK' as const, label: 'לבנה', img: '/brick1.png', activeBg: 'bg-orange-950/45 border-orange-500' },
-                      { type: 'SHEEP' as const, label: 'כבש', img: '/wool1.png', activeBg: 'bg-lime-950/45 border-lime-500' },
-                      { type: 'WHEAT' as const, label: 'חיטה', img: '/wheat1.png', activeBg: 'bg-amber-950/45 border-amber-500' },
-                      { type: 'ORE' as const, label: 'ברזל', img: '/rock1.png', activeBg: 'bg-slate-800/50 border-slate-500' },
-                    ].map((res) => {
-                      const isActive = yopRes2 === res.type;
-                      return (
-                        <button
-                          key={res.type}
-                          type="button"
-                          onClick={() => setYopRes2(res.type)}
-                          className={`flex flex-col items-center justify-center p-2.5 rounded-xl border text-[10px] font-black transition-all cursor-pointer gap-1
-                            ${isActive ? res.activeBg + ' ring-1 ring-amber-500/40 text-white' : 'bg-slate-950/40 border-slate-800/80 hover:bg-slate-950/70 text-slate-400'}`}
-                        >
-                          <img src={res.img} className="w-8 h-8 object-contain" alt={res.label} />
-                          <span>{res.label}</span>
-                        </button>
-                      );
-                    })}
-                  </div>
-                </div>
-              </div>
-
-              {/* ACTIONS */}
-              <div className="flex gap-3 mt-8">
-                <button
-                  onClick={handleExecuteYearOfPlenty}
-                  className="flex-1 bg-gradient-to-r from-amber-500 to-orange-500 text-slate-950 font-extrabold py-3 rounded-xl shadow-lg hover:brightness-110 active:scale-95 transition-all text-sm"
-                >
-                  אשר וקבל משאבים
-                </button>
-                <button
-                  onClick={() => setIsYearOfPlentyModalOpen(false)}
-                  className="px-6 bg-slate-800 text-slate-300 font-bold py-3 rounded-xl hover:bg-slate-700 hover:text-white transition-all text-sm"
-                >
-                  ביטול
-                </button>
-              </div>
-            </div>
-          </div>
-        )}
+        {/* מודל בחירת זהב ממכרה זהב */}
+        <GoldFieldSelectionModal />
 
       {/* סיידבר ימני קבוע ומרונדר על המסך תמיד */}
       <aside className={`transition-all duration-300 flex flex-col gap-4 h-full z-10 flex-none ${
@@ -1347,7 +894,7 @@ const GameContent: React.FC = () => {
 
               <div className="grid grid-cols-1 gap-3">
                 {robberyState.targets.map((target) => {
-                  const targetTotalCards = Object.values(target.resources).reduce((sum, count) => sum + count, 0);
+                  const targetTotalCards = Object.values(target.resources).reduce((sum: number, count: any) => sum + (count as number), 0);
                   return (
                     <button
                       key={target.id}
@@ -1390,145 +937,79 @@ const GameContent: React.FC = () => {
           </div>
         )}
 
-        {/* מודל הצבא הגדול ביותר */}
-        {armyPopup && (
+        {/* פאנל בחירה בין שודד לפיראט בהרחבת יורדי הים */}
+        {activeExpansion === 'SEAFARERS' && turnSubPhase === 'ROBBER_PLACEMENT' && !activePlayer?.isBot && activeRobberType === null && (
           <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-md flex items-center justify-center z-50 p-4">
-            <div className="bg-slate-900 border-2 border-amber-500 rounded-2xl w-full max-w-md p-6 shadow-2xl relative text-center animate-fade-in" dir="rtl">
-              <button 
-                onClick={() => setArmyPopup(null)}
-                className="absolute top-4 left-4 text-slate-400 hover:text-white transition-colors duration-200 cursor-pointer p-1 rounded-lg hover:bg-slate-800 flex items-center justify-center"
-              >
-                <CrossIcon size={16} />
-              </button>
-              
-              <img src="/badge_largest_army.png" alt="Largest Army" className="w-20 h-20 mx-auto mb-4 object-contain animate-bounce" style={{ animationDuration: '3s' }} />
-              
-              <h3 className="text-2xl font-black text-transparent bg-clip-text bg-gradient-to-r from-amber-400 to-orange-500 mb-2">
-                🏆 הצבא הגדול ביותר!
+            <div className="bg-slate-900 border border-slate-800 rounded-2xl w-full max-w-md p-6 shadow-2xl relative text-right animate-fade-in" dir="rtl">
+              <h3 className="text-xl font-extrabold text-transparent bg-clip-text bg-gradient-to-r from-amber-400 to-orange-500 mb-6 border-b border-slate-800 pb-3 flex items-center gap-2">
+                <span>🏴‍☠️ בחירת סוג שודד להזזה</span>
               </h3>
+              
+              <p className="text-sm text-slate-300 mb-6 font-semibold">
+                על הלוח מופעל כעת שלב השודד. מכיוון שהנך משחק בהרחבת יורדי הים, באפשרותך לבחור את מי להזיז:
+              </p>
 
-              {armyPopup.prevPlayer ? (
-                <p className="text-slate-200 text-sm leading-relaxed mb-6">
-                  השחקן <span className="font-extrabold" style={{ color: armyPopup.player.color }}>{armyPopup.player.name}</span> לקח את תעודת הצבא הגדול ביותר מידי <span className="font-extrabold" style={{ color: armyPopup.prevPlayer.color }}>{armyPopup.prevPlayer.name}</span>!
-                </p>
-              ) : (
-                <p className="text-slate-200 text-sm leading-relaxed mb-6">
-                  השחקן <span className="font-extrabold" style={{ color: armyPopup.player.color }}>{armyPopup.player.name}</span> זכה בתעודת הצבא הגדול ביותר בפעם הראשונה במשחק!
-                </p>
-              )}
+              <div className="grid grid-cols-1 gap-4">
+                <button
+                  onClick={() => {
+                    setActiveRobberType('ROBBER');
+                    addLog(`[שודד] ${activePlayer.name} בחר להזיז את השודד היבשתי.`);
+                  }}
+                  className="flex flex-col items-center gap-2 p-5 rounded-xl border border-slate-850 bg-slate-950/60 hover:bg-amber-950/10 hover:border-amber-500/40 text-slate-100 text-sm font-black transition-all active:scale-[0.98] cursor-pointer"
+                >
+                  <span className="text-3xl">🏜️</span>
+                  <span className="text-amber-400 font-extrabold">הזז את השודד היבשתי</span>
+                  <span className="text-xs text-slate-400 font-medium">(ניתן להציב רק על אריחי יבשה)</span>
+                </button>
 
-              <button
-                onClick={() => setArmyPopup(null)}
-                className="w-full bg-gradient-to-r from-amber-500 to-orange-500 text-slate-950 font-black py-3 rounded-xl shadow-lg hover:brightness-110 active:scale-95 transition-all text-sm cursor-pointer"
-              >
-                סגור (X)
-              </button>
+                <button
+                  onClick={() => {
+                    setActiveRobberType('PIRATE');
+                    addLog(`[שודד] ${activePlayer.name} בחר להזיז את שודד הים.`);
+                  }}
+                  className="flex flex-col items-center gap-2 p-5 rounded-xl border border-slate-850 bg-slate-950/60 hover:bg-indigo-950/10 hover:border-indigo-500/40 text-slate-100 text-sm font-black transition-all active:scale-[0.98] cursor-pointer"
+                >
+                  <span className="text-3xl">🏴‍☠️</span>
+                  <span className="text-indigo-400 font-extrabold">הזז את שודד הים</span>
+                  <span className="text-xs text-slate-400 font-medium">(ניתן להציב רק על אריחי מים)</span>
+                </button>
+              </div>
             </div>
           </div>
         )}
 
+        {/* מודל הצבא הגדול ביותר */}
+        {armyPopup && (
+          <TrophyPopup
+            type="largest_army"
+            player={armyPopup.player}
+            prevPlayer={armyPopup.prevPlayer}
+            onClose={() => setArmyPopup(null)}
+          />
+        )}
+
         {/* מודל הדרך הארוכה ביותר */}
         {roadPopup && (
-          <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-md flex items-center justify-center z-50 p-4">
-            <div className="bg-slate-900 border-2 border-emerald-500 rounded-2xl w-full max-w-md p-6 shadow-2xl relative text-center animate-fade-in" dir="rtl">
-              <button 
-                onClick={() => setRoadPopup(null)}
-                className="absolute top-4 left-4 text-slate-400 hover:text-white transition-colors duration-200 cursor-pointer p-1 rounded-lg hover:bg-slate-800 flex items-center justify-center"
-              >
-                <CrossIcon size={16} />
-              </button>
-              
-              <img src="/badge_longest_road.png" alt="Longest Road" className="w-20 h-20 mx-auto mb-4 object-contain animate-bounce" style={{ animationDuration: '3s' }} />
-              
-              <h3 className="text-2xl font-black text-transparent bg-clip-text bg-gradient-to-r from-emerald-400 to-teal-500 mb-2">
-                🏆 הדרך הארוכה ביותר!
-              </h3>
-
-              {roadPopup.prevPlayer ? (
-                <p className="text-slate-200 text-sm leading-relaxed mb-6">
-                  השחקן <span className="font-extrabold" style={{ color: roadPopup.player.color }}>{roadPopup.player.name}</span> לקח את תעודת הדרך הארוכה ביותר מידי <span className="font-extrabold" style={{ color: roadPopup.prevPlayer.color }}>{roadPopup.prevPlayer.name}</span>!
-                </p>
-              ) : (
-                <p className="text-slate-200 text-sm leading-relaxed mb-6">
-                  השחקן <span className="font-extrabold" style={{ color: roadPopup.player.color }}>{roadPopup.player.name}</span> זכה בתעודת הדרך הארוכה ביותר בפעם הראשונה במשחק!
-                </p>
-              )}
-
-              <button
-                onClick={() => setRoadPopup(null)}
-                className="w-full bg-gradient-to-r from-emerald-500 to-teal-500 text-slate-950 font-black py-3 rounded-xl shadow-lg hover:brightness-110 active:scale-95 transition-all text-sm cursor-pointer"
-              >
-                סגור (X)
-              </button>
-            </div>
-          </div>
+          <TrophyPopup
+            type="longest_road"
+            player={roadPopup.player}
+            prevPlayer={roadPopup.prevPlayer}
+            onClose={() => setRoadPopup(null)}
+          />
         )}
 
         {/* קומפוננטת Overlay במסך מלא עבור זריקת משאבים כשהשודד מופעל */}
         <DiscardOverlay />
 
         {/* מודל תארים צף גדול במרכז */}
-        {activeTrophyModal && (() => {
-          const isRoad = activeTrophyModal === 'longest_road';
-          const title = isRoad ? 'תואר: הדרך הארוכה ביותר (Longest Road)' : 'תואר: הצבא הגדול ביותר (Largest Army)';
-          const img = isRoad ? '/badge_longest_road.png' : '/badge_largest_army.png';
-          const holderId = isRoad ? longestRoadPlayerId : largestArmyPlayerId;
-          const holder = players.find(p => p.id === holderId) || null;
-          const reqs = isRoad 
-            ? 'כדי לזכות בתואר אסטרטגי זה, עליך לבנות את רצף הכבישים הארוך ביותר של לפחות 5 כבישים רציפים ומחוברים. ברגע ששחקן אחר בונה רצף ארוך יותר משלך, התואר והנקודות עוברים אליו מיידית.' 
-            : 'כדי לזכות בתואר הצבאי הזה, עליך להפעיל לפחות 3 קלפי אביר (Knight) מחפיסת הפיתוח שלך. ברגע ששחקן אחר מפעיל מספר גדול יותר של קלפי אביר ממך, התואר והנקודות עוברים אליו מיידית.';
-          
-          return (
-            <div className="fixed inset-0 bg-slate-950/85 backdrop-blur-md flex items-center justify-center z-50 p-4">
-              <div className="bg-slate-900 border-2 border-amber-500/40 rounded-3xl w-full max-w-lg p-8 shadow-2xl relative text-center animate-fade-in" dir="rtl">
-                <button 
-                  onClick={() => setActiveTrophyModal(null)}
-                  className="absolute top-4 left-4 text-slate-400 hover:text-white transition-colors duration-200 cursor-pointer p-1.5 rounded-xl hover:bg-slate-800 flex items-center justify-center border border-slate-800"
-                >
-                  <CrossIcon size={16} />
-                </button>
-                
-                <div className="w-24 h-24 mx-auto mb-5 relative">
-                  <div className="absolute inset-0 bg-amber-500/15 rounded-full animate-ping" style={{ animationDuration: '3s' }} />
-                  <img src={img} alt={title} className="w-full h-full object-contain relative z-10 animate-bounce" style={{ animationDuration: '4s' }} />
-                </div>
-                
-                <h3 className="text-2xl font-black text-transparent bg-clip-text bg-gradient-to-r from-amber-400 to-orange-500 mb-4">
-                  {title}
-                </h3>
-
-                <div className="bg-slate-950/70 border border-slate-800/80 rounded-2xl p-4 mb-5 text-right">
-                  <div className="flex items-center justify-between mb-3 border-b border-slate-850/60 pb-2">
-                    <span className="text-xs text-slate-400 font-bold">מחזיק התואר הנוכחי:</span>
-                    {holder ? (
-                      <span className="text-sm font-black" style={{ color: holder.color }}>
-                        👑 {holder.name} {holder.isBot ? '(מחשב)' : '(אתה)'}
-                      </span>
-                    ) : (
-                      <span className="text-xs text-slate-500 italic">אין מחזיק כרגע</span>
-                    )}
-                  </div>
-                  <div className="flex items-center justify-between mb-1">
-                    <span className="text-xs text-slate-400 font-bold">בונוס נקודות ניצחון:</span>
-                    <span className="text-xs font-extrabold text-amber-400 font-mono">2 VP (נקודות ניצחון ציבוריות)</span>
-                  </div>
-                </div>
-
-                <div className="bg-slate-950/40 border border-slate-850 rounded-2xl p-4 mb-6 text-right leading-relaxed">
-                  <span className="block text-xs font-black text-slate-300 mb-1.5">כיצד זוכים בתואר?</span>
-                  <p className="text-xs text-slate-400 font-medium">{reqs}</p>
-                </div>
-
-                <button
-                  onClick={() => setActiveTrophyModal(null)}
-                  className="w-full bg-gradient-to-r from-amber-500 to-orange-500 text-slate-950 font-black py-3 rounded-xl shadow-lg hover:brightness-110 active:scale-95 transition-all text-sm cursor-pointer border border-amber-400"
-                >
-                  סגור תעודה
-                </button>
-              </div>
-            </div>
-          );
-        })()}
+        <TrophyDetailModal
+          isOpen={!!activeTrophyModal}
+          type={activeTrophyModal!}
+          longestRoadPlayerId={longestRoadPlayerId}
+          largestArmyPlayerId={largestArmyPlayerId}
+          players={players}
+          onClose={() => setActiveTrophyModal(null)}
+        />
 
         {/* מודל קלפי פיתוח צף גדול במרכז */}
         {isDevCardsOverlayOpen && (() => {
@@ -1623,7 +1104,7 @@ const GameContent: React.FC = () => {
 
         {/* מודל סיום המשחק */}
         {gamePhase === 'GAME_OVER' && (() => {
-          const winner = players.find(p => getPlayerTotalVP(p, longestRoadPlayerId, largestArmyPlayerId, true) >= 10) || players.reduce((max, p) => getPlayerTotalVP(p, longestRoadPlayerId, largestArmyPlayerId, true) > getPlayerTotalVP(max, longestRoadPlayerId, largestArmyPlayerId, true) ? p : max, players[0]);
+          const winner = players.find(p => getPlayerTotalVP(p, longestRoadPlayerId, largestArmyPlayerId, true, vertices, tiles) >= 10) || players.reduce((max, p) => getPlayerTotalVP(p, longestRoadPlayerId, largestArmyPlayerId, true, vertices, tiles) > getPlayerTotalVP(max, longestRoadPlayerId, largestArmyPlayerId, true, vertices, tiles) ? p : max, players[0]);
           return (
             <div className="fixed inset-0 bg-slate-950/90 backdrop-blur-md flex items-center justify-center z-50 p-4 animate-fade-in">
               <div className="bg-slate-900 border-4 border-amber-500 rounded-3xl w-full max-w-2xl p-10 shadow-2xl relative text-center" dir="rtl">
@@ -1644,7 +1125,7 @@ const GameContent: React.FC = () => {
                 </h1>
                 
                 <p className="text-xl text-slate-300 mb-8 font-medium">
-                  {winner ? `כל הכבוד! ${winner.name} הגיע/ה ל-${getPlayerTotalVP(winner, longestRoadPlayerId, largestArmyPlayerId, true)} נקודות ניצחון והוכתר/ה כשליט/ת קטאן!` : ''}
+                  {winner ? `כל הכבוד! ${winner.name} הגיע/ה ל-${getPlayerTotalVP(winner, longestRoadPlayerId, largestArmyPlayerId, true, vertices, tiles)} נקודות ניצחון והוכתר/ה כשליט/ת קטאן!` : ''}
                 </p>
 
                 {/* Scoreboard table */}
@@ -1652,7 +1133,7 @@ const GameContent: React.FC = () => {
                   <h3 className="text-lg font-bold text-slate-400 mb-4 border-b border-slate-800 pb-2">טבלת הניקוד הסופית:</h3>
                   <div className="space-y-3">
                     {[...players]
-                      .sort((a, b) => getPlayerTotalVP(b, longestRoadPlayerId, largestArmyPlayerId, true) - getPlayerTotalVP(a, longestRoadPlayerId, largestArmyPlayerId, true))
+                      .sort((a, b) => getPlayerTotalVP(b, longestRoadPlayerId, largestArmyPlayerId, true, vertices, tiles) - getPlayerTotalVP(a, longestRoadPlayerId, largestArmyPlayerId, true, vertices, tiles))
                       .map((p, index) => (
                         <div 
                           key={p.id} 
@@ -1665,7 +1146,7 @@ const GameContent: React.FC = () => {
                             {p.isBot && <span className="text-[10px] px-1.5 py-0.5 bg-slate-800 text-slate-400 rounded">בוט</span>}
                           </div>
                           <div className="flex items-center gap-1.5">
-                            <span className="text-lg font-black text-amber-400">{getPlayerTotalVP(p, longestRoadPlayerId, largestArmyPlayerId, true)}</span>
+                            <span className="text-lg font-black text-amber-400">{getPlayerTotalVP(p, longestRoadPlayerId, largestArmyPlayerId, true, vertices, tiles)}</span>
                             <span className="text-xs text-slate-500">נק׳</span>
                           </div>
                         </div>

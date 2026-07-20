@@ -36,7 +36,7 @@ export function evaluateVertices(
 
   // 1. סינון הצמתים - נבדוק רק צמתים שבהם הבוט באמת מורשה לבנות מבחינה חוקית
   const validVertices = vertices.filter(vertex => 
-    validateSettlementPlacement(vertex.id, botId, gamePhase, vertices, edges)
+    validateSettlementPlacement(vertex.id, botId, gamePhase, vertices, edges, tiles)
   );
 
   // 2. חישוב ציון לכל צומת חוקי

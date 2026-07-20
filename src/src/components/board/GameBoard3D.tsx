@@ -1,4 +1,4 @@
-import React, { Suspense, useState, useRef } from 'react';
+import React, { Suspense, useRef } from 'react';
 import { useGame } from '../../context/GameContext';
 import { HexTile3D } from './HexTile3D';
 import { NumberToken3D } from './NumberToken3D';
@@ -7,35 +7,23 @@ import { Road3D } from './Road3D';
 import { Structure3D } from './Structure3D';
 import { WoodIcon, BrickIcon, SheepIcon, WheatIcon, OreIcon } from '../common/Icons';
 import { Canvas, useFrame } from '@react-three/fiber';
-import { OrbitControls, useTexture, Billboard } from '@react-three/drei';
+import { OrbitControls, useTexture } from '@react-three/drei';
 import * as THREE from 'three';
 import { parseVertexId } from '../../utils/hexMath/parseVertexId';
 import { parseEdgeId } from '../../utils/hexMath/parseEdgeId';
 import { useTurnManager } from '../../hooks/useTurnManager';
-import { moveRobber } from '../../utils/gameEngine/moveRobber';
-import { getEligibleRobberyTargets } from '../../utils/gameEngine/robberSteal';
-import { validateSettlementPlacement } from '../../utils/validation/validateSettlementPlacement';
-import { validateRoadPlacement } from '../../utils/validation/validateRoadPlacement';
-import { validateShipPlacement } from '../../utils/validation/validateShipPlacement';
 import { cubeToPixel } from '../../utils/hexMath/cubeToPixel';
 import { getTileEdgeIds } from '../../utils/gameEngine/generateEdges';
 
+import { Wagon3D } from './3d/Wagon3D';
+import { Robber3D } from './3d/Robber3D';
+import { Pirate3D } from './3d/Pirate3D';
+import { Harbor3D } from './3d/Harbor3D';
+import { useBoardInteraction } from '../../hooks/useBoardInteraction';
+
 const HEX_SIZE_2D = 60; // Base size for 2D calculations, remains consistent
 const HEX_HEIGHT_3D = 3.0; // Visual height for 3D hexes
-// const HEX_WIDTH_3D = HEX_HEIGHT_3D * (Math.sqrt(3) / 2); // Calculated width based on 3D height
 const SCALE_3D = (HEX_HEIGHT_3D / 2) / HEX_SIZE_2D; // Scaling factor from 2D pixel to 3D unit
-
-// Unused tileColors commented out to prevent unused variable compile errors
-/*
-const tileColors: Record<string, string> = {
-  WOOD: '#1b4332',
-  BRICK: '#b91c1c',
-  SHEEP: '#a3e635',
-  WHEAT: '#eab308',
-  ORE: '#475569',
-  DESERT: '#854d0e',
-};
-*/
 
 function getProbabilityDots3D(num: number): string {
   const dotsMap: Record<number, string> = {
@@ -54,10 +42,6 @@ interface Board3DSceneProps {
   edges: any[];
   players: any[];
   currentPlayerIndex: number;
-  turnSubPhase: any;
-  gamePhase: any;
-  isSetupPhase: boolean;
-  setupState: any;
   onTileClick: (tile: any) => void;
   onVertexClick: (vertex: any) => void;
   onEdgeClick: (edge: any) => void;
@@ -67,132 +51,10 @@ interface Board3DSceneProps {
   onHarborLeave: () => void;
   is3DMode: boolean;
   isMovingWagon?: boolean;
+  getVertexConfig: (vertex: any) => any;
+  getEdgeConfig: (edge: any) => any;
+  isSelectableForRobber: (tile: any) => boolean;
 }
-
-interface Wagon3DProps {
-  playerColor: string;
-  position?: [number, number, number];
-}
-
-const Wagon3D: React.FC<Wagon3DProps> = ({ playerColor, position = [0, 0, 0] }) => {
-  return (
-    <group position={position}>
-      {/* Body of the wagon */}
-      <mesh position={[0, 0, 0.15]}>
-        <boxGeometry args={[0.5, 0.3, 0.25]} />
-        <meshStandardMaterial color={playerColor} roughness={0.5} metalness={0.1} />
-      </mesh>
-      {/* Wheels */}
-      <mesh position={[-0.18, 0.18, 0.05]} rotation={[Math.PI / 2, 0, 0]}>
-        <cylinderGeometry args={[0.12, 0.12, 0.08, 12]} />
-        <meshStandardMaterial color="#422e1b" roughness={0.9} />
-      </mesh>
-      <mesh position={[0.18, 0.18, 0.05]} rotation={[Math.PI / 2, 0, 0]}>
-        <cylinderGeometry args={[0.12, 0.12, 0.08, 12]} />
-        <meshStandardMaterial color="#422e1b" roughness={0.9} />
-      </mesh>
-      <mesh position={[-0.18, -0.18, 0.05]} rotation={[Math.PI / 2, 0, 0]}>
-        <cylinderGeometry args={[0.12, 0.12, 0.08, 12]} />
-        <meshStandardMaterial color="#422e1b" roughness={0.9} />
-      </mesh>
-      <mesh position={[0.18, -0.18, 0.05]} rotation={[Math.PI / 2, 0, 0]}>
-        <cylinderGeometry args={[0.12, 0.12, 0.08, 12]} />
-        <meshStandardMaterial color="#422e1b" roughness={0.9} />
-      </mesh>
-    </group>
-  );
-};
-
-interface HarborDock3DProps {
-  vertex: any;
-  vx: number;
-  vy: number;
-  tileX: number;
-  tileY: number;
-  harborAngle?: number;
-  onPointerOver: (e: any) => void;
-  onPointerMove: (e: any) => void;
-  onPointerOut: () => void;
-  onClick: (e: any) => void;
-}
-
-const HarborDock3D: React.FC<HarborDock3DProps> = ({
-  vertex,
-  vx,
-  vy,
-  tileX,
-  tileY,
-  harborAngle,
-  onPointerOver,
-  onPointerMove,
-  onPointerOut,
-  onClick,
-}) => {
-  const groupRef = useRef<THREE.Group>(null);
-  const angle = harborAngle !== undefined ? (harborAngle * Math.PI) / 180 : Math.atan2(vy - tileY, vx - tileX);
-
-  const portTextureImage = useTexture('/port.png');
-  
-  // Prevent unused variable compilation error
-  if (vertex) {
-    // Read variable
-  }
-
-  return (
-    <group 
-      ref={groupRef} 
-      rotation={[0, 0, angle]}
-      scale={[1.2, 1.2, 1.2]}
-      onClick={onClick}
-      onPointerOver={onPointerOver}
-      onPointerMove={onPointerMove}
-      onPointerOut={onPointerOut}
-    >
-      {/* Elongated bridge/dock represented by the clean transparent port.png texture */}
-      <mesh position={[0.4, 0, 0.05]} rotation={[0, 0, -Math.PI / 2]} scale={[1.0, 1.0, 1.0]}>
-        <planeGeometry args={[0.9, 0.9]} />
-        <meshStandardMaterial map={portTextureImage} transparent={true} roughness={0.6} side={THREE.DoubleSide} />
-      </mesh>
-
-      {/* Two thin vertical wooden columns/posts entering the water */}
-      <mesh position={[0.45, 0.1, -0.22]} rotation={[Math.PI / 2, 0, 0]}>
-        <cylinderGeometry args={[0.03, 0.03, 0.4, 12]} />
-        <meshStandardMaterial color="#2d1c18" roughness={0.9} />
-      </mesh>
-      <mesh position={[0.45, -0.1, -0.22]} rotation={[Math.PI / 2, 0, 0]}>
-        <cylinderGeometry args={[0.03, 0.03, 0.4, 12]} />
-        <meshStandardMaterial color="#2d1c18" roughness={0.9} />
-      </mesh>
-    </group>
-  );
-};
-
-const removeWhiteBg = (shader: any) => {
-  shader.fragmentShader = shader.fragmentShader.replace(
-    '#include <map_fragment>',
-    `
-    #include <map_fragment>
-    if (diffuseColor.r > 0.95 && diffuseColor.g > 0.95 && diffuseColor.b > 0.95) {
-      discard;
-    }
-    `
-  );
-};
-
-// const removeWhiteBgTiles = (shader: any) => {
-//   shader.fragmentShader = shader.fragmentShader.replace(
-//     '#include <map_fragment>',
-//     `
-//     #include <map_fragment>
-//     #ifdef USE_MAP
-//       vec4 sampledColor = sampledDiffuseColor;
-//       if (sampledColor.r > 0.95 && sampledColor.g > 0.95 && sampledColor.b > 0.95) {
-//         discard;
-//       }
-//     #endif
-//     `
-//   );
-// };
 
 const Board3DScene: React.FC<Board3DSceneProps> = ({
   tiles,
@@ -200,10 +62,6 @@ const Board3DScene: React.FC<Board3DSceneProps> = ({
   edges,
   players,
   currentPlayerIndex,
-  turnSubPhase,
-  gamePhase,
-  isSetupPhase,
-  setupState,
   onTileClick,
   onVertexClick,
   onEdgeClick,
@@ -213,6 +71,9 @@ const Board3DScene: React.FC<Board3DSceneProps> = ({
   onHarborLeave,
   is3DMode,
   isMovingWagon = false,
+  getVertexConfig,
+  getEdgeConfig,
+  isSelectableForRobber,
 }) => {
   const handleVertexClick = onVertexClick;
   // Load element textures
@@ -221,6 +82,7 @@ const Board3DScene: React.FC<Board3DSceneProps> = ({
     city: '/city.png',
     road: '/road.png',
     robber: '/robber.png',
+    pirate: '/pirat.jpg',
     WOOD: '/wood.jpg',
     BRICK: '/brick.jpg',
     SHEEP: '/wool.jpg',
@@ -228,11 +90,16 @@ const Board3DScene: React.FC<Board3DSceneProps> = ({
     ORE: '/rock.jpg',
     DESERT: '/desert.jpg',
     SEA: '/see.jpg',
+    WATER: '/see.jpg',
+    GOLD_FIELD: '/gold.jpg',
+    FOG: '/fog.jpg',
+    victory_island: '/victory_island.jpg',
+    ship: '/ship.jpg',
   });
 
   // Configure textures wrapping and sharpness in useMemo
   React.useMemo(() => {
-    const tileTypes = ['WOOD', 'BRICK', 'SHEEP', 'WHEAT', 'ORE', 'DESERT', 'SEA'];
+    const tileTypes = ['WOOD', 'BRICK', 'SHEEP', 'WHEAT', 'ORE', 'DESERT', 'SEA', 'WATER'];
     tileTypes.forEach((type) => {
       const tex = textures[type as keyof typeof textures];
       if (tex) {
@@ -254,39 +121,6 @@ const Board3DScene: React.FC<Board3DSceneProps> = ({
       textures.SEA.offset.y = Math.cos(time * 0.18) * 0.025;
     }
   });
-
-  // Is tile selectable for robber?
-  const isSelectableForRobber = (tile: any) => {
-    return turnSubPhase === 'ROBBER_PLACEMENT' && 
-           !players[currentPlayerIndex]?.isBot && 
-           !tile.hasRobber;
-  };
-
-  const getVertexConfig = (vertex: any) => {
-    const currentPlayer = players[currentPlayerIndex];
-    const isBlockedBySetup = isSetupPhase && setupState.hasPlacedSettlement;
-    const isValidPlacement = currentPlayer && !isBlockedBySetup
-      ? validateSettlementPlacement(vertex.id, currentPlayer.id, gamePhase, vertices, edges)
-      : false;
-
-    const isOwnSettlement = vertex.structure === 'SETTLEMENT' && vertex.playerId === currentPlayer?.id;
-    const canUpgradeToCity = currentPlayer && !isSetupPhase && turnSubPhase === 'TRADE_AND_BUILD' && isOwnSettlement;
-    const isOwnedHarbor = vertex.isHarbor && vertex.playerId === currentPlayer?.id;
-    const isClickable = ((isValidPlacement || canUpgradeToCity) || (isOwnedHarbor && turnSubPhase === 'TRADE_AND_BUILD')) && !currentPlayer?.isBot;
-
-    return { isValidPlacement, canUpgradeToCity, isOwnedHarbor, isClickable };
-  };
-
-  const getEdgeConfig = (edge: any) => {
-    const currentPlayer = players[currentPlayerIndex];
-    const isBlockedBySetup = isSetupPhase && setupState.hasPlacedRoad;
-    const isValidPlacement = currentPlayer && !isBlockedBySetup
-      ? validateRoadPlacement(edge.id, currentPlayer.id, vertices, edges, tiles)
-      : false;
-    const isClickable = isValidPlacement && !currentPlayer?.isBot;
-
-    return { isValidPlacement, isClickable };
-  };
 
   return (
     <group rotation={[0, 0, 0]}>
@@ -348,31 +182,24 @@ const Board3DScene: React.FC<Board3DSceneProps> = ({
 
             {/* Robber */}
             {tile.hasRobber && (
-              <Billboard position={[tileX, tileY, getTokenZ(tile.type) + 0.05]}>
-                <mesh 
-                  rotation={[0, 0, 0]}
-                  onPointerOver={(e) => {
-                    e.stopPropagation();
-                    onTileHover(tile, e.clientX, e.clientY);
-                  }}
-                  onPointerMove={(e) => {
-                    e.stopPropagation();
-                    onTileHover(tile, e.clientX, e.clientY);
-                  }}
-                  onPointerOut={(e) => {
-                    e.stopPropagation();
-                    onTileLeave();
-                  }}
-                >
-                  <planeGeometry args={[1.3, 1.95]} />
-                  <meshStandardMaterial 
-                    map={textures.robber} 
-                    transparent={true} 
-                    side={THREE.DoubleSide}
-                    onBeforeCompile={removeWhiteBg}
-                  />
-                </mesh>
-              </Billboard>
+              <Robber3D
+                position={[tileX, tileY, getTokenZ(tile.type) + 0.05]}
+                tile={tile}
+                robberTexture={textures.robber}
+                onTileHover={onTileHover}
+                onTileLeave={onTileLeave}
+              />
+            )}
+
+            {/* Pirate */}
+            {tile.hasPirate && (
+              <Pirate3D
+                position={[tileX, tileY, getTokenZ(tile.type) + 0.05]}
+                tile={tile}
+                pirateTexture={textures.pirate}
+                onTileHover={onTileHover}
+                onTileLeave={onTileLeave}
+              />
             )}
           </group>
         );
@@ -557,8 +384,12 @@ const Board3DScene: React.FC<Board3DSceneProps> = ({
         const my = (vy1 + vy2) / 2;
         const mz = !is3DMode ? 0.77 : 0.85;
 
-        // Find the owner tile of this edge
+        // Find the owner tile of this edge - prioritize land tiles (non-WATER) so Harbor3D points outwards
         const ownerTile = tiles.find(tile => {
+          if (tile.type === 'WATER') return false;
+          const edgeIds = getTileEdgeIds(tile);
+          return edgeIds.includes(edge.id);
+        }) || tiles.find(tile => {
           const edgeIds = getTileEdgeIds(tile);
           return edgeIds.includes(edge.id);
         });
@@ -581,7 +412,7 @@ const Board3DScene: React.FC<Board3DSceneProps> = ({
 
         return (
           <group key={`harbor_${edge.id}`} position={[mx, my, mz]}>
-            <HarborDock3D
+            <Harbor3D
               vertex={connectedVertex}
               vx={mx}
               vy={my}
@@ -722,6 +553,14 @@ const getTileTooltipInfo = (type: string) => {
         description: 'מדבר שומם וצחיח שאינו מייצר משאבים. מקום מושבו של השודד.',
         color: 'from-orange-500/10 to-amber-950/20 border-orange-700/20 text-orange-200'
       };
+    case 'WATER':
+      return {
+        name: 'ים',
+        produces: 'אין',
+        img: '',
+        description: 'מים פתוחים וסוערים שניתן לשוט בהם באמצעות ספינות.',
+        color: 'from-blue-500/20 to-blue-950/40 border-blue-500/40 text-blue-300'
+      };
     default:
       return {
         name: 'אריח משאב',
@@ -765,26 +604,11 @@ export const GameBoard3D: React.FC = () => {
     setBuildingToast,
     players, 
     currentPlayerIndex, 
-    turnSubPhase, 
-    setTiles, 
-    setTurnSubPhase, 
-    addLog, 
-    setRobberyState,
-    setVertices,
-    setPlayers,
-    gamePhase,
-    setEdges,
-    roadBuildingRemaining,
-    showBuildingCostToast,
-    setActivePortTrade,
     isMovingWagon,
-    setIsMovingWagon,
-    activeExpansion,
-    currentAction,
-    setCurrentAction
+    activeExpansion
   } = useGame();
 
-  const { isSetupPhase, setupState, recordSetupPlacement, moveWagon } = useTurnManager();
+  useTurnManager();
 
   React.useEffect(() => {
     const updateCamera = () => {
@@ -819,302 +643,22 @@ export const GameBoard3D: React.FC = () => {
     };
   }, [is3DMode, activeExpansion, tiles.length]);
 
-  const [hoveredTile, setHoveredTile] = useState<{
-    tile: any;
-    x: number;
-    y: number;
-  } | null>(null);
-
-  const [hoveredHarbor, setHoveredHarbor] = useState<{
-    harbor: any;
-    x: number;
-    y: number;
-  } | null>(null);
-
-  // Define click handlers that have access to the context outside of Canvas
-  const isSelectableForRobber = (tile: any) => {
-    return turnSubPhase === 'ROBBER_PLACEMENT' && 
-           !players[currentPlayerIndex]?.isBot && 
-           !tile.hasRobber;
-  };
-
-  const handleTileClick = (tile: any) => {
-    if (!isSelectableForRobber(tile)) return;
-    
-    // Move robber (using moveRobber utility)
-    setTiles(prevTiles => moveRobber(tile.id, prevTiles));
-    
-    const currentPlayerName = players[currentPlayerIndex]?.name || 'השחקן';
-    addLog(`${currentPlayerName} הזיז את השודד לאריח מסוג ${tile.type}.`);
-
-    const currentPlayingPlayer = players[currentPlayerIndex];
-    const eligibleTargets = getEligibleRobberyTargets(tile, vertices, players, currentPlayingPlayer.id);
-
-    if (eligibleTargets.length > 0) {
-      setRobberyState({ tile, targets: eligibleTargets });
-    } else {
-      addLog(`[שודד] אין שחקנים יריבים עם קלפים באריח זה.`);
-      setTurnSubPhase('TRADE_AND_BUILD');
-    }
-  };
-
-  const getVertexConfig = (vertex: any) => {
-    const currentPlayer = players[currentPlayerIndex];
-    const isBlockedBySetup = isSetupPhase && setupState.hasPlacedSettlement;
-    const isValidPlacement = currentPlayer && !isBlockedBySetup
-      ? validateSettlementPlacement(vertex.id, currentPlayer.id, gamePhase, vertices, edges)
-      : false;
-
-    const isOwnSettlement = vertex.structure === 'SETTLEMENT' && vertex.playerId === currentPlayer?.id;
-    const canUpgradeToCity = currentPlayer && !isSetupPhase && turnSubPhase === 'TRADE_AND_BUILD' && isOwnSettlement;
-    const isOwnedHarbor = vertex.isHarbor && vertex.playerId === currentPlayer?.id;
-    const isClickable = ((isValidPlacement || canUpgradeToCity) || (isOwnedHarbor && turnSubPhase === 'TRADE_AND_BUILD')) && !currentPlayer?.isBot;
-
-    return { isValidPlacement, canUpgradeToCity, isOwnedHarbor, isClickable };
-  };
-
-  const handleVertexClick = (vertex: any) => {
-    const currentPlayer = players[currentPlayerIndex];
-    if (currentPlayer?.isBot) return;
-
-    // Wagon movement click
-    if (isMovingWagon) {
-      const isWagonSelectable = (() => {
-        if (!currentPlayer || !currentPlayer.wagonPosition || currentPlayer.wagonPosition === vertex.id) {
-          return false;
-        }
-        const sortedIds = [currentPlayer.wagonPosition, vertex.id].sort();
-        const edgeId = `e_${sortedIds[0]}_${sortedIds[1]}`;
-        const edge = edges.find(e => e.id === edgeId);
-        if (!edge) return false;
-        const isOwner = edge.hasRoad && edge.playerId === currentPlayer.id;
-        const cost = isOwner ? 1 : 2;
-        const remainingPoints = currentPlayer.remainingMovementPoints !== undefined ? currentPlayer.remainingMovementPoints : 4;
-        return remainingPoints >= cost;
-      })();
-
-      if (isWagonSelectable) {
-        moveWagon?.(currentPlayer.id, vertex.id);
-        const sortedIds = [currentPlayer.wagonPosition, vertex.id].sort();
-        const edgeId = `e_${sortedIds[0]}_${sortedIds[1]}`;
-        const edge = edges.find(e => e.id === edgeId);
-        const isOwner = edge && edge.hasRoad && edge.playerId === currentPlayer.id;
-        const cost = isOwner ? 1 : 2;
-        const updatedPoints = (currentPlayer.remainingMovementPoints !== undefined ? currentPlayer.remainingMovementPoints : 4) - cost;
-        if (updatedPoints <= 0 && setIsMovingWagon) {
-          setIsMovingWagon(false);
-        }
-        return;
-      }
-    }
-
-    const { isValidPlacement, canUpgradeToCity, isOwnedHarbor } = getVertexConfig(vertex);
-
-    // Harbor trade
-    if (isOwnedHarbor && !isSetupPhase && turnSubPhase === 'TRADE_AND_BUILD') {
-      setActivePortTrade(vertex);
-      return;
-    }
-
-    // Setup phase
-    if (isSetupPhase) {
-      if (!isValidPlacement) return;
-      setVertices(prevVertices => prevVertices.map(v => 
-        v.id === vertex.id 
-          ? { ...v, structure: 'SETTLEMENT', playerId: currentPlayer.id } 
-          : v
-      ));
-      recordSetupPlacement?.('SETTLEMENT', vertex.id);
-      showBuildingCostToast('SETTLEMENT', true, true);
-      addLog(`שחקן ${currentPlayer.name} בנה יישוב בשלב ההקמה (חינם).`);
-      return;
-    }
-
-    // Upgrade to city
-    if (canUpgradeToCity) {
-      const hasResources = currentPlayer.resources.WHEAT >= 2 && currentPlayer.resources.ORE >= 3;
-      showBuildingCostToast('CITY', hasResources);
-
-      if (!hasResources) {
-        addLog(`אין לך מספיק משאבים לשדרוג לעיר! נדרש: 3 ברזל, 2 חיטה.`);
-        return;
-      }
-
-      setPlayers(prev => prev.map(p => p.id === currentPlayer.id 
-        ? {
-            ...p,
-            victoryPoints: p.victoryPoints + 1,
-            resources: {
-              ...p.resources,
-              WHEAT: p.resources.WHEAT - 2,
-              ORE: p.resources.ORE - 3
-            }
-          }
-        : p
-      ));
-
-      setVertices(prevVertices => prevVertices.map(v => 
-        v.id === vertex.id 
-          ? { ...v, structure: 'CITY' } 
-          : v
-      ));
-
-      addLog(`שחקן ${currentPlayer.name} שדרג יישוב לעיר! עלות: 3 ברזל, 2 חיטה.`);
-      return;
-    }
-
-    // Build regular settlement
-    if (isValidPlacement) {
-      if (turnSubPhase !== 'TRADE_AND_BUILD') return;
-
-      const hasResources = currentPlayer.resources.WOOD >= 1 && 
-                           currentPlayer.resources.BRICK >= 1 && 
-                           currentPlayer.resources.SHEEP >= 1 && 
-                           currentPlayer.resources.WHEAT >= 1;
-
-      showBuildingCostToast('SETTLEMENT', hasResources);
-
-      if (!hasResources) {
-        addLog(`אין לך מספיק משאבים לבניית יישוב! נדרש: 1 עץ, 1 לבנה, 1 כבש, 1 חיטה.`);
-        return;
-      }
-
-      setPlayers(prev => prev.map(p => p.id === currentPlayer.id 
-        ? {
-            ...p,
-            victoryPoints: p.victoryPoints + 1,
-            resources: {
-              ...p.resources,
-              WOOD: p.resources.WOOD - 1,
-              BRICK: p.resources.BRICK - 1,
-              SHEEP: p.resources.SHEEP - 1,
-              WHEAT: p.resources.WHEAT - 1
-            }
-          }
-        : p
-      ));
-
-      setVertices(prevVertices => prevVertices.map(v => 
-        v.id === vertex.id 
-          ? { ...v, structure: 'SETTLEMENT', playerId: currentPlayer.id } 
-          : v
-      ));
-
-      addLog(`שחקן ${currentPlayer.name} בנה יישוב! עלות: 1 עץ, 1 לבנה, 1 כבש, 1 חיטה.`);
-      return;
-    }
-  };
-
-  const getEdgeConfig = (edge: any) => {
-    const currentPlayer = players[currentPlayerIndex];
-    const isBlockedBySetup = isSetupPhase && setupState.hasPlacedRoad;
-    
-    if (currentAction === 'BUILD_SHIP') {
-      const isValidPlacement = currentPlayer && !isBlockedBySetup
-        ? validateShipPlacement(edge.id, currentPlayer.id, vertices, edges, tiles)
-        : false;
-      const isClickable = isValidPlacement && !currentPlayer?.isBot;
-      return { isValidPlacement, isClickable };
-    }
-
-    const isValidPlacement = currentPlayer && !isBlockedBySetup
-      ? validateRoadPlacement(edge.id, currentPlayer.id, vertices, edges)
-      : false;
-    const isClickable = isValidPlacement && !currentPlayer?.isBot;
-
-    return { isValidPlacement, isClickable };
-  };
-
-  const handleEdgeClick = (edge: any) => {
-    const currentPlayer = players[currentPlayerIndex];
-    if (currentPlayer?.isBot) return;
-
-    const { isValidPlacement } = getEdgeConfig(edge);
-
-    if (currentAction === 'BUILD_SHIP') {
-      if (!isValidPlacement) return;
-      if (turnSubPhase !== 'TRADE_AND_BUILD') return;
-
-      const hasResources = currentPlayer.resources.WOOD >= 1 && currentPlayer.resources.SHEEP >= 1;
-      showBuildingCostToast('SHIP', hasResources);
-
-      if (!hasResources) {
-        addLog(`אין לך מספיק משאבים לבניית ספינה! נדרש: 1 עץ, 1 כבש.`);
-        return;
-      }
-
-      setPlayers(prev => prev.map(p => p.id === currentPlayer.id 
-        ? {
-            ...p,
-            resources: {
-              ...p.resources,
-              WOOD: p.resources.WOOD - 1,
-              SHEEP: p.resources.SHEEP - 1
-            }
-          }
-        : p
-      ));
-
-      setEdges(prevEdges => prevEdges.map(e => 
-        e.id === edge.id 
-          ? { ...e, hasShip: true, shipPlayerId: currentPlayer.id } 
-          : e
-      ));
-
-      setCurrentAction(null);
-      addLog(`השחקן ${currentPlayer.name} בנה ספינה!`);
-      return;
-    }
-
-    if (isSetupPhase) {
-      if (!isValidPlacement) return;
-      setEdges(prevEdges => prevEdges.map(e => 
-        e.id === edge.id 
-          ? { ...e, hasRoad: true, playerId: currentPlayer.id } 
-          : e
-      ));
-      recordSetupPlacement?.('ROAD', edge.id);
-      showBuildingCostToast('ROAD', true, true);
-      addLog(`שחקן ${currentPlayer.name} בנה כביש בשלב ההקמה (חינם).`);
-      return;
-    }
-
-    if (isValidPlacement) {
-      if (turnSubPhase !== 'TRADE_AND_BUILD') return;
-
-      const isFreeRoad = roadBuildingRemaining > 0;
-      const hasResources = isFreeRoad || (currentPlayer.resources.WOOD >= 1 && currentPlayer.resources.BRICK >= 1);
-
-      showBuildingCostToast('ROAD', hasResources, isFreeRoad);
-
-      if (!hasResources) {
-        addLog(`אין לך מספיק משאבים לבניית כביש! נדרש: 1 עץ, 1 לבנה.`);
-        return;
-      }
-
-      if (!isFreeRoad) {
-        setPlayers(prev => prev.map(p => p.id === currentPlayer.id 
-          ? {
-              ...p,
-              resources: {
-                ...p.resources,
-                WOOD: p.resources.WOOD - 1,
-                BRICK: p.resources.BRICK - 1
-              }
-            }
-          : p
-        ));
-      }
-
-      setEdges(prevEdges => prevEdges.map(e => 
-        e.id === edge.id 
-          ? { ...e, hasRoad: true, playerId: currentPlayer.id } 
-          : e
-      ));
-
-      addLog(`שחקן ${currentPlayer.name} בנה כביש! ${isFreeRoad ? '(חינם - קלף בניית כבישים)' : 'עלות: 1 עץ, 1 לבנה.'}`);
-    }
-  };
+  const {
+    hoveredTile,
+    setHoveredTile,
+    hoveredHarbor,
+    setHoveredHarbor,
+    coastlinePopupEdge,
+    setCoastlinePopupEdge,
+    buildRoadOnEdge,
+    buildShipOnEdge,
+    handleTileClick,
+    handleVertexClick,
+    handleEdgeClick,
+    getVertexConfig,
+    getEdgeConfig,
+    isSelectableForRobber,
+  } = useBoardInteraction();
 
   if (tiles.length === 0) {
     return (
@@ -1290,10 +834,6 @@ export const GameBoard3D: React.FC = () => {
               edges={edges} 
               players={players}
               currentPlayerIndex={currentPlayerIndex}
-              turnSubPhase={turnSubPhase}
-              gamePhase={gamePhase}
-              isSetupPhase={isSetupPhase}
-              setupState={setupState}
               onTileClick={handleTileClick}
               onVertexClick={handleVertexClick}
               onEdgeClick={handleEdgeClick}
@@ -1303,6 +843,9 @@ export const GameBoard3D: React.FC = () => {
               onHarborLeave={() => setHoveredHarbor(null)}
               is3DMode={is3DMode}
               isMovingWagon={isMovingWagon}
+              getVertexConfig={getVertexConfig}
+              getEdgeConfig={getEdgeConfig}
+              isSelectableForRobber={isSelectableForRobber}
             />
           </Suspense>
         </Canvas>
@@ -1415,6 +958,47 @@ export const GameBoard3D: React.FC = () => {
               </>
             );
           })()}
+        </div>
+      )}
+
+      {/* Coastline Placement Choice Popup */}
+      {coastlinePopupEdge && (
+        <div className="fixed inset-0 bg-slate-950/40 backdrop-blur-sm z-50 flex items-center justify-center pointer-events-auto">
+          <div className="bg-slate-900/95 border border-slate-700/80 rounded-2xl p-6 shadow-2xl max-w-sm w-full flex flex-col gap-4 text-center font-sans animate-fade-in" dir="rtl">
+            <div className="flex flex-col gap-1.5">
+              <span className="text-xl font-black text-white">בנייה בקו החוף 🌊</span>
+              <span className="text-sm text-slate-300">בחר איזה מבנה ברצונך להקים על קו חוף זה:</span>
+            </div>
+            
+            <div className="flex flex-col gap-2.5 my-2">
+              <button
+                onClick={() => {
+                  buildRoadOnEdge(coastlinePopupEdge);
+                  setCoastlinePopupEdge(null);
+                }}
+                className="flex items-center justify-center gap-2 bg-gradient-to-r from-emerald-600 to-emerald-500 hover:from-emerald-500 hover:to-emerald-400 text-white font-bold py-3 px-4 rounded-xl shadow-lg shadow-emerald-950/50 transition-all active:scale-95 cursor-pointer"
+              >
+                <span>בנה כביש 🛣️</span>
+              </button>
+              
+              <button
+                onClick={() => {
+                  buildShipOnEdge(coastlinePopupEdge);
+                  setCoastlinePopupEdge(null);
+                }}
+                className="flex items-center justify-center gap-2 bg-gradient-to-r from-blue-600 to-blue-500 hover:from-blue-500 hover:to-blue-400 text-white font-bold py-3 px-4 rounded-xl shadow-lg shadow-blue-950/50 transition-all active:scale-95 cursor-pointer"
+              >
+                <span>בנה ספינה ⛵</span>
+              </button>
+            </div>
+            
+            <button
+              onClick={() => setCoastlinePopupEdge(null)}
+              className="text-xs text-slate-400 hover:text-slate-200 transition-colors py-1 font-semibold cursor-pointer"
+            >
+              ביטול מהלך
+            </button>
+          </div>
         </div>
       )}
     </div>

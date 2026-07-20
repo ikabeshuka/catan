@@ -2,6 +2,7 @@ import { HexTile } from '../../types/hex.types';
 import { BoardVertex } from '../../types/boardElements.types';
 import { Player } from '../../types/player.types';
 import { cubeToPixel } from '../hexMath/cubeToPixel';
+import { GoldSelectionPending } from '../../context/PlayerContext';
 
 const HEX_SIZE = 60;
 
@@ -23,9 +24,9 @@ export function distributeResources(
   tiles: HexTile[],
   vertices: BoardVertex[],
   players: Player[]
-): { updatedPlayers: Player[]; flows: ResourceFlow[] } {
+): { updatedPlayers: Player[]; flows: ResourceFlow[]; goldSelections: GoldSelectionPending[] } {
   // אם יצא 7, אף שחקן לא מקבל משאבים (השודד מופעל - נטפל בזה בהמשך בנפרד)
-  if (diceRoll === 7) return { updatedPlayers: players, flows: [] };
+  if (diceRoll === 7) return { updatedPlayers: players, flows: [], goldSelections: [] };
 
   // 1. יצירת עותק עמוק של השחקנים כדי לשמור על עקרון האימוטביליות ב-React
   const updatedPlayers = players.map(player => ({
@@ -34,6 +35,7 @@ export function distributeResources(
   }));
 
   const flows: ResourceFlow[] = [];
+  const goldSelections: GoldSelectionPending[] = [];
 
   // יצירת מפה (Map) של הצמתים לפי ה-ID שלהם לגישה מהירה ב-O(1)
   const vertexMap = new Map<string, BoardVertex>(vertices.map(v => [v.id, v]));
@@ -68,27 +70,35 @@ export function distributeResources(
           // קביעת כמות המשאבים: יישוב נותן 1, עיר נותנת 2
           const amountToGive = vertex.structure === 'SETTLEMENT' ? 1 : 2;
           
-          // הוספת המשאב לארנק של השחקן (רק עבור משאבים חוקיים שמיוצרים)
-          const resourceType = tile.type;
-          if (
-            resourceType === 'WOOD' ||
-            resourceType === 'BRICK' ||
-            resourceType === 'SHEEP' ||
-            resourceType === 'WHEAT' ||
-            resourceType === 'ORE'
-          ) {
-            playerToReward.resources[resourceType] += amountToGive;
+          if (tile.type === 'GOLD_FIELD') {
+            goldSelections.push({
+              playerId: playerToReward.id,
+              amount: amountToGive,
+              tileId: tile.id
+            });
+          } else {
+            // הוספת המשאב לארנק של השחקן (רק עבור משאבים חוקיים שמיוצרים)
+            const resourceType = tile.type;
+            if (
+              resourceType === 'WOOD' ||
+              resourceType === 'BRICK' ||
+              resourceType === 'SHEEP' ||
+              resourceType === 'WHEAT' ||
+              resourceType === 'ORE'
+            ) {
+              playerToReward.resources[resourceType] += amountToGive;
 
-            // יצירת פריטי תנועה ("עופים") של המשאב לשחקן
-            for (let j = 0; j < amountToGive; j++) {
-              flows.push({
-                id: `flow_${tile.id}_${vertex.id}_${j}_${Date.now()}_${Math.random()}`,
-                resourceType: resourceType,
-                from: { x: center.x, y: center.y },
-                playerName: playerToReward.name,
-                isHuman: !playerToReward.isBot,
-                amount: 1
-              });
+              // יצירת פריטי תנועה ("עופים") של המשאב לשחקן
+              for (let j = 0; j < amountToGive; j++) {
+                flows.push({
+                  id: `flow_${tile.id}_${vertex.id}_${j}_${Date.now()}_${Math.random()}`,
+                  resourceType: resourceType,
+                  from: { x: center.x, y: center.y },
+                  playerName: playerToReward.name,
+                  isHuman: !playerToReward.isBot,
+                  amount: 1
+                });
+              }
             }
           }
         }
@@ -96,5 +106,5 @@ export function distributeResources(
     }
   });
 
-  return { updatedPlayers, flows };
+  return { updatedPlayers, flows, goldSelections };
 }

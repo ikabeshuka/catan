@@ -70,7 +70,7 @@ export const HexTile3D: React.FC<HexTile3DProps> = ({
       canvas.height = 512;
       const ctx = canvas.getContext('2d');
       if (ctx) {
-        if (tile.type === 'CASTLE' || tile.type === 'QUARRY' || tile.type === 'GLASSWORKS' || tile.type === 'GOLD_FIELD') {
+        if ((tile.type === 'CASTLE' || tile.type === 'QUARRY' || tile.type === 'GLASSWORKS' || tile.type === 'GOLD_FIELD') && !tex) {
           // Special expansion tile styles
           let bgColor = '#8e24aa'; // Castle Purple
           let icon = '🏰';

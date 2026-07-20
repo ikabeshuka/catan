@@ -1,3 +1,6 @@
+import { cubeToPixel } from './cubeToPixel';
+import { COORDINATE_SCALE_3D } from './board3DMath';
+
 interface PixelCoordinate {
   x: number;
   y: number;
@@ -11,7 +14,6 @@ interface Vertex3DCoordinate {
 
 const HEX_SIZE_2D = 60; // Base size for 2D calculations, remains consistent
 const HEX_HEIGHT_3D = 3.0; // Visual height for 3D hexes
-const SCALE_3D = (HEX_HEIGHT_3D / 2) / HEX_SIZE_2D; // Scaling factor from 2D pixel to 3D unit
 
 /**
  * מחשבת את 3D קואורדינטות של קודקוד בהתבסס על המיקום הדו-מימדי שלו ואריחי המשושה הסמוכים.
@@ -41,7 +43,7 @@ export function getHexVertexCoordinates(vertex2D: PixelCoordinate, tiles: any[])
     }
   }
 
-  const defaultScale = SCALE_3D || 0.025;
+  const defaultScale = COORDINATE_SCALE_3D;
   const defaultHeight = HEX_HEIGHT_3D || 3.0;
 
   if (!closestTile) {
@@ -52,10 +54,9 @@ export function getHexVertexCoordinates(vertex2D: PixelCoordinate, tiles: any[])
   }
 
   // חישוב מיקום ה-3D של האריח הקרוב
-  const cq = closestTile.coord?.q ?? 0;
-  const cr = closestTile.coord?.r ?? 0;
-  const tileX3D = defaultHeight * (Math.sqrt(3) / 2) * (cq + cr / 2); // Correctly use HEX_WIDTH_3D logic
-  const tileY3D = -defaultHeight * 0.75 * cr;
+  const center3D2D = cubeToPixel(closestTile.coord, HEX_SIZE_2D);
+  const tileX3D = center3D2D.x * COORDINATE_SCALE_3D;
+  const tileY3D = center3D2D.y * -COORDINATE_SCALE_3D;
 
   // התאמת מיקום ה-3D של הקודקוד ביחס למרכז האריח הקרוב
   const vx = vertex2D?.x ?? 0;
