@@ -1,6 +1,7 @@
 import React, { useRef } from 'react';
-import { useTexture } from '@react-three/drei';
+import { useTexture, useGLTF } from '@react-three/drei';
 import * as THREE from 'three';
+import { normalizeAndCenterModel } from '../../../utils/hexMath/normalizeModel';
 
 interface Harbor3DProps {
   vertex: any;
@@ -31,6 +32,18 @@ export const Harbor3D: React.FC<Harbor3DProps> = ({
   const angle = harborAngle !== undefined ? (harborAngle * Math.PI) / 180 : Math.atan2(vy - tileY, vx - tileX);
 
   const portTextureImage = useTexture('/port.png');
+
+  // טעינת מודל עץ דקל דינמי לחוף
+  const { scene: palmScene } = useGLTF('/models/palm_tree.glb');
+  
+  // שימוש ב-clone כדי למנוע התנגשויות של רכיבי מודל משותפים
+  const clonedPalmLeft = React.useMemo(() => {
+    return normalizeAndCenterModel(palmScene.clone(), 0.45);
+  }, [palmScene]);
+
+  const clonedPalmRight = React.useMemo(() => {
+    return normalizeAndCenterModel(palmScene.clone(), 0.35);
+  }, [palmScene]);
   
   // Prevent unused variable compilation error
   if (vertex) {
@@ -62,6 +75,23 @@ export const Harbor3D: React.FC<Harbor3DProps> = ({
         <cylinderGeometry args={[0.03, 0.03, 0.4, 12]} />
         <meshStandardMaterial color="#2d1c18" roughness={0.9} />
       </mesh>
+
+      {/* עצי דקל קטנים בחוף ליד הנמל */}
+      <group position={[-0.15, 0.25, 0.05]}>
+        <primitive 
+          object={clonedPalmLeft} 
+          rotation={[Math.PI / 2, 0, 0]} 
+        />
+      </group>
+      <group position={[-0.15, -0.25, 0.05]}>
+        <primitive 
+          object={clonedPalmRight} 
+          rotation={[Math.PI / 2, 0.1, -0.5]} 
+        />
+      </group>
     </group>
   );
 };
+
+// Preloading for smooth async loading without lag
+useGLTF.preload('/models/palm_tree.glb');

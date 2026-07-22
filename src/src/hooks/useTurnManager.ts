@@ -445,6 +445,8 @@ export function useTurnManager() {
         victoryGoal = 14;
       } else if (selectedScenario === 'FOUR_ISLANDS') {
         victoryGoal = 13;
+      } else if (selectedScenario === 'FOG_ISLAND') {
+        victoryGoal = 12;
       }
     }
 

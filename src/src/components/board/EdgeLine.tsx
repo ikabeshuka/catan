@@ -56,7 +56,8 @@ export const EdgeLine: React.FC<EdgeLineProps> = ({
     setSelectedShipIdToMove, 
     setHasMovedShipThisTurn, 
     currentTurnBuiltShips,
-    activeExpansion
+    activeExpansion,
+    gamePhase
   } = useGame();
   const turnManager = useTurnManager();
   const isSetupPhase = propIsSetupPhase !== undefined ? propIsSetupPhase : turnManager.isSetupPhase;
@@ -75,6 +76,7 @@ export const EdgeLine: React.FC<EdgeLineProps> = ({
   const currentPlayer = players[currentPlayerIndex];
 
   const [showCoastPopup, setShowCoastPopup] = useState(false);
+  const [isHovered, setIsHovered] = useState(false);
 
   const isCoast = React.useMemo(() => {
     if (!tiles || tiles.length === 0) return false;
@@ -84,34 +86,52 @@ export const EdgeLine: React.FC<EdgeLineProps> = ({
     return hasLand && hasWater;
   }, [edge.id, tiles]);
 
+  const isAdjacentToSetupSettlement = React.useMemo(() => {
+    if (!isSetupPhase || !setupState?.lastSettlementVertexId) return false;
+    const parts = edge.id.replace('e_v_', '').split('_v_');
+    const v1Id = `v_${parts[0]}`;
+    const v2Id = `v_${parts[1]}`;
+    return v1Id === setupState.lastSettlementVertexId || v2Id === setupState.lastSettlementVertexId;
+  }, [isSetupPhase, setupState?.lastSettlementVertexId, edge.id]);
+
+  const bordersWater = React.useMemo(() => {
+    if (!tiles || tiles.length === 0) return false;
+    return tiles.filter(t => getTileEdgeIds(t).includes(edge.id)).some(t => t.type === 'WATER' || t.type === 'SEA' || t.type === 'FOG');
+  }, [edge.id, tiles]);
+
   // בדיקה האם הנתיב הזה חוקי לבנייה עבור השחקן שמשחק כרגע
   const isBlockedBySetup = isSetupPhase && setupState?.hasPlacedRoad;
   let isValidPlacement = false;
-  if (currentAction === 'MOVE_SHIP_SELECT') {
-    const openShips = getOpenShipsForPlayer(currentPlayer.id, edges, vertices, currentTurnBuiltShips);
+
+  if (isAdjacentToSetupSettlement && bordersWater) {
+    const isValidRoad = currentPlayer && !isBlockedBySetup && validateRoadPlacement(edge.id, currentPlayer.id, vertices, edges, tiles, gamePhase);
+    const isValidShip = currentPlayer && !isBlockedBySetup && validateShipPlacement(edge.id, currentPlayer.id, vertices, edges, tiles || [], gamePhase);
+    isValidPlacement = isValidRoad || isValidShip;
+  } else if (currentAction === 'MOVE_SHIP_SELECT') {
+    const openShips = getOpenShipsForPlayer(currentPlayer.id, edges, vertices, currentTurnBuiltShips, tiles);
     isValidPlacement = openShips.some(s => s.id === edge.id);
   } else if (currentAction === 'MOVE_SHIP_PLACE') {
     if (!edge.hasRoad && !edge.hasShip) {
       const edgesWithoutMovingShip = edges.map(e => 
-        e.id === selectedShipIdToMove ? { ...e, hasShip: false, shipPlayerId: null } : e
+        e.id === selectedShipIdToMove ? { ...e, hasShip: false, shipPlayerId: undefined } : e
       );
-      isValidPlacement = validateShipPlacement(edge.id, currentPlayer.id, vertices, edgesWithoutMovingShip, tiles || []);
+      isValidPlacement = validateShipPlacement(edge.id, currentPlayer.id, vertices, edgesWithoutMovingShip, tiles || [], gamePhase);
     }
   } else if (roadBuildingRemaining > 0 && activeExpansion === 'SEAFARERS') {
-    const isValidRoad = currentPlayer && !isBlockedBySetup && validateRoadPlacement(edge.id, currentPlayer.id, vertices, edges, tiles);
-    const isValidShip = currentPlayer && !isBlockedBySetup && validateShipPlacement(edge.id, currentPlayer.id, vertices, edges, tiles || []);
+    const isValidRoad = currentPlayer && !isBlockedBySetup && validateRoadPlacement(edge.id, currentPlayer.id, vertices, edges, tiles, gamePhase);
+    const isValidShip = currentPlayer && !isBlockedBySetup && validateShipPlacement(edge.id, currentPlayer.id, vertices, edges, tiles || [], gamePhase);
     isValidPlacement = isValidRoad || isValidShip;
   } else if (isCoast) {
-    const isValidRoad = currentPlayer && !isBlockedBySetup && validateRoadPlacement(edge.id, currentPlayer.id, vertices, edges, tiles);
-    const isValidShip = currentPlayer && !isBlockedBySetup && validateShipPlacement(edge.id, currentPlayer.id, vertices, edges, tiles || []);
+    const isValidRoad = currentPlayer && !isBlockedBySetup && validateRoadPlacement(edge.id, currentPlayer.id, vertices, edges, tiles, gamePhase);
+    const isValidShip = currentPlayer && !isBlockedBySetup && validateShipPlacement(edge.id, currentPlayer.id, vertices, edges, tiles || [], gamePhase);
     isValidPlacement = isValidRoad || isValidShip;
   } else if (currentAction === 'BUILD_SHIP') {
     isValidPlacement = currentPlayer && !isBlockedBySetup
-      ? validateShipPlacement(edge.id, currentPlayer.id, vertices, edges, tiles || [])
+      ? validateShipPlacement(edge.id, currentPlayer.id, vertices, edges, tiles || [], gamePhase)
       : false;
   } else {
     isValidPlacement = currentPlayer && !isBlockedBySetup
-      ? validateRoadPlacement(edge.id, currentPlayer.id, vertices, edges, tiles)
+      ? validateRoadPlacement(edge.id, currentPlayer.id, vertices, edges, tiles, gamePhase)
       : false;
   }
 
@@ -257,6 +277,11 @@ export const EdgeLine: React.FC<EdgeLineProps> = ({
       return;
     }
 
+    if (isSetupPhase && !isCoast && bordersWater) {
+      buildShipOnEdge();
+      return;
+    }
+
     if (isCoast) {
       setShowCoastPopup(true);
       return;
@@ -280,6 +305,8 @@ export const EdgeLine: React.FC<EdgeLineProps> = ({
     }
   };
 
+  const isShipMode = currentAction === 'BUILD_SHIP' || currentAction === 'MOVE_SHIP_PLACE';
+
   // קביעת צבע הכביש: אם הוא בנוי - צבע השחקן שבנה. אם הוא חוקי לבנייה - צבע השחקן הנוכחי בחצי שקופות. אחר כך - כמעט שקוף.
   const builtPlayer = players.find(p => p.id === edge.playerId || p.id === edge.shipPlayerId);
   const playerColor = builtPlayer?.color || '#ff5722';
@@ -294,6 +321,8 @@ export const EdgeLine: React.FC<EdgeLineProps> = ({
     <g 
       className={isValidPlacement && !currentPlayer?.isBot ? 'cursor-pointer' : 'cursor-default'} 
       onClick={handleEdgeClick}
+      onMouseEnter={() => setIsHovered(true)}
+      onMouseLeave={() => setIsHovered(false)}
       style={{ transformStyle: 'preserve-3d' }}
     >
       {/* קו עבה שקוף להקלת הלחיצה */}
@@ -390,14 +419,45 @@ export const EdgeLine: React.FC<EdgeLineProps> = ({
       )}
 
       {!edge.hasRoad && !edge.hasShip && !is3DMode && (
-        <line
-          x1={x1} y1={y1} x2={x2} y2={y2}
-          stroke={roadColor}
-          strokeWidth="3"
-          strokeDasharray={isValidPlacement ? '4 2' : 'none'} // קו מקווקו לרמז בנייה
-          strokeLinecap="round"
-          pointerEvents="none"
-        />
+        <>
+          {isValidPlacement && isShipMode ? (
+            <g transform={`translate(${mx}, ${my}) rotate(${angleDeg})`} pointerEvents="none" opacity="0.5">
+              {/* בסיס הספינה */}
+              <path 
+                d="M -15,-2 L 15,-2 L 10,6 L -10,6 Z" 
+                fill={currentPlayer?.color || '#ff5722'} 
+                stroke="#ffffff" 
+                strokeWidth="1" 
+              />
+              {/* תורן */}
+              <line 
+                x1="0" 
+                y1="-2" 
+                x2="0" 
+                y2="-15" 
+                stroke="#8B4513" 
+                strokeWidth="2.5" 
+                strokeLinecap="round" 
+              />
+              {/* מפרש */}
+              <path 
+                d="M 0,-15 L 12,-4 L 0,-4 Z" 
+                fill="#ffffff" 
+                stroke={currentPlayer?.color || '#ff5722'} 
+                strokeWidth="1.5" 
+              />
+            </g>
+          ) : (
+            <line
+              x1={x1} y1={y1} x2={x2} y2={y2}
+              stroke={roadColor}
+              strokeWidth="3"
+              strokeDasharray={isValidPlacement ? '4 2' : 'none'} // קו מקווקו לרמז בנייה
+              strokeLinecap="round"
+              pointerEvents="none"
+            />
+          )}
+        </>
       )}
 
       {showCoastPopup && (
@@ -415,6 +475,19 @@ export const EdgeLine: React.FC<EdgeLineProps> = ({
               <button
                 onClick={(e) => {
                   e.stopPropagation();
+                  const isValid = currentPlayer && validateRoadPlacement(
+                    edge.id,
+                    currentPlayer.id,
+                    vertices,
+                    edges,
+                    tiles,
+                    gamePhase
+                  );
+                  if (!isValid) {
+                    addLog("❌ חוקי המשחק אוסרים על חיבור דרך ישירות לספינה ללא יישוב/עיר בצומת המקשרת!");
+                    setShowCoastPopup(false);
+                    return;
+                  }
                   buildRoadOnEdge();
                   setShowCoastPopup(false);
                 }}
@@ -460,6 +533,20 @@ export const EdgeLine: React.FC<EdgeLineProps> = ({
             ⚓
           </text>
         </g>
+      )}
+
+      {isHovered && !is3DMode && (edge.hasRoad || edge.hasShip) && (
+        <foreignObject
+          x={mx - 35}
+          y={my - 38}
+          width="70"
+          height="26"
+          style={{ pointerEvents: 'none', overflow: 'visible', zIndex: 100 }}
+        >
+          <div className="bg-slate-900/90 border border-slate-700/85 text-white text-[10px] font-black px-2 py-0.5 rounded shadow-lg text-center whitespace-nowrap animate-fade-in" dir="rtl">
+            {edge.hasRoad ? 'דרך 🛣️' : 'ספינה ⛵'}
+          </div>
+        </foreignObject>
       )}
     </g>
   );

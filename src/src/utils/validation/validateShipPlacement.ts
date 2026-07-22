@@ -10,7 +10,8 @@ export function validateShipPlacement(
   playerId: string,
   vertices: BoardVertex[],
   edges: BoardEdge[],
-  tiles: HexTile[]
+  tiles: HexTile[],
+  gamePhase?: string
 ): boolean {
   // 1. בדיקה שהנתיב פנוי לחלוטין (אין עליו כביש קיים ואין עליו ספינה קיימת)
   const targetEdge = edges.find(e => e.id === edgeId);
@@ -18,32 +19,25 @@ export function validateShipPlacement(
     return false;
   }
 
-  // 2. בדיקה שהצלע גובלת בלפחות אריח מים אחד ('WATER') (כדי למנוע בניית ספינות בלב יבשה)
+  // בדיקה של איסור הצבה על/צמוד לערפל בשלבי הקמה
+  if (tiles && (gamePhase === 'SETUP_ROUND_1' || gamePhase === 'SETUP_ROUND_2')) {
+    const borderingTiles = tiles.filter(tile => getTileEdgeIds(tile).includes(edgeId));
+    if (borderingTiles.some(tile => tile.type === 'FOG')) {
+      return false;
+    }
+  }
+
+  // 2. בדיקה שהצלע גובלת בלפחות אריח מים אחד ('WATER', 'SEA', 'FOG') (כדי למנוע בניית ספינות בלב יבשה)
   const borderingTiles = tiles.filter(tile => getTileEdgeIds(tile).includes(edgeId));
-  const borderingWaterTiles = borderingTiles.filter(tile => tile.type === 'WATER');
-  if (borderingWaterTiles.length === 0) {
+  const borderingWaterOrFogTiles = borderingTiles.filter(
+    tile => tile.type === 'WATER' || tile.type === 'SEA' || tile.type === 'FOG'
+  );
+  if (borderingWaterOrFogTiles.length === 0) {
     return false;
   }
 
-  // 3. חסימת בניית ספינה אם באריח המים (או באריח מים שכן הצמוד אליו) יש שודד ים (hasPirate === true)
-  const isBlockedByPirate = borderingWaterTiles.some(waterTile => {
-    // אריח המים עצמו
-    if (waterTile.hasPirate) {
-      return true;
-    }
-    // אריחי מים שכנים
-    const isNeighborWithPirate = tiles.some(otherTile => {
-      if (otherTile.type === 'WATER' && otherTile.hasPirate) {
-        const dq = Math.abs(waterTile.coord.q - otherTile.coord.q);
-        const dr = Math.abs(waterTile.coord.r - otherTile.coord.r);
-        const ds = Math.abs(waterTile.coord.s - otherTile.coord.s);
-        const distance = Math.max(dq, dr, ds);
-        return distance === 1;
-      }
-      return false;
-    });
-    return isNeighborWithPirate;
-  });
+  // 3. חסימת בניית ספינה אם באריח המים המשיק לצלע יש שודד ים (hasPirate === true)
+  const isBlockedByPirate = borderingWaterOrFogTiles.some(waterTile => waterTile.hasPirate);
 
   if (isBlockedByPirate) {
     return false;

@@ -12,19 +12,26 @@ interface CloudInfo {
 }
 
 export const Clouds3D: React.FC = () => {
-  // Generate 11 clouds with slightly different initial positions, speeds, and sizes
+  // Generate 18 clouds with slightly different initial positions, speeds, and sizes
   const cloudsData = useMemo<CloudInfo[]>(() => [
-    { x: -20, y: 10, z: 5.5, speed: 0.5, scaleX: 6, scaleY: 3 },
-    { x: -10, y: -8, z: 7.2, speed: 1.1, scaleX: 7, scaleY: 3.5 },
-    { x: 5, y: 15, z: 6.0, speed: 0.6, scaleX: 5, scaleY: 2.5 },
-    { x: 15, y: -12, z: 8.5, speed: 1.5, scaleX: 8, scaleY: 4 },
-    { x: 0, y: 2, z: 6.8, speed: 0.9, scaleX: 6.5, scaleY: 3.2 },
-    { x: -15, y: -4, z: 5.8, speed: 0.4, scaleX: 4.5, scaleY: 2.2 },
-    { x: -5, y: 12, z: 8.0, speed: 1.3, scaleX: 7.5, scaleY: 3.8 },
-    { x: 10, y: -2, z: 6.3, speed: 0.8, scaleX: 6, scaleY: 3 },
-    { x: 18, y: 8, z: 7.6, speed: 1.2, scaleX: 5.5, scaleY: 2.8 },
-    { x: -22, y: -14, z: 7.0, speed: 1.0, scaleX: 7, scaleY: 3.5 },
-    { x: -2, y: -10, z: 8.2, speed: 1.6, scaleX: 8.5, scaleY: 4.2 },
+    { x: -35, y: 15, z: 7.5, speed: 0.6, scaleX: 14, scaleY: 7 },
+    { x: -20, y: -15, z: 9.2, speed: 1.2, scaleX: 16, scaleY: 8 },
+    { x: 10, y: 25, z: 8.0, speed: 0.7, scaleX: 12, scaleY: 6 },
+    { x: 30, y: -20, z: 10.5, speed: 1.6, scaleX: 18, scaleY: 9 },
+    { x: 0, y: 4, z: 8.8, speed: 1.0, scaleX: 15, scaleY: 7.5 },
+    { x: -25, y: -8, z: 7.8, speed: 0.5, scaleX: 11, scaleY: 5.5 },
+    { x: -8, y: 20, z: 10.0, speed: 1.4, scaleX: 17, scaleY: 8.5 },
+    { x: 18, y: -4, z: 8.3, speed: 0.9, scaleX: 14, scaleY: 7 },
+    { x: 35, y: 12, z: 9.6, speed: 1.3, scaleX: 13, scaleY: 6.5 },
+    { x: -40, y: -25, z: 9.0, speed: 1.1, scaleX: 16, scaleY: 8 },
+    { x: -4, y: -18, z: 10.2, speed: 1.7, scaleX: 19, scaleY: 9.5 },
+    { x: -15, y: 30, z: 8.5, speed: 0.8, scaleX: 13, scaleY: 6.5 },
+    { x: 25, y: 5, z: 9.0, speed: 1.1, scaleX: 15, scaleY: 7.5 },
+    { x: -5, y: -5, z: 7.5, speed: 0.6, scaleX: 12, scaleY: 6 },
+    { x: -30, y: 8, z: 8.2, speed: 1.0, scaleX: 14, scaleY: 7 },
+    { x: 15, y: -30, z: 9.8, speed: 1.5, scaleX: 17, scaleY: 8.5 },
+    { x: 5, y: -10, z: 8.0, speed: 0.7, scaleX: 13, scaleY: 6.5 },
+    { x: -18, y: 18, z: 9.5, speed: 1.3, scaleX: 16, scaleY: 8 },
   ], []);
 
   const groupRef = useRef<THREE.Group>(null);
@@ -39,9 +46,9 @@ export const Clouds3D: React.FC = () => {
       ctx.clearRect(0, 0, 256, 128);
       const drawPuff = (x: number, y: number, r: number) => {
         const gradient = ctx.createRadialGradient(x, y, r * 0.1, x, y, r);
-        gradient.addColorStop(0, 'rgba(255, 255, 255, 0.9)');
-        gradient.addColorStop(0.3, 'rgba(255, 255, 255, 0.75)');
-        gradient.addColorStop(0.6, 'rgba(240, 248, 255, 0.35)');
+        gradient.addColorStop(0, 'rgba(255, 255, 255, 0.95)');
+        gradient.addColorStop(0.3, 'rgba(255, 255, 255, 0.85)');
+        gradient.addColorStop(0.6, 'rgba(240, 248, 255, 0.5)');
         gradient.addColorStop(1, 'rgba(255, 255, 255, 0)');
         ctx.fillStyle = gradient;
         ctx.beginPath();
@@ -67,10 +74,10 @@ export const Clouds3D: React.FC = () => {
         // Move along X
         child.position.x += data.speed * delta;
         
-        // If passes x > 25, reset to x = -25 with a random Y coordinate
-        if (child.position.x > 25.0) {
-          child.position.x = -25.0;
-          child.position.y = (Math.random() - 0.5) * 36;
+        // If passes x > 45, reset to x = -45 with a random Y coordinate
+        if (child.position.x > 45.0) {
+          child.position.x = -45.0;
+          child.position.y = (Math.random() - 0.5) * 60;
         }
       }
     });
@@ -87,7 +94,7 @@ export const Clouds3D: React.FC = () => {
           <meshBasicMaterial 
             map={cloudTexture} 
             transparent={true} 
-            opacity={0.5} 
+            opacity={0.82} 
             depthWrite={false}
           />
         </mesh>

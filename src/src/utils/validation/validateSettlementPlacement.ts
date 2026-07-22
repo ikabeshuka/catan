@@ -47,12 +47,14 @@ export function validateSettlementPlacement(
     }
   }
 
-  // 3. חוק החיבור: במשחק הרגיל חייב להיות כביש מחובר של השחקן
+  // 3. חוק החיבור: במשחק הרגיל חייב להיות כביש או ספינה מחוברים של השחקן
   if (gamePhase === 'MAIN_GAME') {
-    const hasConnectedRoad = connectedEdges.some(
-      edge => edge.hasRoad && edge.playerId === playerId
+    const hasConnectedConnection = connectedEdges.some(
+      edge => 
+        (edge.hasRoad && edge.playerId === playerId) || 
+        (edge.hasShip && edge.shipPlayerId === playerId)
     );
-    if (!hasConnectedRoad) return false;
+    if (!hasConnectedConnection) return false;
   }
 
   // 4. חסימת יישוב בלב ים (לפחות אריח יבשה אחד משיק לצומת)
@@ -84,9 +86,14 @@ export function validateSettlementPlacement(
 
     // Seafarers Setup Restriction: Setup settlements allowed ONLY on the main island (islandId === 1)
     if (gamePhase === 'SETUP_ROUND_1' || gamePhase === 'SETUP_ROUND_2') {
-      const touchesMainIsland = borderingTiles.some(tile => tile.islandId === 1);
-      const touchesForeignIsland = borderingTiles.some(tile => tile.islandId !== undefined && tile.islandId > 1);
-      if (touchesForeignIsland && !touchesMainIsland) {
+      const borderingLandTiles = borderingTiles.filter(tile => tile.type !== 'WATER');
+      const touchesSecondaryIsland = borderingLandTiles.some(tile => tile.islandId !== undefined && tile.islandId > 1);
+      if (touchesSecondaryIsland) {
+        return false;
+      }
+      // איסור בנייה צמוד לערפל בשלבי ההקמה
+      const touchesFog = borderingTiles.some(tile => tile.type === 'FOG');
+      if (touchesFog) {
         return false;
       }
     }

@@ -10,11 +10,20 @@ export function validateRoadPlacement(
   playerId: string,
   vertices: BoardVertex[],
   edges: BoardEdge[],
-  tiles?: HexTile[]
+  tiles?: HexTile[],
+  gamePhase?: string
 ): boolean {
   // 1. בדיקה שהנתיב פנוי
   const targetEdge = edges.find(e => e.id === edgeId);
   if (!targetEdge || targetEdge.hasRoad || targetEdge.hasShip) return false;
+
+  // בדיקה של איסור הצבה על/צמוד לערפל בשלבי הקמה
+  if (tiles && (gamePhase === 'SETUP_ROUND_1' || gamePhase === 'SETUP_ROUND_2')) {
+    const borderingTiles = tiles.filter(tile => getTileEdgeIds(tile).includes(edgeId));
+    if (borderingTiles.some(tile => tile.type === 'FOG')) {
+      return false;
+    }
+  }
 
   // בדיקה שהצלע המבוקשת אינה גובלת בשני אריחי מים ('WATER') במקביל
   if (tiles) {

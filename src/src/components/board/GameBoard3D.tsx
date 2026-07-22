@@ -1,5 +1,6 @@
 import React, { Suspense, useRef } from 'react';
 import { useGame } from '../../context/GameContext';
+import { validateRoadPlacement } from '../../utils/validation/validateRoadPlacement';
 import { HexTile3D } from './HexTile3D';
 import { NumberToken3D } from './NumberToken3D';
 import { Clouds3D } from './Clouds3D';
@@ -20,6 +21,9 @@ import { Robber3D } from './3d/Robber3D';
 import { Pirate3D } from './3d/Pirate3D';
 import { Harbor3D } from './3d/Harbor3D';
 import { useBoardInteraction } from '../../hooks/useBoardInteraction';
+import { Birds3D } from './3d/Birds3D';
+import { SheepGroup3D } from './3d/SheepGroup3D';
+import { Dolphin3D } from './3d/Dolphin3D';
 
 const HEX_SIZE_2D = 60; // Base size for 2D calculations, remains consistent
 const HEX_HEIGHT_3D = 3.0; // Visual height for 3D hexes
@@ -76,6 +80,21 @@ const Board3DScene: React.FC<Board3DSceneProps> = ({
   isSelectableForRobber,
 }) => {
   const handleVertexClick = onVertexClick;
+
+  const outerSeaDolphinLocations = React.useMemo(() => {
+    // Generate 10 outer sea pod locations deterministically
+    const pods = [];
+    const count = 10;
+    for (let i = 0; i < count; i++) {
+      const angle = (i * 2 * Math.PI) / count + (i * 0.15); // distribute around circle with slight offset
+      const radius = 17 + (i * 1.7) % 18; // radius between 17 and 35
+      const tileX = Math.cos(angle) * radius;
+      const tileY = Math.sin(angle) * radius;
+      pods.push({ tileX, tileY, index: 1000 + i });
+    }
+    return pods;
+  }, []);
+
   // Load element textures
   const textures = useTexture({
     settlement: '/settlement.png',
@@ -86,7 +105,7 @@ const Board3DScene: React.FC<Board3DSceneProps> = ({
     WOOD: '/wood.jpg',
     BRICK: '/brick.jpg',
     SHEEP: '/wool.jpg',
-    WHEAT: '/wheat.jpg',
+    WHEAT: '/wheat.png',
     ORE: '/rock.jpg',
     DESERT: '/desert.jpg',
     SEA: '/see.jpg',
@@ -95,6 +114,7 @@ const Board3DScene: React.FC<Board3DSceneProps> = ({
     FOG: '/fog.jpg',
     victory_island: '/victory_island.jpg',
     ship: '/ship.jpg',
+    dast: '/dast.png',
   });
 
   // Configure textures wrapping and sharpness in useMemo
@@ -110,6 +130,13 @@ const Board3DScene: React.FC<Board3DSceneProps> = ({
         tex.magFilter = THREE.LinearFilter;
       }
     });
+    if (textures.dast) {
+      textures.dast.wrapS = THREE.RepeatWrapping;
+      textures.dast.wrapT = THREE.RepeatWrapping;
+      textures.dast.anisotropy = 16;
+      textures.dast.minFilter = THREE.LinearMipmapLinearFilter;
+      textures.dast.magFilter = THREE.LinearFilter;
+    }
   }, [textures]);
 
   // Animate sea waves (offset of SEA texture)
@@ -126,15 +153,26 @@ const Board3DScene: React.FC<Board3DSceneProps> = ({
     <group rotation={[0, 0, 0]}>
       {/* Dynamic cyclic clouds system on the GPU/3D */}
       {is3DMode && <Clouds3D />}
+      {is3DMode && <Birds3D />}
 
       {/* Large peripheral sea ring background */}
       <mesh position={[0, 0, -0.76]}>
-        <circleGeometry args={[45.0, 64]} />
+        <circleGeometry args={[90.0, 64]} />
         <meshStandardMaterial map={textures.SEA} roughness={0.5} side={THREE.DoubleSide} />
       </mesh>
 
+      {/* Outer Sea Dolphins */}
+      {is3DMode && outerSeaDolphinLocations.map((pod) => (
+        <Dolphin3D
+          key={`outer-dolphin-${pod.index}`}
+          tileX={pod.tileX}
+          tileY={pod.tileY}
+          index={pod.index}
+        />
+      ))}
+
       {/* Render Hex Tiles */}
-      {tiles.map((tile) => {
+      {tiles.map((tile, tileIdx) => {
         if (!tile) return null;
         // Pointy-top hex grid math with zero spacing and exact dimensions:
         const center2D = cubeToPixel(tile.coord, 60);
@@ -200,6 +238,16 @@ const Board3DScene: React.FC<Board3DSceneProps> = ({
                 onTileHover={onTileHover}
                 onTileLeave={onTileLeave}
               />
+            )}
+
+            {/* Sheep Group (for SHEEP tiles) */}
+            {is3DMode && tile.type === 'SHEEP' && (
+              <SheepGroup3D tileX={tileX} tileY={tileY} />
+            )}
+
+            {/* Jumping Dolphins (for WATER/SEA tiles) */}
+            {is3DMode && (tile.type === 'WATER' || tile.type === 'SEA') && (
+              <Dolphin3D tileX={tileX} tileY={tileY} index={tileIdx} />
             )}
           </group>
         );
@@ -605,7 +653,9 @@ export const GameBoard3D: React.FC = () => {
     players, 
     currentPlayerIndex, 
     isMovingWagon,
-    activeExpansion
+    activeExpansion,
+    gamePhase,
+    addLog
   } = useGame();
 
   useTurnManager();
@@ -973,6 +1023,20 @@ export const GameBoard3D: React.FC = () => {
             <div className="flex flex-col gap-2.5 my-2">
               <button
                 onClick={() => {
+                  const currentPlayer = players[currentPlayerIndex];
+                  const isValid = currentPlayer && validateRoadPlacement(
+                    coastlinePopupEdge.id,
+                    currentPlayer.id,
+                    vertices,
+                    edges,
+                    tiles,
+                    gamePhase
+                  );
+                  if (!isValid) {
+                    addLog("❌ חוקי המשחק אוסרים על חיבור דרך ישירות לספינה ללא יישוב/עיר בצומת המקשרת!");
+                    setCoastlinePopupEdge(null);
+                    return;
+                  }
                   buildRoadOnEdge(coastlinePopupEdge);
                   setCoastlinePopupEdge(null);
                 }}

@@ -61,8 +61,13 @@ const GameContent: React.FC = () => {
     activeExpansion,
     activeRobberType,
     setActiveRobberType,
-    goldSelectionQueue
+    goldSelectionQueue,
+    selectedScenario
   } = useGame();
+
+  const victoryGoal = activeExpansion === 'SEAFARERS'
+    ? (selectedScenario === 'HEADING_FOR_NEW_SHORES' ? 14 : (selectedScenario === 'FOUR_ISLANDS' ? 13 : 10))
+    : 10;
 
   const { recordSetupPlacement, endTurn, handleDiceRoll, startTurn } = useTurnManager();
 
@@ -218,7 +223,7 @@ const GameContent: React.FC = () => {
   // בדיקת תנאי ניצחון דינמית בזמן אמת (אנושי או בוט)
   useEffect(() => {
     if (gamePhase === 'MAIN_GAME') {
-      const winner = players.find(p => getPlayerTotalVP(p, longestRoadPlayerId, largestArmyPlayerId, true, vertices, tiles) >= 10);
+      const winner = players.find(p => getPlayerTotalVP(p, longestRoadPlayerId, largestArmyPlayerId, true, vertices, tiles) >= victoryGoal);
       if (winner) {
         const totalVP = getPlayerTotalVP(winner, longestRoadPlayerId, largestArmyPlayerId, true, vertices, tiles);
         setGamePhase('GAME_OVER');
@@ -1104,7 +1109,7 @@ const GameContent: React.FC = () => {
 
         {/* מודל סיום המשחק */}
         {gamePhase === 'GAME_OVER' && (() => {
-          const winner = players.find(p => getPlayerTotalVP(p, longestRoadPlayerId, largestArmyPlayerId, true, vertices, tiles) >= 10) || players.reduce((max, p) => getPlayerTotalVP(p, longestRoadPlayerId, largestArmyPlayerId, true, vertices, tiles) > getPlayerTotalVP(max, longestRoadPlayerId, largestArmyPlayerId, true, vertices, tiles) ? p : max, players[0]);
+          const winner = players.find(p => getPlayerTotalVP(p, longestRoadPlayerId, largestArmyPlayerId, true, vertices, tiles) >= victoryGoal) || players.reduce((max, p) => getPlayerTotalVP(p, longestRoadPlayerId, largestArmyPlayerId, true, vertices, tiles) > getPlayerTotalVP(max, longestRoadPlayerId, largestArmyPlayerId, true, vertices, tiles) ? p : max, players[0]);
           return (
             <div className="fixed inset-0 bg-slate-950/90 backdrop-blur-md flex items-center justify-center z-50 p-4 animate-fade-in">
               <div className="bg-slate-900 border-4 border-amber-500 rounded-3xl w-full max-w-2xl p-10 shadow-2xl relative text-center" dir="rtl">

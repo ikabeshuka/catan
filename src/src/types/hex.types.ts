@@ -19,4 +19,8 @@ export interface HexTile {
     toTileId?: string;
     edgeIndex?: number;
   }[];
+  isFog?: boolean;                // מסמן האם האריח נוצר מאריח ערפל
+  revealed?: boolean;             // האם האריח כבר נחשף
+  originalType?: ResourceType;    // סוג המשאב הנסתר מתחת לערפל
+  originalNumberToken?: number | null; // המספר הנסתר מתחת לערפל
 }

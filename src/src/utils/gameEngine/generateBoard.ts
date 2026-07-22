@@ -7,7 +7,9 @@ import {
   seafarers3PlayersNewShores, 
   seafarers4PlayersNewShores, 
   seafarers3PlayersFourIslands, 
-  seafarers4PlayersFourIslands 
+  seafarers4PlayersFourIslands,
+  seafarers3PlayersFogIsland,
+  seafarers4PlayersFogIsland
 } from '../../config/seafarersPresets';
 
 /**
@@ -285,27 +287,40 @@ export function generateBoard(
           if (t) t.hasRobber = true;
         }
 
+        tiles.sort((a, b) => a.coord.r - b.coord.r || a.coord.q - b.coord.q);
         return tiles;
       }
       case 'FOG_ISLAND': {
-        // החזר שלד ראשוני, ודא שיש אריחים ברדיוס 3 המוגדרים כ-type: 'FOG' כפי שמיפינו באבחון
-        const tiles: HexTile[] = [];
-        let hexIdCounter = 1;
-        const radius = 3;
-        for (let q = -radius; q <= radius; q++) {
-          const rMin = Math.max(-radius, -q - radius);
-          const rMax = Math.min(radius, -q + radius);
-          for (let r = rMin; r <= rMax; r++) {
-            const s = -q - r;
-            tiles.push({
-              id: `hex_${hexIdCounter++}`,
-              coord: { q, r, s },
-              type: 'FOG',
-              numberToken: null,
-              hasRobber: false
-            });
+        const preset = playerCount === 3 ? seafarers3PlayersFogIsland : seafarers4PlayersFogIsland;
+        const tiles = JSON.parse(JSON.stringify(preset)) as HexTile[];
+
+        // Create randomized pools for the hidden fog tiles
+        const fogResourcesPool = shuffleArray([
+          'WOOD', 'WOOD', 'BRICK', 'BRICK', 'SHEEP', 'SHEEP', 'WHEAT', 'WHEAT', 'ORE', 'ORE', 'GOLD_FIELD', 'GOLD_FIELD', 'WATER', 'WATER'
+        ]);
+        const fogTokensPool = shuffleArray([
+          2, 3, 4, 5, 6, 8, 9, 10, 11, 12, 3, 4, 5, 9, 10, 11
+        ]);
+
+        let resIdx = 0;
+        let tokIdx = 0;
+
+        tiles.forEach(tile => {
+          if (tile.type === 'FOG') {
+            const rawType = fogResourcesPool[resIdx % fogResourcesPool.length] as any;
+            resIdx++;
+            tile.originalType = rawType;
+
+            if (rawType === 'WATER' || rawType === 'DESERT') {
+              tile.originalNumberToken = null;
+            } else {
+              tile.originalNumberToken = fogTokensPool[tokIdx % fogTokensPool.length];
+              tokIdx++;
+            }
           }
-        }
+        });
+
+        tiles.sort((a, b) => a.coord.r - b.coord.r || a.coord.q - b.coord.q);
         return tiles;
       }
       default: {
@@ -329,6 +344,7 @@ export function generateBoard(
           }
         }
 
+        tiles.sort((a, b) => a.coord.r - b.coord.r || a.coord.q - b.coord.q);
         return tiles;
       }
     }
@@ -492,6 +508,11 @@ export function generateBoard(
       }
     });
   }
+
+  console.log("--- Loaded Board Tile Map ---");
+  tiles.forEach(tile => {
+    console.log(`Tile ID: ${tile.id}, Type: ${tile.type}, Coord: (q:${tile.coord.q}, r:${tile.coord.r}), Island ID: ${tile.islandId}`);
+  });
 
   return tiles;
 }

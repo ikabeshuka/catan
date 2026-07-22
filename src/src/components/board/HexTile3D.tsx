@@ -35,14 +35,27 @@ export const HexTile3D: React.FC<HexTile3DProps> = ({
   const texturesRef = useRef(textures);
   texturesRef.current = textures;
 
+  const windTexture = useMemo(() => {
+    const tex = texturesRef.current.WHEAT;
+    if (!tex) return null;
+    const cloned = tex.clone();
+    cloned.wrapS = THREE.RepeatWrapping;
+    cloned.wrapT = THREE.RepeatWrapping;
+    cloned.needsUpdate = true;
+    return cloned;
+  }, [textures.WHEAT]);
+
   useEffect(() => {
     return () => {
       if (customTextureRef.current) {
         customTextureRef.current.dispose();
         customTextureRef.current = null;
       }
+      if (windTexture) {
+        windTexture.dispose();
+      }
     };
-  }, [tile.type, is3DMode]);
+  }, [tile.type, is3DMode, windTexture]);
 
   // 1. בניית הגיאומטריה הפיזית של המשושה עם חלוקה פנימית (Subdivisions)
   const subdividedHexGeometry = useMemo(() => {
@@ -198,6 +211,12 @@ export const HexTile3D: React.FC<HexTile3DProps> = ({
       textureRef.current.offset.y = 0;
     }
 
+    // wind texture animation for WHEAT
+    if (is3DMode && tile.type === 'WHEAT' && windTexture) {
+      windTexture.offset.x = Math.sin(time * 1.5) * 0.08 + time * 0.02;
+      windTexture.offset.y = Math.cos(time * 1.2) * 0.08 + time * 0.015;
+    }
+
     // עדכון uTime עבור שיידר הרוח ב-GPU במידה והוא קיים
     if (shaderRef.current) {
       shaderRef.current.uniforms.uTime.value = time;
@@ -239,7 +258,7 @@ export const HexTile3D: React.FC<HexTile3DProps> = ({
         {/* לחומר הצידי (attach="material-0") הגדר גוון חול קבוע, מט ועמוק: #b59966 */}
         <meshStandardMaterial
           attach="material-0"
-          color="#b59966"
+          map={textures.dast}
           roughness={1.0}
           flatShading={true}
         />
@@ -290,6 +309,36 @@ export const HexTile3D: React.FC<HexTile3DProps> = ({
           flatShading={true}
         />
       </mesh>
+
+      {is3DMode && tile.type === 'WHEAT' && windTexture && (
+        <mesh
+          geometry={subdividedHexGeometry}
+          position={[0, 0, 0.08]}
+          castShadow
+          receiveShadow
+        >
+          <meshStandardMaterial
+            attach="material-0"
+            transparent={true}
+            opacity={0}
+          />
+          <meshStandardMaterial
+            attach="material-1"
+            color="white"
+            map={windTexture}
+            transparent={true}
+            opacity={0.25}
+            flatShading={true}
+            roughness={0.4}
+            side={THREE.DoubleSide}
+          />
+          <meshStandardMaterial
+            attach="material-2"
+            transparent={true}
+            opacity={0}
+          />
+        </mesh>
+      )}
     </group>
   );
 };

@@ -1,5 +1,6 @@
-import React from 'react';
-import { Billboard } from '@react-three/drei';
+import React, { useRef } from 'react';
+import { useFrame } from '@react-three/fiber';
+import { useGLTF } from '@react-three/drei';
 import * as THREE from 'three';
 
 interface Robber3DProps {
@@ -10,50 +11,59 @@ interface Robber3DProps {
   onTileLeave: () => void;
 }
 
-const removeWhiteBg = (shader: any) => {
-  shader.fragmentShader = shader.fragmentShader.replace(
-    '#include <map_fragment>',
-    `
-    #include <map_fragment>
-    if (diffuseColor.r > 0.95 && diffuseColor.g > 0.95 && diffuseColor.b > 0.95) {
-      discard;
-    }
-    `
-  );
-};
-
 export const Robber3D: React.FC<Robber3DProps> = ({
   position,
   tile,
-  robberTexture,
   onTileHover,
   onTileLeave,
 }) => {
+  const groupRef = useRef<THREE.Group>(null);
+  const { scene } = useGLTF('/models/robber.glb');
+
+  // ביצוע scene.clone() מבוקר כדי למנוע התנגשויות בין שכפולים של מודלים
+  const clonedScene = React.useMemo(() => scene.clone(), [scene]);
+
+  // הוספת תנועת שוטטות אליפטית/מעגלית איטית סביב מרכז המשושה בתוך useFrame
+  useFrame((state) => {
+    if (!groupRef.current) return;
+    const time = state.clock.getElapsedTime();
+    const tileX = position[0];
+    const tileY = position[1];
+    
+    // חישוב המיקום החדש
+    groupRef.current.position.x = tileX + Math.sin(time * 1.2) * 0.15;
+    groupRef.current.position.y = tileY + Math.cos(time * 1.2) * 0.15;
+    // שמירה על הגובה המקורי (Z)
+    groupRef.current.position.z = position[2];
+  });
+
+  const modelScale = 0.18;
+
   return (
-    <Billboard position={position}>
-      <mesh 
-        rotation={[0, 0, 0]}
-        onPointerOver={(e) => {
-          e.stopPropagation();
-          onTileHover(tile, e.clientX, e.clientY);
-        }}
-        onPointerMove={(e) => {
-          e.stopPropagation();
-          onTileHover(tile, e.clientX, e.clientY);
-        }}
-        onPointerOut={(e) => {
-          e.stopPropagation();
-          onTileLeave();
-        }}
-      >
-        <planeGeometry args={[1.3, 1.95]} />
-        <meshStandardMaterial 
-          map={robberTexture} 
-          transparent={true} 
-          side={THREE.DoubleSide}
-          onBeforeCompile={removeWhiteBg}
-        />
-      </mesh>
-    </Billboard>
+    <group
+      ref={groupRef}
+      position={position}
+      onPointerOver={(e) => {
+        e.stopPropagation();
+        onTileHover(tile, e.clientX, e.clientY);
+      }}
+      onPointerMove={(e) => {
+        e.stopPropagation();
+        onTileHover(tile, e.clientX, e.clientY);
+      }}
+      onPointerOut={(e) => {
+        e.stopPropagation();
+        onTileLeave();
+      }}
+    >
+      <primitive 
+        object={clonedScene} 
+        scale={[modelScale, modelScale, modelScale]} 
+        rotation={[Math.PI / 2, 0, 0]} 
+      />
+    </group>
   );
 };
+
+// Preloading for smooth async loading without lag
+useGLTF.preload('/models/robber.glb');
