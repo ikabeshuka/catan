@@ -5,6 +5,7 @@ import { LobbyStep1_Theme } from './steps/LobbyStep1_Theme';
 import { LobbyStep2_Expansion } from './steps/LobbyStep2_Expansion';
 import { LobbyStep3_PlayerCount } from './steps/LobbyStep3_PlayerCount';
 import { LobbyStep4_PlayersSetup } from './steps/LobbyStep4_PlayersSetup';
+import { GeminiSettingsModal } from '../../services/gemini/GeminiSettingsModal';
 
 interface LobbyScreenProps {
   onStartGame: (playerCount: 3 | 4, lobbyPlayers: LobbyPlayer[], botTimeLimit: number) => void;
@@ -13,6 +14,7 @@ interface LobbyScreenProps {
 export const LobbyScreen: React.FC<LobbyScreenProps> = ({
   onStartGame
 }) => {
+  const [isGeminiSettingsOpen, setIsGeminiSettingsOpen] = useState(false);
   const { 
     boardType,
     setBoardType, 
@@ -26,21 +28,17 @@ export const LobbyScreen: React.FC<LobbyScreenProps> = ({
   const [botTimeLimit, setBotTimeLimit] = useState<number>(10);
 
   const [lobbyPlayers, setLobbyPlayers] = useState<LobbyPlayer[]>([
-    { id: 'p1', name: 'אתה', color: '#e53935', isBot: false, difficulty: undefined },
-    { id: 'p2', name: 'בוט אומץ', color: '#1e88e5', isBot: true, difficulty: 'בינוני' },
-    { id: 'p3', name: 'בוט ברזל', color: '#fdd835', isBot: true, difficulty: 'בינוני' },
-    { id: 'p4', name: 'בוט פלדה', color: '#43a047', isBot: true, difficulty: 'בינוני' },
+    { id: 'p1', name: 'פיבי', color: '#e53935', isBot: false, difficulty: undefined },
+    { id: 'p2', name: 'רוס', color: '#1e88e5', isBot: true, difficulty: 'בינוני' },
+    { id: 'p3', name: 'צ\'נדלר', color: '#fdd835', isBot: true, difficulty: 'בינוני' },
+    { id: 'p4', name: 'ג\'ואי', color: '#43a047', isBot: true, difficulty: 'בינוני' },
   ]);
 
   const togglePlayerType = (id: string, isBot: boolean) => {
     setLobbyPlayers(prev => prev.map((item, idx) => {
       if (item.id === id) {
-        let newName = item.name;
-        if (isBot) {
-          newName = idx === 1 ? 'בוט אומץ' : idx === 2 ? 'בוט ברזל' : idx === 3 ? 'בוט פלדה' : 'בוט סופה';
-        } else {
-          newName = idx === 0 ? 'אתה' : `שחקן ${idx + 1}`;
-        }
+        const defaultNames = ['פיבי', 'רוס', 'צ\'נדלר', 'ג\'ואי'];
+        const newName = defaultNames[idx] || item.name;
         return {
           ...item,
           isBot,
@@ -223,6 +221,19 @@ export const LobbyScreen: React.FC<LobbyScreenProps> = ({
             onStartGame={() => onStartGame(playerCount, lobbyPlayers, botTimeLimit)}
           />
         )}
+
+        <button
+          type="button"
+          onClick={() => setIsGeminiSettingsOpen(true)}
+          className="mt-4 text-xs text-slate-400 hover:text-amber-400 transition-colors"
+        >
+          הגדרות Gemini AI
+        </button>
+
+        <GeminiSettingsModal
+          isOpen={isGeminiSettingsOpen}
+          onClose={() => setIsGeminiSettingsOpen(false)}
+        />
 
       </div>
 

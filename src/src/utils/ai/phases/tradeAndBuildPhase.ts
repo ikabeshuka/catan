@@ -330,6 +330,7 @@ export function tradeAndBuildPhase({
         { type: 'CITY', cost: { WOOD: 0, BRICK: 0, SHEEP: 0, WHEAT: 2, ORE: 3 } },
         { type: 'SETTLEMENT', cost: { WOOD: 1, BRICK: 1, SHEEP: 1, WHEAT: 1, ORE: 0 } },
         { type: 'ROAD', cost: { WOOD: 1, BRICK: 1, SHEEP: 0, WHEAT: 0, ORE: 0 } },
+        { type: 'SHIP', cost: { WOOD: 1, BRICK: 0, SHEEP: 1, WHEAT: 0, ORE: 0 } },
         { type: 'DEV_CARD', cost: { WOOD: 0, BRICK: 0, SHEEP: 1, WHEAT: 1, ORE: 1 } }
       ];
 
@@ -453,6 +454,23 @@ export function tradeAndBuildPhase({
         };
         if (addLog) {
           addLog(`[בנייה] הבוט ${currentBot.name} בנה כביש!`);
+        }
+        buildHappened = true;
+      } else if (action.type === 'BUILD_SHIP' && action.targetId) {
+        const targetEdgeId = action.targetId;
+        currentEdges = currentEdges.map(e =>
+          e.id === targetEdgeId ? { ...e, hasShip: true, shipPlayerId: currentBot.id, playerId: currentBot.id } : e
+        );
+        currentBot = {
+          ...currentBot,
+          resources: {
+            ...currentBot.resources,
+            WOOD: (currentBot.resources.WOOD || 0) - 1,
+            SHEEP: (currentBot.resources.SHEEP || 0) - 1
+          }
+        };
+        if (addLog) {
+          addLog(`[בנייה] הבוט ${currentBot.name} בנה ספינה!`);
         }
         buildHappened = true;
       } else if (action.type === 'BUY_DEV_CARD') {

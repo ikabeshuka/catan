@@ -3,12 +3,12 @@ import { HexTile } from '../../../types/hex.types';
 import { BoardVertex, BoardEdge } from '../../../types/boardElements.types';
 import { GamePhase } from '../../../context/GameContext';
 import { evaluateVertices } from '../evaluators/evaluateVertices';
-import { evaluateEdges } from '../evaluators/evaluateEdges';
+import { evaluateEdges, evaluateShipEdges } from '../evaluators/evaluateEdges';
 import { getMediumBotTarget } from '../getMediumBotTarget';
 
 // הגדרת מבנה הפעולה שה-AI מחזיר למנוע המשחק
 export interface AIAction {
-  type: 'BUILD_SETTLEMENT' | 'BUILD_CITY' | 'BUILD_ROAD' | 'BUY_DEV_CARD' | 'END_TURN';
+  type: 'BUILD_SETTLEMENT' | 'BUILD_CITY' | 'BUILD_ROAD' | 'BUILD_SHIP' | 'BUY_DEV_CARD' | 'END_TURN';
   targetId?: string; // מזהה הצומת או הכביש שבו הבוט רוצה לבנות
 }
 
@@ -49,6 +49,7 @@ export function chooseBuildPhase(
   const CITY_COST = { WOOD: 0, BRICK: 0, SHEEP: 0, WHEAT: 2, ORE: 3 };
   const SETTLEMENT_COST = { WOOD: 1, BRICK: 1, SHEEP: 1, WHEAT: 1, ORE: 0 };
   const ROAD_COST = { WOOD: 1, BRICK: 1, SHEEP: 0, WHEAT: 0, ORE: 0 };
+  const SHIP_COST = { WOOD: 1, BRICK: 0, SHEEP: 1, WHEAT: 0, ORE: 0 };
   const DEV_CARD_COST = { WOOD: 0, BRICK: 0, SHEEP: 1, WHEAT: 1, ORE: 1 };
 
   // Helper to check if bot can afford a given cost
@@ -57,6 +58,32 @@ export function chooseBuildPhase(
       if (res[r] < (cost[r] || 0)) return false;
     }
     return true;
+  };
+
+  // עזר לבחירת כביש או ספינה בהתאם לציון הגבוה יותר
+  const getBestRoadOrShip = (difficulty: 'EASY' | 'MEDIUM' | 'HARD' | 'SUPER_HARD'): AIAction | null => {
+    const canAffordRoad = canAfford(ROAD_COST);
+    const canAffordShip = canAfford(SHIP_COST);
+    if (!canAffordRoad && !canAffordShip) return null;
+
+    const bestEdges = canAffordRoad ? evaluateEdges(bot.id, gamePhase, tiles, vertices, edges, difficulty) : [];
+    const bestShips = canAffordShip ? evaluateShipEdges(bot.id, gamePhase, tiles, vertices, edges, difficulty) : [];
+
+    const topEdge = bestEdges[0];
+    const topShip = bestShips[0];
+
+    if (topEdge && topShip) {
+      if (topShip.score > topEdge.score) {
+        return { type: 'BUILD_SHIP', targetId: topShip.edgeId };
+      } else {
+        return { type: 'BUILD_ROAD', targetId: topEdge.edgeId };
+      }
+    } else if (topShip) {
+      return { type: 'BUILD_SHIP', targetId: topShip.edgeId };
+    } else if (topEdge) {
+      return { type: 'BUILD_ROAD', targetId: topEdge.edgeId };
+    }
+    return null;
   };
 
   // SUPER_HARD difficulty adaptive strategies overrides
@@ -71,12 +98,10 @@ export function chooseBuildPhase(
           return { type: 'BUILD_SETTLEMENT', targetId: bestVertices[0].vertexId };
         }
       }
-      // 2. Road
-      if (canAfford(ROAD_COST)) {
-        const bestEdges = evaluateEdges(bot.id, gamePhase, tiles, vertices, edges, 'HARD');
-        if (bestEdges.length > 0) {
-          return { type: 'BUILD_ROAD', targetId: bestEdges[0].edgeId };
-        }
+      // 2. Road / Ship
+      const roadOrShipAction = getBestRoadOrShip('HARD');
+      if (roadOrShipAction) {
+        return roadOrShipAction;
       }
       // 3. City
       if (canAfford(CITY_COST)) {
@@ -110,12 +135,10 @@ export function chooseBuildPhase(
           return { type: 'BUILD_SETTLEMENT', targetId: bestVertices[0].vertexId };
         }
       }
-      // 4. Road
-      if (canAfford(ROAD_COST)) {
-        const bestEdges = evaluateEdges(bot.id, gamePhase, tiles, vertices, edges, 'HARD');
-        if (bestEdges.length > 0) {
-          return { type: 'BUILD_ROAD', targetId: bestEdges[0].edgeId };
-        }
+      // 4. Road / Ship
+      const roadOrShipAction = getBestRoadOrShip('HARD');
+      if (roadOrShipAction) {
+        return roadOrShipAction;
       }
     }
 
@@ -134,12 +157,10 @@ export function chooseBuildPhase(
           return { type: 'BUILD_CITY', targetId: mySettlements[0].id };
         }
       }
-      // 3. Road
-      if (canAfford(ROAD_COST)) {
-        const bestEdges = evaluateEdges(bot.id, gamePhase, tiles, vertices, edges, 'HARD');
-        if (bestEdges.length > 0) {
-          return { type: 'BUILD_ROAD', targetId: bestEdges[0].edgeId };
-        }
+      // 3. Road / Ship
+      const roadOrShipAction = getBestRoadOrShip('HARD');
+      if (roadOrShipAction) {
+        return roadOrShipAction;
       }
       // 4. Dev Card
       if (canAfford(DEV_CARD_COST)) {
@@ -158,11 +179,9 @@ export function chooseBuildPhase(
         return { type: 'BUILD_SETTLEMENT', targetId: bestVertices[0].vertexId };
       }
     }
-    if (canAfford(ROAD_COST)) {
-      const bestEdges = evaluateEdges(bot.id, gamePhase, tiles, vertices, edges, bot.difficulty || 'MEDIUM');
-      if (bestEdges.length > 0) {
-        return { type: 'BUILD_ROAD', targetId: bestEdges[0].edgeId };
-      }
+    const roadOrShipAction = getBestRoadOrShip(bot.difficulty || 'MEDIUM');
+    if (roadOrShipAction) {
+      return roadOrShipAction;
     }
     if (canAfford(CITY_COST)) {
       const mySettlements = vertices.filter(
@@ -204,21 +223,12 @@ export function chooseBuildPhase(
     }
   }
 
-  // 3. עדיפות שלישית: בניית כביש כדי להתרחב (עלות: 1 עץ, 1 לבנה)
-  if (canAfford(ROAD_COST)) {
-    const isWasting = target && target.type !== 'ROAD' && isWastingResourcesOnSideAction(res as any, target.cost as any, ROAD_COST);
-
-    if (!isWasting) {
-      const bestEdges = evaluateEdges(bot.id, gamePhase, tiles, vertices, edges, bot.difficulty || 'MEDIUM');
-      if (bestEdges.length > 0) {
-        // BUILDER archetype prioritizes roads even more
-        if (bot.difficulty === 'HARD' && bot.archetype === 'BUILDER') {
-          // Implement more aggressive road building logic here if needed,
-          // currently, the scoring in evaluateEdges already reflects path to good vertices.
-          return { type: 'BUILD_ROAD', targetId: bestEdges[0].edgeId };
-        }
-        return { type: 'BUILD_ROAD', targetId: bestEdges[0].edgeId };
-      }
+  // 3. עדיפות שלישית: בניית כביש או ספינה כדי להתרחב (עלות כביש: 1 עץ, 1 לבנה | עלות ספינה: 1 עץ, 1 כבש)
+  const isWastingRoadOrShip = target && target.type !== 'ROAD' && isWastingResourcesOnSideAction(res as any, target.cost as any, ROAD_COST);
+  if (!isWastingRoadOrShip) {
+    const roadOrShipAction = getBestRoadOrShip(bot.difficulty || 'MEDIUM');
+    if (roadOrShipAction) {
+      return roadOrShipAction;
     }
   }
 

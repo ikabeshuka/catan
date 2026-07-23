@@ -267,7 +267,7 @@ export const PlayerProvider: React.FC<{ children: ReactNode }> = ({ children }) 
     const initialPlayers: Player[] = [
       {
         id: 'p1',
-        name: 'אתה',
+        name: 'פיבי',
         color: '#e53935',
         isBot: false,
         victoryPoints: 2,
@@ -277,7 +277,7 @@ export const PlayerProvider: React.FC<{ children: ReactNode }> = ({ children }) 
       },
       {
         id: 'p2',
-        name: 'בוט אלעד',
+        name: 'רוס',
         color: '#1e88e5',
         isBot: true,
         victoryPoints: 2,
@@ -287,7 +287,7 @@ export const PlayerProvider: React.FC<{ children: ReactNode }> = ({ children }) 
       },
       {
         id: 'p3',
-        name: 'בוט רעות',
+        name: 'צ\'נדלר',
         color: '#fdd835',
         isBot: true,
         victoryPoints: 2,
@@ -297,7 +297,7 @@ export const PlayerProvider: React.FC<{ children: ReactNode }> = ({ children }) 
       },
       {
         id: 'p4',
-        name: 'בוט משה',
+        name: 'ג\'ואי',
         color: '#43a047',
         isBot: true,
         victoryPoints: 2,

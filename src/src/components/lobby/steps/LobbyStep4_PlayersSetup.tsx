@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { 
   UserIcon, BotIcon, EasyIcon, MediumIcon, HardIcon, SuperHardIcon 
 } from '../../common/Icons';
@@ -19,6 +19,33 @@ interface LobbyStep4PlayersSetupProps {
   onStartGame: () => void;
 }
 
+// Beautiful board game pawn icon (חייל משחק)
+const PawnIcon = ({ color, size = 32 }: { color: string; size?: number }) => (
+  <svg 
+    width={size} 
+    height={size} 
+    viewBox="0 0 24 24" 
+    fill="none" 
+    xmlns="http://www.w3.org/2000/svg"
+    className="filter drop-shadow-[0_2px_5px_rgba(0,0,0,0.5)]"
+  >
+    {/* Pawn Head */}
+    <circle cx="12" cy="7" r="4" fill={color} stroke="#ffffff" strokeWidth="1.5" />
+    {/* Pawn Neck Ring */}
+    <ellipse cx="12" cy="12" rx="3.5" ry="1" fill="#ffffff" />
+    {/* Pawn Body */}
+    <path 
+      d="M7 21C7 16.5 9.5 13.5 12 13.5C14.5 13.5 17 16.5 17 21" 
+      fill={color} 
+      stroke="#ffffff" 
+      strokeWidth="1.5" 
+      strokeLinecap="round" 
+    />
+    {/* Base Ring */}
+    <path d="M5 21C5 20.5 5.5 19.5 12 19.5C18.5 19.5 19 20.5 19 21H5Z" fill="#ffffff" />
+  </svg>
+);
+
 export const LobbyStep4_PlayersSetup: React.FC<LobbyStep4PlayersSetupProps> = ({
   playerCount,
   lobbyPlayers,
@@ -36,6 +63,9 @@ export const LobbyStep4_PlayersSetup: React.FC<LobbyStep4PlayersSetupProps> = ({
   const activePlayers = lobbyPlayers.slice(0, playerCount);
   const hasBots = activePlayers.some(p => p.isBot);
 
+  // State to track which player's color picker popover is currently open
+  const [activePopoverPlayerId, setActivePopoverPlayerId] = useState<string | null>(null);
+
   const getDifficultyIcon = (diff: 'קל' | 'בינוני' | 'קשה' | 'סופר קשה') => {
     switch (diff) {
       case 'קל': return <EasyIcon size={14} />;
@@ -45,111 +75,187 @@ export const LobbyStep4_PlayersSetup: React.FC<LobbyStep4PlayersSetupProps> = ({
     }
   };
 
+  // Automated Color Swapping Logic
+  const handleColorSelect = (playerId: string, selectedColorHex: string) => {
+    setLobbyPlayers(prev => {
+      const currentPlayers = [...prev];
+      const currentPlayer = currentPlayers.find(pl => pl.id === playerId);
+      if (!currentPlayer) return prev;
+
+      const previousColorHex = currentPlayer.color;
+
+      // Find if another active player is already using this color
+      const otherActivePlayer = currentPlayers.slice(0, playerCount).find(
+        pl => pl.id !== playerId && pl.color === selectedColorHex
+      );
+
+      if (otherActivePlayer) {
+        // Swap colors between the two players!
+        return currentPlayers.map(pl => {
+          if (pl.id === playerId) {
+            return { ...pl, color: selectedColorHex };
+          }
+          if (pl.id === otherActivePlayer.id) {
+            return { ...pl, color: previousColorHex };
+          }
+          return pl;
+        });
+      } else {
+        // Just change the color normally
+        return currentPlayers.map(pl => {
+          if (pl.id === playerId) {
+            return { ...pl, color: selectedColorHex };
+          }
+          return pl;
+        });
+      }
+    });
+
+    // Close the popover after selection
+    setActivePopoverPlayerId(null);
+  };
+
   return (
     <div className="w-full animate-fade-in flex flex-col items-center gap-6" dir="rtl">
       
       {/* 🔹 הגדרת המשתתפים */}
       <h2 className="text-xl font-bold text-slate-100 text-center">הגדרת משתתפים וצבעים:</h2>
-      <div className="w-full max-w-2xl flex flex-col gap-4">
-        {activePlayers.map((p, index) => (
-          <div 
-            key={p.id}
-            className="flex flex-col md:flex-row items-center justify-between p-4 bg-slate-950/60 border border-slate-800/80 rounded-xl gap-4 shadow-md"
-          >
-            {/* Avatar & Label */}
-            <div className="flex items-center gap-3 w-full md:w-auto">
-              <span 
-                className="w-3.5 h-3.5 rounded-full shadow animate-pulse" 
-                style={{ backgroundColor: p.color }}
-              />
-              <span className="text-sm font-bold text-slate-400 min-w-[55px]">שחקן {index + 1}:</span>
-            </div>
+      
+      {/* grid grid-cols-4 gap-4 structure */}
+      <div className="grid grid-cols-4 gap-4 w-full max-w-4xl relative">
+        {activePlayers.map((p, index) => {
+          const isPopoverOpen = activePopoverPlayerId === p.id;
 
-            {/* Toggle Button (Human / Bot) */}
-            <div className="w-full md:w-auto flex gap-1.5 bg-slate-900 p-1 rounded-lg border border-slate-800">
-              <button
-                type="button"
-                onClick={() => togglePlayerType(p.id, false)}
-                className={`flex-1 md:flex-none py-1.5 px-3 rounded-md text-xs font-bold transition-all duration-150 flex items-center justify-center gap-1.5 cursor-pointer border ${
-                  !p.isBot 
-                    ? 'bg-amber-500 border-amber-400 text-slate-950 font-extrabold shadow' 
-                    : 'border-transparent text-slate-500 hover:text-slate-300'
-                }`}
-              >
-                <UserIcon size={13} />
-                <span>אנושי</span>
-              </button>
-              <button
-                type="button"
-                onClick={() => togglePlayerType(p.id, true)}
-                className={`flex-1 md:flex-none py-1.5 px-3 rounded-md text-xs font-bold transition-all duration-150 flex items-center justify-center gap-1.5 cursor-pointer border ${
-                  p.isBot 
-                    ? 'bg-amber-500 border-amber-400 text-slate-950 font-extrabold shadow' 
-                    : 'border-transparent text-slate-500 hover:text-slate-300'
-                }`}
-              >
-                <BotIcon size={13} />
-                <span>בוט מחשב</span>
-              </button>
-            </div>
-
-            {/* Name Input */}
-            <div className="w-full md:flex-1 relative">
-              <input
-                type="text"
-                value={p.name}
-                onChange={(e) => {
-                  const val = e.target.value;
-                  setLobbyPlayers(prev => prev.map(item => item.id === p.id ? { ...item, name: val } : item));
-                }}
-                className="w-full text-right bg-slate-900 border border-slate-800 hover:border-slate-700 rounded-lg px-3 py-2 pr-9 text-slate-100 text-sm font-bold focus:outline-none focus:ring-1 focus:ring-amber-500 transition-all"
-                placeholder="שם השחקן..."
-              />
-              <div className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-500">
-                {p.isBot ? <BotIcon size={14} /> : <UserIcon size={14} />}
+          return (
+            <div 
+              key={p.id}
+              className="flex flex-col items-center p-5 bg-slate-950 border border-slate-800 rounded-2xl gap-5 shadow-2xl relative transition-all duration-300 hover:border-slate-700 overflow-visible"
+            >
+              {/* Badge indicating player index */}
+              <div className="absolute top-3 right-3 px-2 py-0.5 bg-slate-900 border border-slate-800 rounded-full text-[10px] font-bold text-slate-500">
+                שחקן {index + 1}
               </div>
-            </div>
 
-            {/* Color Selector */}
-            <div className="flex gap-1.5">
-              {CATAN_COLORS.map(colorOption => {
-                const isSelected = p.color === colorOption.hex;
-                const isTakenByOther = activePlayers.some(
-                  other => other.id !== p.id && other.color === colorOption.hex
-                );
-
-                return (
+              {/* 1. Gold switch (Human / Bot Toggle) */}
+              <div className="w-full mt-2 relative">
+                <div className="flex bg-slate-900 p-1 rounded-xl border border-slate-800 shadow-inner relative w-full overflow-hidden">
                   <button
-                    key={colorOption.hex}
                     type="button"
-                    disabled={isTakenByOther}
-                    onClick={() => {
-                      if (!isTakenByOther) {
-                        setLobbyPlayers(prev => prev.map(item => item.id === p.id ? { ...item, color: colorOption.hex } : item));
-                      }
-                    }}
-                    className={`w-7 h-7 rounded-full border border-slate-900 relative transition-all duration-150 cursor-pointer ${
-                      isSelected 
-                        ? 'ring-2 ring-amber-500 scale-110 shadow-md' 
-                        : isTakenByOther 
-                          ? 'opacity-20 cursor-not-allowed' 
-                          : 'hover:scale-105 border-white/15'
+                    onClick={() => togglePlayerType(p.id, false)}
+                    className={`flex-1 py-1.5 px-2 rounded-lg text-xs font-bold transition-all duration-200 relative z-10 flex items-center justify-center gap-1 cursor-pointer ${
+                      !p.isBot 
+                        ? 'text-amber-400 font-extrabold' 
+                        : 'text-slate-500 hover:text-slate-400'
                     }`}
-                    style={{ backgroundColor: colorOption.hex }}
-                    title={isTakenByOther ? `צבע תפוס` : colorOption.name}
                   >
-                    {isSelected && (
-                      <span className="absolute inset-0 flex items-center justify-center text-xs text-white font-black">
-                        ✓
-                      </span>
-                    )}
+                    <UserIcon size={12} />
+                    <span>אדם</span>
                   </button>
-                );
-              })}
-            </div>
+                  <button
+                    type="button"
+                    onClick={() => togglePlayerType(p.id, true)}
+                    className={`flex-1 py-1.5 px-2 rounded-lg text-xs font-bold transition-all duration-200 relative z-10 flex items-center justify-center gap-1 cursor-pointer ${
+                      p.isBot 
+                        ? 'text-amber-400 font-extrabold' 
+                        : 'text-slate-500 hover:text-slate-400'
+                    }`}
+                  >
+                    <BotIcon size={12} />
+                    <span>מחשב</span>
+                  </button>
+                  {/* Sliding gold slider backdrop */}
+                  <div 
+                    className="absolute top-1 bottom-1 bg-amber-500/10 border border-amber-400/30 rounded-lg transition-all duration-300 shadow-[0_0_10px_rgba(245,158,11,0.15)]"
+                    style={{
+                      width: 'calc(50% - 6px)',
+                      left: p.isBot ? '4px' : 'auto',
+                      right: !p.isBot ? '4px' : 'auto',
+                    }}
+                  />
+                </div>
+              </div>
 
-          </div>
-        ))}
+              {/* 2. Player Name and Pawn/Soldier */}
+              <div className="w-full flex flex-col items-center gap-4">
+                {/* Clickable Pawn/Soldier Icon with popping gold hover effect */}
+                <button
+                  type="button"
+                  onClick={() => setActivePopoverPlayerId(isPopoverOpen ? null : p.id)}
+                  className="p-3 bg-slate-900/60 border border-slate-800 rounded-full hover:scale-110 active:scale-95 transition-all cursor-pointer relative shadow-lg group hover:border-amber-500/40 hover:shadow-amber-500/5"
+                  title="לחץ לבחירת צבע"
+                >
+                  <PawnIcon color={p.color} size={36} />
+                  {/* Interactivity indicator */}
+                  <span className="absolute bottom-0 right-0 w-3 h-3 rounded-full bg-slate-950 border border-slate-800 flex items-center justify-center text-[8px] text-amber-400 font-black">
+                    🎨
+                  </span>
+                </button>
+
+                {/* Name Input with user icon / bot icon prefix */}
+                <div className="w-full relative">
+                  <input
+                    type="text"
+                    value={p.name}
+                    onChange={(e) => {
+                      const val = e.target.value;
+                      setLobbyPlayers(prev => prev.map(item => item.id === p.id ? { ...item, name: val } : item));
+                    }}
+                    className="w-full text-center bg-slate-900 border border-slate-800 hover:border-slate-700 rounded-xl px-2 py-1.5 text-slate-100 text-xs font-bold focus:outline-none focus:ring-1 focus:ring-amber-500 transition-all"
+                    placeholder="שם השחקן..."
+                  />
+                </div>
+              </div>
+
+              {/* 3. Popover Color Selector Dropdown */}
+              {isPopoverOpen && (
+                <>
+                  {/* Backdrop click closer overlay */}
+                  <div 
+                    className="fixed inset-0 z-40 cursor-default" 
+                    onClick={() => setActivePopoverPlayerId(null)}
+                  />
+                  
+                  {/* Color Picker Popover panel */}
+                  <div className="absolute bottom-16 z-50 bg-slate-900 border border-slate-800 rounded-xl p-2.5 shadow-2xl flex gap-2 animate-fade-in animate-duration-150">
+                    {CATAN_COLORS.map(colorOption => {
+                      const isSelected = p.color === colorOption.hex;
+                      const isTakenByOther = activePlayers.some(
+                        other => other.id !== p.id && other.color === colorOption.hex
+                      );
+
+                      return (
+                        <button
+                          key={colorOption.hex}
+                          type="button"
+                          onClick={() => handleColorSelect(p.id, colorOption.hex)}
+                          className={`w-7 h-7 rounded-full border border-slate-950 relative transition-all duration-150 cursor-pointer ${
+                            isSelected 
+                              ? 'ring-2 ring-amber-500 scale-110 shadow-md' 
+                              : 'hover:scale-105 border-white/10'
+                          }`}
+                          style={{ backgroundColor: colorOption.hex }}
+                          title={isTakenByOther ? `${colorOption.name} (יגרום להחלפה)` : colorOption.name}
+                        >
+                          {isSelected && (
+                            <span className="absolute inset-0 flex items-center justify-center text-xs text-white font-black">
+                              ✓
+                            </span>
+                          )}
+                          {isTakenByOther && !isSelected && (
+                            <span className="absolute -top-1 -right-1 w-3.5 h-3.5 bg-amber-500/90 border border-slate-900 rounded-full flex items-center justify-center text-[8px] text-slate-950 font-black">
+                              ⇄
+                            </span>
+                          )}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </>
+              )}
+
+            </div>
+          );
+        })}
       </div>
 
       {/* 🔹 הגדרת בינה מלאכותית ומגבלת זמן (רק אם יש בוטים) */}

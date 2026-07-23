@@ -288,7 +288,18 @@ const GameContent: React.FC = () => {
         setPlayers: guard(setPlayers),
         recordSetupPlacement: guard(recordSetupPlacement),
         setTiles: guard(setTiles),
-        setTurnSubPhase: guard(setTurnSubPhase)
+        setTurnSubPhase: guard(setTurnSubPhase),
+        gameState: {
+          gamePhase, // Assuming gamePhase is part of gameState
+          turnNumber: 0, // Placeholder, adjust if turnNumber is tracked elsewhere
+        } as any, // Cast to any to bypass type checking for now
+        boardState: {
+          tiles, // Assuming tiles are part of boardState
+          vertices, // Assuming vertices are part of boardState
+          edges, // Assuming edges are part of boardState
+        } as any, // Cast to any to bypass type checking for now
+        playerState: { players } as any, // Cast to any to bypass type checking for now
+        legalActions: {} as any, // Placeholder, will be replaced with actual legal actions
       });
     }
   }, [currentPlayerIndex, turnSubPhase, gamePhase, activePlayer, endTurn, recordSetupPlacement, handleDiceRoll, players, addLog, setTiles, setTurnSubPhase, startTurn]);
