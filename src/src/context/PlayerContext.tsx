@@ -48,7 +48,12 @@ interface PlayerContextType {
   setHasMovedShipThisTurn: React.Dispatch<React.SetStateAction<boolean>>;
   setSelectedShipIdToMove: React.Dispatch<React.SetStateAction<string | null>>;
   addLog: (message: string) => void;
-  initNewGame: (playerCount?: number) => void;
+  initNewGame: (
+    playerCount?: number,
+    presetTiles?: any[],
+    presetVertices?: any[],
+    presetEdges?: any[]
+  ) => void;
   createTurnSnapshot: () => void;
   undoTurnActions: () => void;
   resolveGoldSelection: (chosenResources: ('WOOD' | 'BRICK' | 'SHEEP' | 'WHEAT' | 'ORE')[]) => void;
@@ -238,10 +243,15 @@ export const PlayerProvider: React.FC<{ children: ReactNode }> = ({ children }) 
     }
   }, [turnSubPhase, goldSelectionQueue, players, setTurnSubPhase, setGoldSelectionQueue, setPlayers]);
 
-  const initNewGame = (playerCount?: number) => {
-    const newTiles = generateBoard(standardCatanConfig, boardType, activeExpansion, selectedScenario, playerCount);
-    const newVertices = generateVertices(newTiles, activeExpansion);
-    const newEdges = generateEdges(newTiles, activeExpansion);
+  const initNewGame = (
+    playerCount?: number,
+    presetTiles?: any[],
+    presetVertices?: any[],
+    presetEdges?: any[]
+  ) => {
+    const newTiles = presetTiles || generateBoard(standardCatanConfig, boardType, activeExpansion, selectedScenario, playerCount);
+    const newVertices = presetVertices || generateVertices(newTiles, activeExpansion);
+    const newEdges = presetEdges || generateEdges(newTiles, activeExpansion);
 
     const deck: string[] = [
       ...Array(14).fill('KNIGHT'),
@@ -270,6 +280,7 @@ export const PlayerProvider: React.FC<{ children: ReactNode }> = ({ children }) 
         name: 'פיבי',
         color: '#e53935',
         isBot: false,
+        playerType: 'HUMAN',
         victoryPoints: 2,
         resources: { WOOD: 0, BRICK: 0, SHEEP: 0, WHEAT: 0, ORE: 0 },
         developmentCards: { KNIGHT: 0, MONOPOLY: 0, ROAD_BUILDING: 0, YEAR_OF_PLENTY: 0, VICTORY_POINT: 0 },
@@ -280,6 +291,7 @@ export const PlayerProvider: React.FC<{ children: ReactNode }> = ({ children }) 
         name: 'רוס',
         color: '#1e88e5',
         isBot: true,
+        playerType: 'LOCAL_BOT',
         victoryPoints: 2,
         resources: { WOOD: 0, BRICK: 0, SHEEP: 0, WHEAT: 0, ORE: 0 },
         developmentCards: { KNIGHT: 0, MONOPOLY: 0, ROAD_BUILDING: 0, YEAR_OF_PLENTY: 0, VICTORY_POINT: 0 },
@@ -290,6 +302,7 @@ export const PlayerProvider: React.FC<{ children: ReactNode }> = ({ children }) 
         name: 'צ\'נדלר',
         color: '#fdd835',
         isBot: true,
+        playerType: 'LOCAL_BOT',
         victoryPoints: 2,
         resources: { WOOD: 0, BRICK: 0, SHEEP: 0, WHEAT: 0, ORE: 0 },
         developmentCards: { KNIGHT: 0, MONOPOLY: 0, ROAD_BUILDING: 0, YEAR_OF_PLENTY: 0, VICTORY_POINT: 0 },
@@ -300,6 +313,7 @@ export const PlayerProvider: React.FC<{ children: ReactNode }> = ({ children }) 
         name: 'ג\'ואי',
         color: '#43a047',
         isBot: true,
+        playerType: 'LOCAL_BOT',
         victoryPoints: 2,
         resources: { WOOD: 0, BRICK: 0, SHEEP: 0, WHEAT: 0, ORE: 0 },
         developmentCards: { KNIGHT: 0, MONOPOLY: 0, ROAD_BUILDING: 0, YEAR_OF_PLENTY: 0, VICTORY_POINT: 0 },

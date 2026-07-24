@@ -3,12 +3,13 @@ import {
   UserIcon, BotIcon, EasyIcon, MediumIcon, HardIcon, SuperHardIcon 
 } from '../../common/Icons';
 import { LobbyPlayer, CATAN_COLORS } from '../types';
+import { PlayerType } from '../../../types/player.types';
 
 interface LobbyStep4PlayersSetupProps {
   playerCount: 3 | 4;
   lobbyPlayers: LobbyPlayer[];
   setLobbyPlayers: React.Dispatch<React.SetStateAction<LobbyPlayer[]>>;
-  togglePlayerType: (id: string, isBot: boolean) => void;
+  togglePlayerType: (id: string, playerType: PlayerType) => void;
   isGlobalDifficulty: boolean;
   setIsGlobalDifficulty: (global: boolean) => void;
   globalDifficulty: 'קל' | 'בינוני' | 'קשה' | 'סופר קשה';
@@ -17,6 +18,7 @@ interface LobbyStep4PlayersSetupProps {
   setBotTimeLimit: (limit: number) => void;
   onPrev: () => void;
   onStartGame: () => void;
+  isGuest?: boolean;
 }
 
 // Beautiful board game pawn icon (חייל משחק)
@@ -59,6 +61,7 @@ export const LobbyStep4_PlayersSetup: React.FC<LobbyStep4PlayersSetupProps> = ({
   setBotTimeLimit,
   onPrev,
   onStartGame,
+  isGuest = false,
 }) => {
   const activePlayers = lobbyPlayers.slice(0, playerCount);
   const hasBots = activePlayers.some(p => p.isBot);
@@ -136,44 +139,93 @@ export const LobbyStep4_PlayersSetup: React.FC<LobbyStep4PlayersSetupProps> = ({
                 שחקן {index + 1}
               </div>
 
-              {/* 1. Gold switch (Human / Bot Toggle) */}
+              {/* 1. Triple Segmented Control (Human / Local Bot / Gemini AI Toggle) */}
               <div className="w-full mt-2 relative">
                 <div className="flex bg-slate-900 p-1 rounded-xl border border-slate-800 shadow-inner relative w-full overflow-hidden">
                   <button
                     type="button"
-                    onClick={() => togglePlayerType(p.id, false)}
-                    className={`flex-1 py-1.5 px-2 rounded-lg text-xs font-bold transition-all duration-200 relative z-10 flex items-center justify-center gap-1 cursor-pointer ${
-                      !p.isBot 
+                    onClick={() => togglePlayerType(p.id, 'HUMAN')}
+                    className={`flex-1 py-1.5 px-1 rounded-lg text-[11px] font-bold transition-all duration-200 relative z-10 flex items-center justify-center gap-0.5 cursor-pointer ${
+                      p.playerType === 'HUMAN' 
                         ? 'text-amber-400 font-extrabold' 
                         : 'text-slate-500 hover:text-slate-400'
                     }`}
+                    title="שחקן אנושי"
                   >
-                    <UserIcon size={12} />
+                    <UserIcon size={11} />
                     <span>אדם</span>
                   </button>
                   <button
                     type="button"
-                    onClick={() => togglePlayerType(p.id, true)}
-                    className={`flex-1 py-1.5 px-2 rounded-lg text-xs font-bold transition-all duration-200 relative z-10 flex items-center justify-center gap-1 cursor-pointer ${
-                      p.isBot 
+                    onClick={() => togglePlayerType(p.id, 'LOCAL_BOT')}
+                    className={`flex-1 py-1.5 px-1 rounded-lg text-[11px] font-bold transition-all duration-200 relative z-10 flex items-center justify-center gap-0.5 cursor-pointer ${
+                      p.playerType === 'LOCAL_BOT' 
                         ? 'text-amber-400 font-extrabold' 
                         : 'text-slate-500 hover:text-slate-400'
                     }`}
+                    title="מחשב מקומי"
                   >
-                    <BotIcon size={12} />
+                    <BotIcon size={11} />
                     <span>מחשב</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => togglePlayerType(p.id, 'GEMINI_AI')}
+                    className={`flex-1 py-1.5 px-1 rounded-lg text-[11px] font-bold transition-all duration-200 relative z-10 flex items-center justify-center gap-0.5 cursor-pointer ${
+                      p.playerType === 'GEMINI_AI' 
+                        ? 'text-amber-400 font-extrabold' 
+                        : 'text-slate-500 hover:text-slate-400'
+                    }`}
+                    title="שחקן Gemini AI"
+                  >
+                    <span className="text-[11px]">🧠</span>
+                    <span>Gemini</span>
                   </button>
                   {/* Sliding gold slider backdrop */}
                   <div 
                     className="absolute top-1 bottom-1 bg-amber-500/10 border border-amber-400/30 rounded-lg transition-all duration-300 shadow-[0_0_10px_rgba(245,158,11,0.15)]"
                     style={{
-                      width: 'calc(50% - 6px)',
-                      left: p.isBot ? '4px' : 'auto',
-                      right: !p.isBot ? '4px' : 'auto',
+                      width: 'calc(33.333% - 4px)',
+                      left: p.playerType === 'GEMINI_AI' ? '4px' : p.playerType === 'LOCAL_BOT' ? 'calc(33.333% + 2px)' : 'calc(66.666% + 2px)',
                     }}
                   />
                 </div>
               </div>
+
+              {/* Individual Difficulty for Local Bot inside the card */}
+              {p.playerType === 'LOCAL_BOT' && (
+                <div className="w-full flex flex-col gap-1 text-center mt-1 animate-fade-in">
+                  <span className="text-[10px] text-slate-400 font-bold">רמת קושי:</span>
+                  <div className="flex bg-slate-900 p-0.5 rounded-lg border border-slate-800/80 justify-between">
+                    {(['קל', 'בינוני', 'קשה'] as const).map(diff => {
+                      const isSelected = p.difficulty === diff || (!p.difficulty && diff === 'בינוני');
+                      return (
+                        <button
+                          key={diff}
+                          type="button"
+                          onClick={() => {
+                            setLobbyPlayers(prev => prev.map(item => item.id === p.id ? { ...item, difficulty: diff } : item));
+                          }}
+                          className={`py-1 px-1 rounded text-[9px] font-bold transition-all duration-150 cursor-pointer flex-1 ${
+                            isSelected 
+                              ? 'bg-amber-500 text-slate-950 font-extrabold shadow' 
+                              : 'text-slate-400 hover:text-slate-200'
+                          }`}
+                        >
+                          {diff}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+
+              {/* API Key Reminder for Gemini AI inside the card */}
+              {p.playerType === 'GEMINI_AI' && (
+                <div className="w-full text-center mt-1 p-1.5 bg-purple-950/20 border border-purple-500/25 rounded-xl text-[9px] text-purple-300 font-medium leading-relaxed animate-fade-in">
+                  🧠 ודא שהוזן מפתח API בהגדרות Gemini למטה
+                </div>
+              )}
 
               {/* 2. Player Name and Pawn/Soldier */}
               <div className="w-full flex flex-col items-center gap-4">
@@ -380,13 +432,19 @@ export const LobbyStep4_PlayersSetup: React.FC<LobbyStep4PlayersSetupProps> = ({
           חזור
         </button>
 
-        <button
-          type="button"
-          onClick={onStartGame}
-          className="bg-gradient-to-l from-amber-500 to-orange-500 text-slate-950 font-black py-3.5 px-10 rounded-xl text-sm shadow-lg shadow-amber-500/10 hover:shadow-amber-500/20 active:scale-[0.98] transition-all duration-200 tracking-wide hover:brightness-110 cursor-pointer"
-        >
-          צור לוח וצא לדרך!
-        </button>
+        {isGuest ? (
+          <div className="text-amber-400 font-black text-sm animate-pulse bg-amber-500/10 border border-amber-500/20 rounded-xl py-2.5 px-6" dir="rtl">
+            ⏳ ממתין למנהל החדר (Host) שיתחיל את המשחק...
+          </div>
+        ) : (
+          <button
+            type="button"
+            onClick={onStartGame}
+            className="bg-gradient-to-l from-amber-500 to-orange-500 text-slate-950 font-black py-3.5 px-10 rounded-xl text-sm shadow-lg shadow-amber-500/10 hover:shadow-amber-500/20 active:scale-[0.98] transition-all duration-200 tracking-wide hover:brightness-110 cursor-pointer"
+          >
+            צור לוח וצא לדרך!
+          </button>
+        )}
       </div>
     </div>
   );

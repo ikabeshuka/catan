@@ -1,8 +1,11 @@
+import { PlayerType } from '../../types/player.types';
+
 export interface LobbyPlayer {
   id: string;
   name: string;
   color: string;
   isBot: boolean;
+  playerType: PlayerType;
   difficulty?: 'קל' | 'בינוני' | 'קשה' | 'סופר קשה';
 }
 

@@ -1,6 +1,11 @@
 import React, { useEffect, useState, useRef } from 'react';
 import { GameProvider, useGame, getPlayerTotalVP } from './context/GameContext';
 import { GameBoard3D } from './components/board/GameBoard3D';
+import { generateBoard } from './utils/gameEngine/generateBoard';
+import { generateVertices } from './utils/gameEngine/generateVertices';
+import { generateEdges } from './utils/gameEngine/generateEdges';
+import { standardCatanConfig } from './config/standardVersion';
+import { socketService } from './services/network/socketService';
 import { ActionSidebar } from './components/actions/ActionSidebar';
 import { ResourceContainer } from './components/playerPanel/ResourceContainer';
 import { GameLog } from './components/notifications/GameLog';
@@ -62,8 +67,49 @@ const GameContent: React.FC = () => {
     activeRobberType,
     setActiveRobberType,
     goldSelectionQueue,
-    selectedScenario
+    selectedScenario,
+    setActiveExpansion,
+    setSelectedScenario,
+    boardType,
+    setBoardType
   } = useGame();
+
+  const [roomId, setRoomId] = useState<string | null>(null);
+  const [isHost, setIsHost] = useState<boolean>(false);
+
+  // Guest listens to game start and loads host's board
+  useEffect(() => {
+    if (roomId && !isHost) {
+      socketService.onGameStarted((gameStartData) => {
+        console.log('🎮 Game started by Host, loading board and players...', gameStartData);
+        
+        // 1. Set bot time limit
+        setBotTimeLimit(gameStartData.botTimeLimit);
+
+        // 2. Sync expansion & board type
+        if (gameStartData.activeExpansion) {
+          setActiveExpansion(gameStartData.activeExpansion);
+        }
+        if (gameStartData.selectedScenario) {
+          setSelectedScenario(gameStartData.selectedScenario);
+        }
+        if (gameStartData.boardType) {
+          setBoardType(gameStartData.boardType);
+        }
+
+        // 3. Initialize game using host-provided board data
+        initNewGame(
+          gameStartData.players.length,
+          gameStartData.boardData.tiles,
+          gameStartData.boardData.vertices,
+          gameStartData.boardData.edges
+        );
+
+        // 4. Set players
+        setPlayers(gameStartData.players);
+      });
+    }
+  }, [roomId, isHost, initNewGame, setPlayers, setBotTimeLimit, setActiveExpansion, setSelectedScenario, setBoardType]);
 
   const victoryGoal = activeExpansion === 'SEAFARERS'
     ? (selectedScenario === 'HEADING_FOR_NEW_SHORES' ? 14 : (selectedScenario === 'FOUR_ISLANDS' ? 13 : 10))
@@ -308,12 +354,24 @@ const GameContent: React.FC = () => {
   if (gamePhase === 'LOBBY') {
     return (
       <LobbyScreen
+        roomId={roomId}
+        setRoomId={setRoomId}
+        isHost={isHost}
+        setIsHost={setIsHost}
         onStartGame={(pCount, lobbyP, limit) => {
           setBotTimeLimit(limit);
           
           lastProcessedTurnRef.current = "";
           lastStartedTurnRef.current = "";
-          initNewGame(pCount);
+
+          // Generate board data
+          const newTiles = generateBoard(standardCatanConfig, boardType, activeExpansion, selectedScenario, pCount);
+          const newVertices = generateVertices(newTiles, activeExpansion);
+          const newEdges = generateEdges(newTiles, activeExpansion);
+
+          // Call initNewGame with presets
+          initNewGame(pCount, newTiles, newVertices, newEdges);
+
           const selectedPlayers = lobbyP.slice(0, pCount).map((p) => {
             const difficulty: 'EASY' | 'MEDIUM' | 'HARD' | 'SUPER_HARD' | undefined = p.isBot ? (p.difficulty === 'קל' ? 'EASY' : p.difficulty === 'קשה' ? 'HARD' : p.difficulty === 'סופר קשה' ? 'SUPER_HARD' : 'MEDIUM') : undefined;
             const archetype: 'BUILDER' | 'DEVELOPER' | undefined = (p.isBot && difficulty === 'HARD') ? (Math.random() < 0.5 ? 'BUILDER' : 'DEVELOPER') : undefined;
@@ -323,6 +381,7 @@ const GameContent: React.FC = () => {
               name: p.name,
               color: p.color,
               isBot: p.isBot,
+              playerType: p.playerType,
               difficulty,
               ...(archetype ? { archetype } : {}),
               victoryPoints: 2,
@@ -332,6 +391,22 @@ const GameContent: React.FC = () => {
             };
           });
           setPlayers(selectedPlayers);
+
+          // If in an online room as host, broadcast START_GAME!
+          if (roomId && isHost) {
+            socketService.startGame(roomId, {
+              boardData: {
+                tiles: newTiles,
+                vertices: newVertices,
+                edges: newEdges
+              },
+              players: selectedPlayers,
+              botTimeLimit: limit,
+              activeExpansion,
+              selectedScenario,
+              boardType
+            });
+          }
         }}
       />
     );

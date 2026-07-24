@@ -1,20 +1,32 @@
 import React, { useState, useEffect } from 'react';
 import { useGame } from '../../context/GameContext';
 import { LobbyPlayer } from './types';
+import { PlayerType } from '../../types/player.types';
 import { LobbyStep1_Theme } from './steps/LobbyStep1_Theme';
 import { LobbyStep2_Expansion } from './steps/LobbyStep2_Expansion';
 import { LobbyStep3_PlayerCount } from './steps/LobbyStep3_PlayerCount';
 import { LobbyStep4_PlayersSetup } from './steps/LobbyStep4_PlayersSetup';
 import { GeminiSettingsModal } from '../../services/gemini/GeminiSettingsModal';
+import { OnlineRoomModal } from './modals/OnlineRoomModal';
+import { socketService } from '../../services/network/socketService';
 
 interface LobbyScreenProps {
   onStartGame: (playerCount: 3 | 4, lobbyPlayers: LobbyPlayer[], botTimeLimit: number) => void;
+  roomId: string | null;
+  setRoomId: (roomId: string | null) => void;
+  isHost: boolean;
+  setIsHost: (isHost: boolean) => void;
 }
 
 export const LobbyScreen: React.FC<LobbyScreenProps> = ({
-  onStartGame
+  onStartGame,
+  roomId,
+  setRoomId,
+  isHost,
+  setIsHost,
 }) => {
   const [isGeminiSettingsOpen, setIsGeminiSettingsOpen] = useState(false);
+  const [isOnlineModalOpen, setIsOnlineModalOpen] = useState(false);
   const { 
     boardType,
     setBoardType, 
@@ -28,20 +40,21 @@ export const LobbyScreen: React.FC<LobbyScreenProps> = ({
   const [botTimeLimit, setBotTimeLimit] = useState<number>(10);
 
   const [lobbyPlayers, setLobbyPlayers] = useState<LobbyPlayer[]>([
-    { id: 'p1', name: 'פיבי', color: '#e53935', isBot: false, difficulty: undefined },
-    { id: 'p2', name: 'רוס', color: '#1e88e5', isBot: true, difficulty: 'בינוני' },
-    { id: 'p3', name: 'צ\'נדלר', color: '#fdd835', isBot: true, difficulty: 'בינוני' },
-    { id: 'p4', name: 'ג\'ואי', color: '#43a047', isBot: true, difficulty: 'בינוני' },
+    { id: 'p1', name: 'פיבי', color: '#e53935', isBot: false, playerType: 'HUMAN', difficulty: undefined },
+    { id: 'p2', name: 'רוס', color: '#1e88e5', isBot: true, playerType: 'LOCAL_BOT', difficulty: 'בינוני' },
+    { id: 'p3', name: 'צ\'נדלר', color: '#fdd835', isBot: true, playerType: 'LOCAL_BOT', difficulty: 'בינוני' },
+    { id: 'p4', name: 'ג\'ואי', color: '#43a047', isBot: true, playerType: 'LOCAL_BOT', difficulty: 'בינוני' },
   ]);
 
-  const togglePlayerType = (id: string, isBot: boolean) => {
+  const togglePlayerType = (id: string, playerType: PlayerType) => {
     setLobbyPlayers(prev => prev.map((item, idx) => {
       if (item.id === id) {
         const defaultNames = ['פיבי', 'רוס', 'צ\'נדלר', 'ג\'ואי'];
         const newName = defaultNames[idx] || item.name;
         return {
           ...item,
-          isBot,
+          isBot: playerType !== 'HUMAN',
+          playerType,
           name: newName
         };
       }
@@ -65,6 +78,36 @@ export const LobbyScreen: React.FC<LobbyScreenProps> = ({
       }));
     }
   }, [isGlobalDifficulty, globalDifficulty]);
+
+  // Host broadcast settings
+  useEffect(() => {
+    if (roomId && isHost) {
+      socketService.updateGameSettings(roomId, {
+        gameType,
+        activeExpansion,
+        selectedScenario,
+        boardType,
+        playerCount,
+        lobbyPlayers,
+        botTimeLimit,
+      });
+    }
+  }, [roomId, isHost, gameType, activeExpansion, selectedScenario, boardType, playerCount, lobbyPlayers, botTimeLimit]);
+
+  // Guest listen to settings
+  useEffect(() => {
+    if (roomId && !isHost) {
+      socketService.onGameSettingsUpdated((settings) => {
+        if (settings.gameType !== undefined) setGameType(settings.gameType);
+        if (settings.activeExpansion !== undefined) setActiveExpansion(settings.activeExpansion);
+        if (settings.selectedScenario !== undefined) setSelectedScenario(settings.selectedScenario);
+        if (settings.boardType !== undefined) setBoardType(settings.boardType);
+        if (settings.playerCount !== undefined) setPlayerCount(settings.playerCount);
+        if (settings.lobbyPlayers !== undefined) setLobbyPlayers(settings.lobbyPlayers);
+        if (settings.botTimeLimit !== undefined) setBotTimeLimit(settings.botTimeLimit);
+      });
+    }
+  }, [roomId, isHost, setActiveExpansion, setSelectedScenario, setBoardType]);
 
   const handleNextStep = () => {
     if (currentStep === 1) {
@@ -210,8 +253,8 @@ export const LobbyScreen: React.FC<LobbyScreenProps> = ({
             playerCount={playerCount}
             lobbyPlayers={lobbyPlayers}
             setLobbyPlayers={setLobbyPlayers}
-            togglePlayerType={togglePlayerType}
-            isGlobalDifficulty={isGlobalDifficulty}
+          togglePlayerType={togglePlayerType}
+          isGlobalDifficulty={isGlobalDifficulty}
             setIsGlobalDifficulty={setIsGlobalDifficulty}
             globalDifficulty={globalDifficulty}
             setGlobalDifficulty={setGlobalDifficulty}
@@ -219,20 +262,42 @@ export const LobbyScreen: React.FC<LobbyScreenProps> = ({
             setBotTimeLimit={setBotTimeLimit}
             onPrev={handlePrevStep}
             onStartGame={() => onStartGame(playerCount, lobbyPlayers, botTimeLimit)}
+            isGuest={roomId !== null && !isHost}
           />
         )}
 
-        <button
-          type="button"
-          onClick={() => setIsGeminiSettingsOpen(true)}
-          className="mt-4 text-xs text-slate-400 hover:text-amber-400 transition-colors"
-        >
-          הגדרות Gemini AI
-        </button>
+        <div className="flex gap-4 mt-6">
+          <button
+            type="button"
+            onClick={() => setIsOnlineModalOpen(true)}
+            className="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold rounded-lg shadow-md hover:shadow-blue-500/20 transition-all flex items-center gap-1.5"
+          >
+            <span>🌐</span> משחק אונליין
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setIsGeminiSettingsOpen(true)}
+            className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-semibold rounded-lg transition-all"
+          >
+            הגדרות Gemini AI
+          </button>
+        </div>
 
         <GeminiSettingsModal
           isOpen={isGeminiSettingsOpen}
           onClose={() => setIsGeminiSettingsOpen(false)}
+        />
+
+        <OnlineRoomModal
+          isOpen={isOnlineModalOpen}
+          onClose={() => setIsOnlineModalOpen(false)}
+          onRoomJoined={(code, isHostLocal) => {
+            setRoomId(code);
+            setIsHost(isHostLocal);
+            console.log('Joined online room:', code, 'Host:', isHostLocal);
+          }}
+          playerName={lobbyPlayers.find(p => !p.isBot)?.name || 'שחקן'}
         />
 
       </div>

@@ -74,7 +74,7 @@ export async function runAITurn(params: AIControllerParams): Promise<void> {
   if (turnSubPhase === 'TRADE_AND_BUILD') {
     const geminiApiKey = localStorage.getItem('CATAN_GEMINI_API_KEY');
 
-    if (geminiApiKey) {
+    if (botPlayer.playerType === 'GEMINI_AI' && geminiApiKey) {
       addLog?.(`🤖 ${botPlayer.name} מתייעץ עם Gemini AI...`);
       try {
         const boardSnapshot = serializeBoardState(gameState, boardState, playerState, botPlayer.id, legalActions);

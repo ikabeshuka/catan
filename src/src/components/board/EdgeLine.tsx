@@ -81,8 +81,8 @@ export const EdgeLine: React.FC<EdgeLineProps> = ({
   const isCoast = React.useMemo(() => {
     if (!tiles || tiles.length === 0) return false;
     const bordering = tiles.filter(t => getTileEdgeIds(t).includes(edge.id));
-    const hasLand = bordering.some(t => t.type !== 'WATER');
-    const hasWater = bordering.some(t => t.type === 'WATER');
+    const hasLand = bordering.some(t => t.type !== 'WATER' && t.type !== 'SEA' && t.type !== 'FOG');
+    const hasWater = bordering.some(t => t.type === 'WATER' || t.type === 'SEA' || t.type === 'FOG');
     return hasLand && hasWater;
   }, [edge.id, tiles]);
 
@@ -125,6 +125,10 @@ export const EdgeLine: React.FC<EdgeLineProps> = ({
     const isValidRoad = currentPlayer && !isBlockedBySetup && validateRoadPlacement(edge.id, currentPlayer.id, vertices, edges, tiles, gamePhase);
     const isValidShip = currentPlayer && !isBlockedBySetup && validateShipPlacement(edge.id, currentPlayer.id, vertices, edges, tiles || [], gamePhase);
     isValidPlacement = isValidRoad || isValidShip;
+  } else if (activeExpansion === 'SEAFARERS' && bordersWater && !isCoast) {
+    isValidPlacement = currentPlayer && !isBlockedBySetup
+      ? validateShipPlacement(edge.id, currentPlayer.id, vertices, edges, tiles || [], gamePhase)
+      : false;
   } else if (currentAction === 'BUILD_SHIP') {
     isValidPlacement = currentPlayer && !isBlockedBySetup
       ? validateShipPlacement(edge.id, currentPlayer.id, vertices, edges, tiles || [], gamePhase)
@@ -284,6 +288,11 @@ export const EdgeLine: React.FC<EdgeLineProps> = ({
 
     if (isCoast) {
       setShowCoastPopup(true);
+      return;
+    }
+
+    if (activeExpansion === 'SEAFARERS' && bordersWater && !isCoast) {
+      buildShipOnEdge();
       return;
     }
 

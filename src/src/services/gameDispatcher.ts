@@ -1,15 +1,42 @@
 import { GameAction } from '../types/gameActions.types';
-import { stealRandomCard } from '../src/utils/gameEngine/robberSteal';
+import { stealRandomCard } from '../utils/gameEngine/robberSteal';
+import { socketService } from './network/socketService';
+
+export interface DispatcherContext {
+  roomId?: string;
+  isRemote?: boolean;
+  gamePhase?: string;
+  players?: any[];
+  setVertices?: React.Dispatch<React.SetStateAction<any[]>>;
+  setEdges?: React.Dispatch<React.SetStateAction<any[]>>;
+  setPlayers?: React.Dispatch<React.SetStateAction<any[]>>;
+  setTiles?: React.Dispatch<React.SetStateAction<any[]>>;
+  showBuildingCostToast?: (type: string, success: boolean, free?: boolean) => void;
+  addLog?: (message: string) => void;
+  recordSetupPlacement?: (type: string, id: string) => void;
+  handleDiceRoll?: () => void;
+  buyDevelopmentCard?: () => void;
+  endTurn?: () => void;
+  roadBuildingRemaining?: number;
+  setRoadBuildingRemaining?: React.Dispatch<React.SetStateAction<number>>;
+  activeExpansion?: string;
+  tiles?: any[];
+  activeRobberType?: string;
+  setRobberyState?: (state: any) => void;
+  setTurnSubPhase?: (phase: string) => void;
+  [key: string]: any;
+}
 
 /**
- * Dispatches a game action, printing it to the console log and handling local logic.
+ * Dispatches a game action, executing local logic and broadcasting to the network if in an active room.
  */
-export function dispatchGameAction(action: GameAction, context?: any): void {
-  console.log('Dispatching Game Action:', action, 'with context:', context);
+export function dispatchGameAction(action: GameAction, context?: DispatcherContext): void {
+  console.log(`🎲 Dispatching Action [${context?.isRemote ? 'REMOTE' : 'LOCAL'}]:`, action);
   if (!context) return;
 
   const { type, playerId } = action;
 
+  // 1. ביצוע הלוגיקה המקומית המלאה
   switch (type) {
     case 'ROLL_DICE': {
       if (context.handleDiceRoll) {
@@ -21,7 +48,7 @@ export function dispatchGameAction(action: GameAction, context?: any): void {
     case 'BUILD_SETTLEMENT': {
       const { vertexId } = action;
       const isSetupPhase = context.gamePhase === 'SETUP_ROUND_1' || context.gamePhase === 'SETUP_ROUND_2';
-      const player = context.players.find((p: any) => p.id === playerId);
+      const player = context.players?.find((p: any) => p.id === playerId);
       if (!player) return;
 
       context.setVertices?.((prev: any[]) => prev.map(v =>
@@ -57,7 +84,7 @@ export function dispatchGameAction(action: GameAction, context?: any): void {
 
     case 'BUILD_CITY': {
       const { vertexId } = action;
-      const player = context.players.find((p: any) => p.id === playerId);
+      const player = context.players?.find((p: any) => p.id === playerId);
       if (!player) return;
 
       context.setPlayers?.((prev: any[]) => prev.map(p => p.id === playerId
@@ -83,7 +110,7 @@ export function dispatchGameAction(action: GameAction, context?: any): void {
     case 'BUILD_ROAD': {
       const { edgeId } = action;
       const isSetupPhase = context.gamePhase === 'SETUP_ROUND_1' || context.gamePhase === 'SETUP_ROUND_2';
-      const player = context.players.find((p: any) => p.id === playerId);
+      const player = context.players?.find((p: any) => p.id === playerId);
       if (!player) return;
 
       context.setEdges?.((prev: any[]) => prev.map(e =>
@@ -122,7 +149,7 @@ export function dispatchGameAction(action: GameAction, context?: any): void {
     case 'BUILD_SHIP': {
       const { edgeId } = action;
       const isSetupPhase = context.gamePhase === 'SETUP_ROUND_1' || context.gamePhase === 'SETUP_ROUND_2';
-      const player = context.players.find((p: any) => p.id === playerId);
+      const player = context.players?.find((p: any) => p.id === playerId);
       if (!player) return;
 
       context.setEdges?.((prev: any[]) => prev.map(e =>
@@ -163,41 +190,41 @@ export function dispatchGameAction(action: GameAction, context?: any): void {
     }
 
     case 'MOVE_ROBBER': {
-      const { tileId, victimPlayerId } = action;
-      const targetTile = context.tiles?.find((t: any) => t.id === tileId);
-      if (!targetTile) return;
+  const { tileId, victimPlayerId } = action;
+  const targetTile = context.tiles?.find((t: any) => t.id === tileId);
+  if (!targetTile) return;
 
-      const activeRobberType = context.activeRobberType || 'ROBBER';
+  const activeRobberType = context.activeRobberType || 'ROBBER';
 
-      context.setTiles?.((prevTiles: any[]) => prevTiles.map(t => {
-        if (activeRobberType === 'PIRATE') {
-          const nextT = { ...t };
-          if (t.id === tileId) nextT.hasPirate = true;
-          else if (t.hasPirate) nextT.hasPirate = false;
-          return nextT;
-        } else {
-          const nextT = { ...t };
-          if (t.id === tileId) nextT.hasRobber = true;
-          else if (t.hasRobber) nextT.hasRobber = false;
-          return nextT;
-        }
-      }));
-
-      if (victimPlayerId) {
-        const victim = context.players.find((p: any) => p.id === victimPlayerId);
-        const stealer = context.players.find((p: any) => p.id === playerId);
-        if (victim && stealer) {
-          const { updatedPlayers } = stealRandomCard(playerId, victimPlayerId, context.players);
-          context.setPlayers?.(updatedPlayers);
-
-          context.addLog?.(`[שודד] ${stealer.name} שדד קלף משאב אקראי מ-${victim.name}.`);
-        }
-      }
-
-      context.setRobberyState?.(null);
-      context.setTurnSubPhase?.('TRADE_AND_BUILD');
-      break;
+  context.setTiles?.((prevTiles: any[]) => prevTiles.map(t => {
+    if (activeRobberType === 'PIRATE') {
+      const nextT = { ...t };
+      if (t.id === tileId) nextT.hasPirate = true;
+      else if (t.hasPirate) nextT.hasPirate = false;
+      return nextT;
+    } else {
+      const nextT = { ...t };
+      if (t.id === tileId) nextT.hasRobber = true;
+      else if (t.hasRobber) nextT.hasRobber = false;
+      return nextT;
     }
+  }));
+
+  if (victimPlayerId && context.players) {
+    const victim = context.players.find((p: any) => p.id === victimPlayerId);
+    const stealer = context.players.find((p: any) => p.id === playerId);
+    if (victim && stealer) {
+      const { updatedPlayers } = stealRandomCard(playerId, victimPlayerId, context.players);
+      context.setPlayers?.(updatedPlayers);
+
+      context.addLog?.(`[שודד] ${stealer.name} שדד קלף משאב אקראי מ-${victim.name}.`);
+    }
+  }
+
+  context.setRobberyState?.(null);
+  context.setTurnSubPhase?.('TRADE_AND_BUILD');
+  break;
+}
 
     case 'END_TURN': {
       if (context.endTurn) {
@@ -208,5 +235,10 @@ export function dispatchGameAction(action: GameAction, context?: any): void {
 
     default:
       console.warn('Unknown game action type:', type);
+  }
+
+  // 2. שידור לרשת – רק אם הפעולה היא מקומית וקיים roomId
+  if (context.roomId && !context.isRemote) {
+    socketService.sendAction(context.roomId, action);
   }
 }

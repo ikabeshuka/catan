@@ -1,10 +1,13 @@
 import { ResourceCards } from './resources.types';
 
+export type PlayerType = 'HUMAN' | 'LOCAL_BOT' | 'GEMINI_AI';
+
 export interface Player {
   id: string;
   name: string;
   color: string;        // קוד צבע ב-Hex (למשל: אדום, כחול, כתום, לבן)
   isBot: boolean;       // true אם מדובר בשחקן מחשב, false אם שחקן אנושי
+  playerType: PlayerType;
   difficulty?: 'EASY' | 'MEDIUM' | 'HARD' | 'SUPER_HARD';
   archetype?: 'BUILDER' | 'DEVELOPER';
   turnsPlayed?: number;

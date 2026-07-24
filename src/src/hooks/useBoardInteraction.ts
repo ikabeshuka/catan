@@ -157,8 +157,8 @@ export function useBoardInteraction() {
   const checkIsCoastline = (edgeId: string) => {
     if (!tiles || tiles.length === 0) return false;
     const bordering = tiles.filter(t => getTileEdgeIds(t).includes(edgeId));
-    const hasLand = bordering.some(t => t.type !== 'WATER');
-    const hasWater = bordering.some(t => t.type === 'WATER');
+    const hasLand = bordering.some(t => t.type !== 'WATER' && t.type !== 'SEA' && t.type !== 'FOG');
+    const hasWater = bordering.some(t => t.type === 'WATER' || t.type === 'SEA' || t.type === 'FOG');
     return hasLand && hasWater;
   };
 
@@ -450,6 +450,10 @@ export function useBoardInteraction() {
       const isValidRoad = currentPlayer && !isBlockedBySetup && validateRoadPlacement(edge.id, currentPlayer.id, vertices, edges, tiles, gamePhase);
       const isValidShip = currentPlayer && !isBlockedBySetup && validateShipPlacement(edge.id, currentPlayer.id, vertices, edges, tiles, gamePhase);
       isValidPlacement = isValidRoad || isValidShip;
+    } else if (activeExpansion === 'SEAFARERS' && bordersWater && !isCoast) {
+      isValidPlacement = currentPlayer && !isBlockedBySetup
+        ? validateShipPlacement(edge.id, currentPlayer.id, vertices, edges, tiles || [], gamePhase)
+        : false;
     } else if (currentAction === 'BUILD_SHIP') {
       isValidPlacement = currentPlayer && !isBlockedBySetup
         ? validateShipPlacement(edge.id, currentPlayer.id, vertices, edges, tiles, gamePhase)
@@ -626,6 +630,11 @@ export function useBoardInteraction() {
 
     if (isCoast) {
       setCoastlinePopupEdge(edge);
+      return;
+    }
+
+    if (activeExpansion === 'SEAFARERS' && bordersWater && !isCoast) {
+      buildShipOnEdge(edge);
       return;
     }
 

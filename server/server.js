@@ -33,6 +33,18 @@ io.on('connection', (socket) => {
     socket.to(roomId).emit('receive_game_action', action);
   });
 
+  // קבלת עדכון הגדרות לובי ושידור לכל שאר השחקנים בחדר
+  socket.on('game_settings_update', ({ roomId, settings }) => {
+    console.log(`⚙️ עדכון הגדרות התקבל עבור חדר ${roomId}`);
+    socket.to(roomId).emit('game_settings_updated', settings);
+  });
+
+  // קבלת אירוע התחלת משחק ושידורו לכל שאר השחקנים בחדר
+  socket.on('start_game', ({ roomId, gameStartData }) => {
+    console.log(`🎮 אירוע התחלת משחק התקבל עבור חדר ${roomId}`);
+    socket.to(roomId).emit('game_started', gameStartData);
+  });
+
   socket.on('disconnect', () => {
     console.log(`❌ שחקן התנתק: ${socket.id}`);
   });
