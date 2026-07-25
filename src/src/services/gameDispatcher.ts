@@ -1,5 +1,4 @@
 import { GameAction } from '../types/gameActions.types';
-import { stealRandomCard } from '../utils/gameEngine/robberSteal';
 import { socketService } from './network/socketService';
 
 export interface DispatcherContext {
@@ -11,19 +10,20 @@ export interface DispatcherContext {
   setEdges?: React.Dispatch<React.SetStateAction<any[]>>;
   setPlayers?: React.Dispatch<React.SetStateAction<any[]>>;
   setTiles?: React.Dispatch<React.SetStateAction<any[]>>;
-  showBuildingCostToast?: (type: string, success: boolean, free?: boolean) => void;
+showBuildingCostToast?: (type: any, success: boolean, free?: boolean, errorMessage?: string) => void;
   addLog?: (message: string) => void;
-  recordSetupPlacement?: (type: string, id: string) => void;
-  handleDiceRoll?: () => void;
-  buyDevelopmentCard?: () => void;
+  recordSetupPlacement?: (type: any, id: string) => void;
+  handleDiceRoll?: (fixedValues?: [number, number]) => void;
+  buyDevelopmentCard?: (forcedCardType?: string) => void;
   endTurn?: () => void;
   roadBuildingRemaining?: number;
   setRoadBuildingRemaining?: React.Dispatch<React.SetStateAction<number>>;
   activeExpansion?: string;
   tiles?: any[];
-  activeRobberType?: string;
+  activeRobberType?: string | null;
   setRobberyState?: (state: any) => void;
-  setTurnSubPhase?: (phase: string) => void;
+  setTurnSubPhase?: (phase: any) => void;
+  setIncomingTradeOffer?: (offer: any) => void;
   [key: string]: any;
 }
 
@@ -36,15 +36,16 @@ export function dispatchGameAction(action: GameAction, context?: DispatcherConte
 
   const { type, playerId } = action;
 
-  // 1. ביצוע הלוגיקה המקומית המלאה
   switch (type) {
+    // --- 1. הטלת קוביות סנכרונית ---
     case 'ROLL_DICE': {
       if (context.handleDiceRoll) {
-        context.handleDiceRoll();
+        context.handleDiceRoll(action.diceValues);
       }
       break;
     }
 
+    // --- 2. בניית יישוב ---
     case 'BUILD_SETTLEMENT': {
       const { vertexId } = action;
       const isSetupPhase = context.gamePhase === 'SETUP_ROUND_1' || context.gamePhase === 'SETUP_ROUND_2';
@@ -77,11 +78,12 @@ export function dispatchGameAction(action: GameAction, context?: DispatcherConte
           : p
         ));
         context.showBuildingCostToast?.('SETTLEMENT', true);
-        context.addLog?.(`שחקן ${player.name} בנה יישוב! עלות: 1 עץ, 1 לבנה, 1 כבש, 1 חיטה.`);
+        context.addLog?.(`שחקן ${player.name} בנה יישוב!`);
       }
       break;
     }
 
+    // --- 3. בניית עיר ---
     case 'BUILD_CITY': {
       const { vertexId } = action;
       const player = context.players?.find((p: any) => p.id === playerId);
@@ -103,10 +105,11 @@ export function dispatchGameAction(action: GameAction, context?: DispatcherConte
         v.id === vertexId ? { ...v, structure: 'CITY' } : v
       ));
       context.showBuildingCostToast?.('CITY', true);
-      context.addLog?.(`שחקן ${player.name} שדרג יישוב לעיר! עלות: 3 ברזל, 2 חיטה.`);
+      context.addLog?.(`שחקן ${player.name} שדרג יישוב לעיר!`);
       break;
     }
 
+    // --- 4. בניית כביש ---
     case 'BUILD_ROAD': {
       const { edgeId } = action;
       const isSetupPhase = context.gamePhase === 'SETUP_ROUND_1' || context.gamePhase === 'SETUP_ROUND_2';
@@ -141,11 +144,12 @@ export function dispatchGameAction(action: GameAction, context?: DispatcherConte
           ));
         }
         context.showBuildingCostToast?.('ROAD', true, isFreeRoad);
-        context.addLog?.(`שחקן ${player.name} בנה כביש! ${isFreeRoad ? '(חינם - קלף בניית כבישים)' : 'עלות: 1 עץ, 1 לבנה.'}`);
+        context.addLog?.(`שחקן ${player.name} בנה כביש!`);
       }
       break;
     }
 
+    // --- 5. בניית ספינה ---
     case 'BUILD_SHIP': {
       const { edgeId } = action;
       const isSetupPhase = context.gamePhase === 'SETUP_ROUND_1' || context.gamePhase === 'SETUP_ROUND_2';
@@ -177,55 +181,157 @@ export function dispatchGameAction(action: GameAction, context?: DispatcherConte
           ));
         }
         context.showBuildingCostToast?.('SHIP', true, isFreeShip);
-        context.addLog?.(`השחקן ${player.name} בנה ספינה! ${isFreeShip ? '(חינם - קלף בניית כבישים)' : 'עלות: 1 עץ, 1 כבש.'}`);
+        context.addLog?.(`שחקן ${player.name} בנה ספינה!`);
       }
       break;
     }
 
+    // --- 6. קניית קלף פיתוח ---
     case 'BUY_DEV_CARD': {
       if (context.buyDevelopmentCard) {
-        context.buyDevelopmentCard();
+        context.buyDevelopmentCard(action.cardType);
       }
       break;
     }
 
+    // --- 7. הזזת שודד וגניבה ---
     case 'MOVE_ROBBER': {
-  const { tileId, victimPlayerId } = action;
-  const targetTile = context.tiles?.find((t: any) => t.id === tileId);
-  if (!targetTile) return;
+      const { tileId, victimPlayerId, stolenResource } = action;
+      const targetTile = context.tiles?.find((t: any) => t.id === tileId);
+      if (!targetTile) return;
 
-  const activeRobberType = context.activeRobberType || 'ROBBER';
+      const activeRobberType = context.activeRobberType || 'ROBBER';
 
-  context.setTiles?.((prevTiles: any[]) => prevTiles.map(t => {
-    if (activeRobberType === 'PIRATE') {
-      const nextT = { ...t };
-      if (t.id === tileId) nextT.hasPirate = true;
-      else if (t.hasPirate) nextT.hasPirate = false;
-      return nextT;
-    } else {
-      const nextT = { ...t };
-      if (t.id === tileId) nextT.hasRobber = true;
-      else if (t.hasRobber) nextT.hasRobber = false;
-      return nextT;
+      context.setTiles?.((prevTiles: any[]) => prevTiles.map(t => {
+        if (activeRobberType === 'PIRATE') {
+          const nextT = { ...t };
+          if (t.id === tileId) nextT.hasPirate = true;
+          else if (t.hasPirate) nextT.hasPirate = false;
+          return nextT;
+        } else {
+          const nextT = { ...t };
+          if (t.id === tileId) nextT.hasRobber = true;
+          else if (t.hasRobber) nextT.hasRobber = false;
+          return nextT;
+        }
+      }));
+
+      if (victimPlayerId && stolenResource && context.players) {
+        const victim = context.players.find((p: any) => p.id === victimPlayerId);
+        const stealer = context.players.find((p: any) => p.id === playerId);
+
+        if (victim && stealer) {
+          context.setPlayers?.((prevPlayers: any[]) => prevPlayers.map(p => {
+            if (p.id === victimPlayerId) {
+              return {
+                ...p,
+                resources: {
+                  ...p.resources,
+                  [stolenResource]: Math.max(0, (p.resources[stolenResource] || 0) - 1)
+                }
+              };
+            }
+            if (p.id === playerId) {
+              return {
+                ...p,
+                resources: {
+                  ...p.resources,
+                  [stolenResource]: (p.resources[stolenResource] || 0) + 1
+                }
+              };
+            }
+            return p;
+          }));
+
+          context.addLog?.(`[שודד] ${stealer.name} שדד קלף ${stolenResource} מ-${victim.name}.`);
+        }
+      }
+
+      context.setRobberyState?.(null);
+      context.setTurnSubPhase?.('TRADE_AND_BUILD');
+      break;
     }
-  }));
 
-  if (victimPlayerId && context.players) {
-    const victim = context.players.find((p: any) => p.id === victimPlayerId);
-    const stealer = context.players.find((p: any) => p.id === playerId);
-    if (victim && stealer) {
-      const { updatedPlayers } = stealRandomCard(playerId, victimPlayerId, context.players);
-      context.setPlayers?.(updatedPlayers);
+    // --- 8. הזזת ספינה פתוחה (Seafarers) ---
+    case 'MOVE_SHIP': {
+      const { fromEdgeId, toEdgeId } = action;
+      const player = context.players?.find((p: any) => p.id === playerId);
 
-      context.addLog?.(`[שודד] ${stealer.name} שדד קלף משאב אקראי מ-${victim.name}.`);
+      context.setEdges?.((prev: any[]) => prev.map(e => {
+        if (e.id === fromEdgeId) return { ...e, hasShip: false, shipPlayerId: undefined };
+        if (e.id === toEdgeId) return { ...e, hasShip: true, shipPlayerId: playerId };
+        return e;
+      }));
+
+      context.addLog?.(`⛵ ${player?.name || 'שחקן'} העביר ספינה פתוחה למיקום חדש.`);
+      break;
     }
-  }
 
-  context.setRobberyState?.(null);
-  context.setTurnSubPhase?.('TRADE_AND_BUILD');
-  break;
-}
+    // --- 9. חשיפת אריח ערפל (Seafarers) ---
+    case 'DISCOVER_FOG': {
+      const { tileId, revealedTile } = action;
+      const player = context.players?.find((p: any) => p.id === playerId);
 
+      context.setTiles?.((prev: any[]) => prev.map(t =>
+        t.id === tileId ? { ...t, ...revealedTile, isFog: false } : t
+      ));
+
+      context.addLog?.(`🌫️ ${player?.name || 'שחקן'} חשף אריח ערפל!`);
+      break;
+    }
+
+    // --- 10. בחירת משאב ממכרה זהב ---
+    case 'SELECT_GOLD_RESOURCE': {
+      const { resource } = action;
+      const player = context.players?.find((p: any) => p.id === playerId);
+
+      context.setPlayers?.((prev: any[]) => prev.map(p =>
+        p.id === playerId
+          ? {
+              ...p,
+              resources: {
+                ...p.resources,
+                [resource]: (p.resources[resource] || 0) + 1
+              }
+            }
+          : p
+      ));
+
+      context.addLog?.(`🪙 ${player?.name || 'שחקן'} קיבל משאב ${resource} ממכרה זהב.`);
+      break;
+    }
+
+    // --- 11. הצעת מסחר אונליין ---
+    case 'PROPOSE_TRADE': {
+      const { tradeOffer } = action;
+      const player = context.players?.find((p: any) => p.id === playerId);
+
+      if (context.setIncomingTradeOffer) {
+        context.setIncomingTradeOffer({ proposerId: playerId, tradeOffer });
+      }
+
+      context.addLog?.(`🤝 ${player?.name || 'שחקן'} הציע מסחר חדש.`);
+      break;
+    }
+
+    // --- 12. אישור מסחר אונליין ---
+    case 'ACCEPT_TRADE': {
+      const { targetPlayerId } = action; // proposerId
+      const proposer = context.players?.find((p: any) => p.id === targetPlayerId);
+      const acceptor = context.players?.find((p: any) => p.id === playerId);
+
+      context.addLog?.(`✅ ${acceptor?.name || 'שחקן'} אישר את הצעת המסחר של ${proposer?.name || 'שחקן'}.`);
+      break;
+    }
+
+    // --- 13. דחיית מסחר ---
+    case 'DECLINE_TRADE': {
+      const player = context.players?.find((p: any) => p.id === playerId);
+      context.addLog?.(`❌ ${player?.name || 'שחקן'} דחה את הצעת המסחר.`);
+      break;
+    }
+
+    // --- 14. סיום תור ---
     case 'END_TURN': {
       if (context.endTurn) {
         context.endTurn();
@@ -234,10 +340,10 @@ export function dispatchGameAction(action: GameAction, context?: DispatcherConte
     }
 
     default:
-      console.warn('Unknown game action type:', type);
+      console.warn('Unhandled game action type:', type);
   }
 
-  // 2. שידור לרשת – רק אם הפעולה היא מקומית וקיים roomId
+  // שידור ברשת
   if (context.roomId && !context.isRemote) {
     socketService.sendAction(context.roomId, action);
   }

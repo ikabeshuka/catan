@@ -624,7 +624,10 @@ export function useBoardInteraction() {
       : false;
 
     if (isSetupPhase && !isCoast && bordersWater) {
-      buildShipOnEdge(edge);
+      const isValid = currentPlayer && validateShipPlacement(edge.id, currentPlayer.id, vertices, edges, tiles || [], gamePhase);
+      if (isValid) {
+        buildShipOnEdge(edge);
+      }
       return;
     }
 
@@ -634,7 +637,10 @@ export function useBoardInteraction() {
     }
 
     if (activeExpansion === 'SEAFARERS' && bordersWater && !isCoast) {
-      buildShipOnEdge(edge);
+      const isValid = currentPlayer && validateShipPlacement(edge.id, currentPlayer.id, vertices, edges, tiles || [], gamePhase);
+      if (isValid) {
+        buildShipOnEdge(edge);
+      }
       return;
     }
 
@@ -651,9 +657,15 @@ export function useBoardInteraction() {
     }
 
     if (currentAction === 'BUILD_SHIP') {
-      buildShipOnEdge(edge);
+      const isValid = currentPlayer && validateShipPlacement(edge.id, currentPlayer.id, vertices, edges, tiles || [], gamePhase);
+      if (isValid) {
+        buildShipOnEdge(edge);
+      }
     } else {
-      buildRoadOnEdge(edge);
+      const isValid = currentPlayer && validateRoadPlacement(edge.id, currentPlayer.id, vertices, edges, tiles, gamePhase);
+      if (isValid) {
+        buildRoadOnEdge(edge);
+      }
     }
   };
 

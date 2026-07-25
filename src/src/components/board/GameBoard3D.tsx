@@ -1,6 +1,7 @@
 import React, { Suspense, useRef } from 'react';
 import { useGame } from '../../context/GameContext';
 import { validateRoadPlacement } from '../../utils/validation/validateRoadPlacement';
+import { validateShipPlacement } from '../../utils/validation/validateShipPlacement';
 import { HexTile3D } from './HexTile3D';
 import { NumberToken3D } from './NumberToken3D';
 import { Clouds3D } from './Clouds3D';
@@ -655,7 +656,8 @@ export const GameBoard3D: React.FC = () => {
     isMovingWagon,
     activeExpansion,
     gamePhase,
-    addLog
+    addLog,
+    showBuildingCostToast
   } = useGame();
 
   useTurnManager();
@@ -732,10 +734,14 @@ export const GameBoard3D: React.FC = () => {
           dir="rtl"
         >
           <div className="text-xs font-black flex items-center gap-1.5 justify-center">
-            <span>{buildingToast.success ? '🎉 הבנייה הושלמה בהצלחה!' : '❌ חסרים משאבים לבנייה זו!'}</span>
+            <span>{buildingToast.success ? '🎉 הבנייה הושלמה בהצלחה!' : (buildingToast.errorMessage ? '❌ שגיאת בנייה!' : '❌ חסרים משאבים לבנייה זו!')}</span>
           </div>
           <div className="text-xs font-extrabold opacity-95">
-            {buildingToast.type === 'ROAD' && (
+            {buildingToast.errorMessage ? (
+              <span className="text-red-400 font-extrabold">{buildingToast.errorMessage}</span>
+            ) : (
+              <>
+                {buildingToast.type === 'ROAD' && (
               <span className="inline-flex items-center gap-1.5 flex-wrap justify-center">
                 <span>עלות בניית כביש:</span>
                 {buildingToast.isFree ? (
@@ -782,6 +788,8 @@ export const GameBoard3D: React.FC = () => {
                 <span>,</span>
                 <span className="inline-flex items-center gap-1"><SheepIcon size={12} /> כבש x1</span>
               </span>
+            )}
+              </>
             )}
           </div>
         </div>
@@ -1033,7 +1041,9 @@ export const GameBoard3D: React.FC = () => {
                     gamePhase
                   );
                   if (!isValid) {
-                    addLog("❌ חוקי המשחק אוסרים על חיבור דרך ישירות לספינה ללא יישוב/עיר בצומת המקשרת!");
+                    const errorMsg = "חוקי המשחק אוסרים על חיבור דרך ישירות לספינה ללא יישוב/עיר בצומת המקשרת!";
+                    addLog(`❌ ${errorMsg}`);
+                    showBuildingCostToast('ROAD', false, false, errorMsg);
                     setCoastlinePopupEdge(null);
                     return;
                   }
@@ -1047,6 +1057,22 @@ export const GameBoard3D: React.FC = () => {
               
               <button
                 onClick={() => {
+                  const currentPlayer = players[currentPlayerIndex];
+                  const isValid = currentPlayer && validateShipPlacement(
+                    coastlinePopupEdge.id,
+                    currentPlayer.id,
+                    vertices,
+                    edges,
+                    tiles || [],
+                    gamePhase
+                  );
+                  if (!isValid) {
+                    const errorMsg = "חוקי המשחק אוסרים על חיבור ספינה ישירות לדרך ללא יישוב/עיר בצומת המקשרת!";
+                    addLog(`❌ ${errorMsg}`);
+                    showBuildingCostToast('SHIP', false, false, errorMsg);
+                    setCoastlinePopupEdge(null);
+                    return;
+                  }
                   buildShipOnEdge(coastlinePopupEdge);
                   setCoastlinePopupEdge(null);
                 }}

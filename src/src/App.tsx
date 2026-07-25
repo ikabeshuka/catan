@@ -6,6 +6,7 @@ import { generateVertices } from './utils/gameEngine/generateVertices';
 import { generateEdges } from './utils/gameEngine/generateEdges';
 import { standardCatanConfig } from './config/standardVersion';
 import { socketService } from './services/network/socketService';
+import { dispatchGameAction } from './services/gameDispatcher';
 import { ActionSidebar } from './components/actions/ActionSidebar';
 import { ResourceContainer } from './components/playerPanel/ResourceContainer';
 import { GameLog } from './components/notifications/GameLog';
@@ -51,6 +52,8 @@ const GameContent: React.FC = () => {
     setCurrentPlayerIndex,
     addLog,
     roadBuildingRemaining,
+    setRoadBuildingRemaining,
+    buyDevelopmentCard,
     resourcePosition,
     setResourcePosition,
     isResourceCollapsed,
@@ -76,6 +79,7 @@ const GameContent: React.FC = () => {
 
   const [roomId, setRoomId] = useState<string | null>(null);
   const [isHost, setIsHost] = useState<boolean>(false);
+  const { recordSetupPlacement, endTurn, handleDiceRoll, startTurn } = useTurnManager();
 
   // Guest listens to game start and loads host's board
   useEffect(() => {
@@ -111,11 +115,45 @@ const GameContent: React.FC = () => {
     }
   }, [roomId, isHost, initNewGame, setPlayers, setBotTimeLimit, setActiveExpansion, setSelectedScenario, setBoardType]);
 
+// 2. האזנה לפעולות מרוחקות נכנסות מיריבים בחדר האונליין
+  useEffect(() => {
+    if (roomId) {
+      socketService.onActionReceived((remoteAction) => {
+        console.log('📥 התקבלה פעולה מרוחקת מהרשת:', remoteAction);
+        dispatchGameAction(remoteAction, {
+          roomId,
+          isRemote: true,
+          gamePhase,
+          players,
+          setVertices,
+          setEdges,
+          setPlayers,
+          setTiles,
+          showBuildingCostToast,
+          addLog,
+          recordSetupPlacement,
+          handleDiceRoll,
+          buyDevelopmentCard,
+          endTurn,
+          roadBuildingRemaining,
+          setRoadBuildingRemaining,
+          activeExpansion,
+          tiles,
+          activeRobberType,
+          setRobberyState,
+          setTurnSubPhase,
+        });
+      });
+    }
+  }, [
+    roomId, gamePhase, players, tiles, vertices, edges,
+    activeExpansion, activeRobberType, roadBuildingRemaining,
+    handleDiceRoll, buyDevelopmentCard, endTurn, setVertices, setEdges, setPlayers, setTiles, showBuildingCostToast, addLog, recordSetupPlacement, setRoadBuildingRemaining, setRobberyState, setTurnSubPhase
+  ]);
+
   const victoryGoal = activeExpansion === 'SEAFARERS'
     ? (selectedScenario === 'HEADING_FOR_NEW_SHORES' ? 14 : (selectedScenario === 'FOUR_ISLANDS' ? 13 : 10))
     : 10;
-
-  const { recordSetupPlacement, endTurn, handleDiceRoll, startTurn } = useTurnManager();
 
   const activePlayer = players[currentPlayerIndex];
 

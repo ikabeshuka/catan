@@ -5,6 +5,7 @@ export interface BuildingToast {
   type: 'ROAD' | 'SETTLEMENT' | 'CITY' | 'SHIP';
   success: boolean;
   isFree?: boolean;
+  errorMessage?: string;
 }
 
 export interface ResourceFlow {
@@ -44,7 +45,7 @@ interface GameUIContextType {
   setBarbarianPositions: React.Dispatch<React.SetStateAction<any[]>>;
   setMerchantConvoys: React.Dispatch<React.SetStateAction<any[]>>;
   setIsMovingWagon: React.Dispatch<React.SetStateAction<boolean>>;
-  showBuildingCostToast: (type: 'ROAD' | 'SETTLEMENT' | 'CITY' | 'SHIP', success: boolean, isFree?: boolean) => void;
+  showBuildingCostToast: (type: 'ROAD' | 'SETTLEMENT' | 'CITY' | 'SHIP', success: boolean, isFree?: boolean, errorMessage?: string) => void;
 }
 
 const GameUIContext = createContext<GameUIContextType | undefined>(undefined);
@@ -65,11 +66,11 @@ export const GameUIProvider: React.FC<{ children: ReactNode }> = ({ children }) 
   const [isMovingWagon, setIsMovingWagon] = useState<boolean>(false);
   const toastTimeoutRef = useRef<any>(null);
 
-  const showBuildingCostToast = (type: 'ROAD' | 'SETTLEMENT' | 'CITY' | 'SHIP', success: boolean, isFree?: boolean) => {
+  const showBuildingCostToast = (type: 'ROAD' | 'SETTLEMENT' | 'CITY' | 'SHIP', success: boolean, isFree?: boolean, errorMessage?: string) => {
     if (toastTimeoutRef.current) {
       clearTimeout(toastTimeoutRef.current);
     }
-    setBuildingToast({ type, success, isFree });
+    setBuildingToast({ type, success, isFree, errorMessage });
     toastTimeoutRef.current = setTimeout(() => {
       setBuildingToast(null);
     }, 4500);

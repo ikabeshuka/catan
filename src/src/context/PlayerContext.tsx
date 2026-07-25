@@ -34,6 +34,8 @@ interface PlayerContextType {
   currentTurnBuiltShips: string[];
   hasMovedShipThisTurn: boolean;
   selectedShipIdToMove: string | null;
+  roomId: string | null;
+  isHost: boolean;
 
   setPlayers: React.Dispatch<React.SetStateAction<Player[]>>;
   setCurrentPlayerIndex: React.Dispatch<React.SetStateAction<number>>;
@@ -47,6 +49,8 @@ interface PlayerContextType {
   setCurrentTurnBuiltShips: React.Dispatch<React.SetStateAction<string[]>>;
   setHasMovedShipThisTurn: React.Dispatch<React.SetStateAction<boolean>>;
   setSelectedShipIdToMove: React.Dispatch<React.SetStateAction<string | null>>;
+  setRoomId: React.Dispatch<React.SetStateAction<string | null>>;
+  setIsHost: React.Dispatch<React.SetStateAction<boolean>>;
   addLog: (message: string) => void;
   initNewGame: (
     playerCount?: number,
@@ -57,6 +61,7 @@ interface PlayerContextType {
   createTurnSnapshot: () => void;
   undoTurnActions: () => void;
   resolveGoldSelection: (chosenResources: ('WOOD' | 'BRICK' | 'SHEEP' | 'WHEAT' | 'ORE')[]) => void;
+  buyDevelopmentCard: (forcedCardType?: string) => void;
 }
 
 const PlayerContext = createContext<PlayerContextType | undefined>(undefined);
@@ -90,6 +95,9 @@ export const PlayerProvider: React.FC<{ children: ReactNode }> = ({ children }) 
   const [currentTurnBuiltShips, setCurrentTurnBuiltShips] = useState<string[]>([]);
   const [hasMovedShipThisTurn, setHasMovedShipThisTurn] = useState<boolean>(false);
   const [selectedShipIdToMove, setSelectedShipIdToMove] = useState<string | null>(null);
+
+  const [roomId, setRoomId] = useState<string | null>(null);
+  const [isHost, setIsHost] = useState<boolean>(false);
 
   const prevLongestRoadRef = useRef<string | null>(null);
   const prevLargestArmyRef = useRef<string | null>(null);
@@ -176,6 +184,73 @@ export const PlayerProvider: React.FC<{ children: ReactNode }> = ({ children }) 
     addLog('🔄 פעולות התור בוטלו בהצלחה! הלוח והמשאבים שוחזרו (פרט לקלפי פיתוח שנרכשו).');
   };
 
+  const buyDevelopmentCard = (forcedCardType?: string) => {
+    if (devCardDeck.length === 0) {
+      addLog('⚠️ חבילת קלפי הפיתוח ריקה!');
+      return;
+    }
+
+    const currentPlayer = players[currentPlayerIndex];
+    if (!currentPlayer) return;
+
+    if (!forcedCardType) {
+      const res = currentPlayer.resources;
+      if ((res.WHEAT || 0) < 1 || (res.ORE || 0) < 1 || (res.SHEEP || 0) < 1) {
+        addLog('❌ אין מספיק משאבים לקניית קלף פיתוח (נדרש: 1 חיטה, 1 ברזל, 1 כבש).');
+        return;
+      }
+    }
+
+    let cardDrawn = forcedCardType;
+    let newDeck = [...devCardDeck];
+
+    if (!cardDrawn) {
+      cardDrawn = newDeck.shift();
+    } else {
+      const cardIdx = newDeck.indexOf(cardDrawn);
+      if (cardIdx !== -1) {
+        newDeck.splice(cardIdx, 1);
+      }
+    }
+
+    if (!cardDrawn) return;
+
+    setDevCardDeck(newDeck);
+
+    const normalizedType = (cardDrawn.startsWith('win') || cardDrawn.startsWith('wun')) 
+      ? 'VICTORY_POINT' 
+      : cardDrawn;
+
+    setPlayers(prev => prev.map((p, idx) => {
+      if (idx === currentPlayerIndex) {
+        return {
+          ...p,
+          resources: {
+            ...p.resources,
+            WHEAT: Math.max(0, (p.resources.WHEAT || 0) - 1),
+            ORE: Math.max(0, (p.resources.ORE || 0) - 1),
+            SHEEP: Math.max(0, (p.resources.SHEEP || 0) - 1),
+          },
+          developmentCards: {
+            ...p.developmentCards,
+            [normalizedType]: ((p.developmentCards as any)?.[normalizedType] || 0) + 1,
+          }
+        };
+      }
+      return p;
+    }));
+
+    const cardNames: Record<string, string> = {
+      KNIGHT: 'אביר',
+      ROAD_BUILDING: 'בניית כבישים',
+      YEAR_OF_PLENTY: 'שנת שפע',
+      MONOPOLY: 'מונופול',
+      VICTORY_POINT: 'נקודת ניצחון',
+    };
+
+    addLog(`🎴 ${currentPlayer.name} קנה קלף פיתוח (${cardNames[normalizedType] || normalizedType})!`);
+  };
+
   const resolveGoldSelection = (chosenResources: ('WOOD' | 'BRICK' | 'SHEEP' | 'WHEAT' | 'ORE')[]) => {
     if (goldSelectionQueue.length === 0) return;
     const currentSelection = goldSelectionQueue[0];
@@ -204,7 +279,6 @@ export const PlayerProvider: React.FC<{ children: ReactNode }> = ({ children }) 
     }
   };
 
-  // Automated choice logic for bots in the gold selection queue
   useEffect(() => {
     if (turnSubPhase === 'GOLD_RESOURCE_SELECTION' && goldSelectionQueue.length > 0) {
       const currentSelection = goldSelectionQueue[0];
@@ -365,6 +439,8 @@ export const PlayerProvider: React.FC<{ children: ReactNode }> = ({ children }) 
         currentTurnBuiltShips,
         hasMovedShipThisTurn,
         selectedShipIdToMove,
+        roomId,
+        isHost,
         setPlayers,
         setCurrentPlayerIndex,
         setGamePhase,
@@ -377,11 +453,14 @@ export const PlayerProvider: React.FC<{ children: ReactNode }> = ({ children }) 
         setCurrentTurnBuiltShips,
         setHasMovedShipThisTurn,
         setSelectedShipIdToMove,
+        setRoomId,
+        setIsHost,
         addLog,
         initNewGame,
         createTurnSnapshot,
         undoTurnActions,
         resolveGoldSelection,
+        buyDevelopmentCard,
       }}
     >
       {children}

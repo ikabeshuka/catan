@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useTurnManager } from '../../hooks/useTurnManager';
 import { useGame, getPlayerTotalVP } from '../../context/GameContext';
 import { RollDiceContainer } from './RollDiceContainer';
@@ -6,6 +6,14 @@ import { GoldTradePanel } from './GoldTradePanel';
 import { WagonUpgradePanel } from './WagonUpgradePanel';
 import { BuildActionsPanel } from './BuildActionsPanel';
 import { SettlementIcon, RoadIcon } from '../common/Icons';
+import { socketService } from '../../services/network/socketService';
+
+interface ChatMessage {
+  text: string;
+  sender: string;
+  color?: string;
+  time?: string;
+}
 
 export const ActionSidebar: React.FC = () => {
   const {
@@ -23,7 +31,47 @@ export const ActionSidebar: React.FC = () => {
     largestArmyPlayerId,
     vertices,
     tiles,
+    roomId,
+    players,
   } = useGame();
+
+  const [isChatOpen, setIsChatOpen] = useState(false);
+  const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
+  const [chatInput, setChatInput] = useState('');
+  const chatEndRef = useRef<HTMLDivElement>(null);
+
+  const humanPlayer = players?.find(p => !p.isBot) || currentPlayer;
+
+  // האזנה להודעות צ'אט נכנסות ברשת
+  useEffect(() => {
+    if (roomId) {
+      socketService.onChatMessageReceived((msg) => {
+        setChatMessages(prev => [...prev, msg]);
+      });
+    }
+  }, [roomId]);
+
+  useEffect(() => {
+    if (isChatOpen) {
+      chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    }
+  }, [chatMessages, isChatOpen]);
+
+  const handleSendChat = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!chatInput.trim() || !roomId) return;
+
+    const newMsg: ChatMessage = {
+      text: chatInput.trim(),
+      sender: humanPlayer?.name || 'שחקן',
+      color: humanPlayer?.color || '#f59e0b',
+      time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+    };
+
+    socketService.sendChatMessage(roomId, newMsg);
+    setChatMessages(prev => [...prev, newMsg]);
+    setChatInput('');
+  };
 
   if (!currentPlayer) return null;
 
@@ -78,21 +126,30 @@ export const ActionSidebar: React.FC = () => {
     <div className="h-full flex flex-col gap-2.5 bg-slate-950 p-1 text-white text-right" dir="rtl">
       
       {/* א. שם השחקן הנוכחי וב. תצוגת נקודות הניצחון */}
-      <div 
-        className="relative overflow-hidden bg-slate-900/90 p-4 rounded-2xl border border-slate-800/80 shadow-[inset_0_1px_1px_rgba(255,255,255,0.08)] flex flex-col gap-3" 
-      >
-        <div className="flex items-center gap-2">
-          {/* עיגול צבע מזהה שחקן נוכחי */}
-          <span 
-            className="w-3 h-3 rounded-full inline-block shadow border border-white/20" 
-            style={{ backgroundColor: currentPlayer.color }} 
-          />
-          <h2 className="font-serif text-sm font-extrabold text-slate-100 tracking-wide">
-            התור של {currentPlayer.name} {isCurrentPlayerBot && '(מחשב)'}
-          </h2>
+      <div className="relative overflow-hidden bg-slate-900/90 p-4 rounded-2xl border border-slate-800/80 shadow-[inset_0_1px_1px_rgba(255,255,255,0.08)] flex flex-col gap-3">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <span 
+              className="w-3 h-3 rounded-full inline-block shadow border border-white/20" 
+              style={{ backgroundColor: currentPlayer.color }} 
+            />
+            <h2 className="font-serif text-sm font-extrabold text-slate-100 tracking-wide">
+              התור של {currentPlayer.name} {isCurrentPlayerBot && '(מחשב)'}
+            </h2>
+          </div>
+
+          {/* כפתור צ'אט במידה והמשחק מנוהל בחדר אונליין */}
+          {roomId && (
+            <button
+              onClick={() => setIsChatOpen(prev => !prev)}
+              className="px-2.5 py-1 bg-amber-500/20 hover:bg-amber-500/30 text-amber-400 border border-amber-500/40 rounded-lg text-xs font-bold transition flex items-center gap-1 cursor-pointer"
+            >
+              💬 צ'אט {chatMessages.length > 0 && `(${chatMessages.length})`}
+            </button>
+          )}
         </div>
 
-        {/* תצוגת נקודות הניצחון (Victory Points) מיד מתחת לשמו */}
+        {/* תצוגת נקודות הניצחון (Victory Points) */}
         <div className="flex items-center justify-between bg-slate-950/50 px-3 py-2 rounded-xl border border-slate-800/40">
           <span className="text-[11px] text-slate-400 font-bold">נקודות ניצחון (Victory Points)</span>
           <span className="text-sm font-black text-amber-400 font-mono">🏆 {activePlayerVP}</span>
@@ -102,6 +159,51 @@ export const ActionSidebar: React.FC = () => {
           {getGuideText()}
         </p>
       </div>
+
+      {/* חלון צ'אט נפתח תוך-כדי משחק (In-Game Chat Overlay Panel) */}
+      {roomId && isChatOpen && (
+        <div className="bg-slate-900 border border-amber-500/30 rounded-2xl p-3 flex flex-col h-56 shadow-2xl animate-fade-in">
+          <div className="flex justify-between items-center text-xs font-bold text-amber-400 border-b border-slate-800 pb-2 mb-2">
+            <span>💬 צ'אט החדר ({roomId})</span>
+            <button onClick={() => setIsChatOpen(false)} className="text-slate-400 hover:text-white text-xs">✕</button>
+          </div>
+
+          <div className="flex-1 overflow-y-auto space-y-1.5 text-xs pr-1">
+            {chatMessages.length === 0 ? (
+              <div className="text-center text-slate-500 text-[10px] my-auto">אין הודעות צ'אט עדיין...</div>
+            ) : (
+              chatMessages.map((msg, idx) => (
+                <div key={idx} className="bg-slate-950/80 p-1.5 rounded-lg border border-slate-800/60">
+                  <div className="flex justify-between items-center mb-0.5">
+                    <span className="font-bold text-[10px]" style={{ color: msg.color || '#f59e0b' }}>
+                      {msg.sender}
+                    </span>
+                    <span className="text-[8px] text-slate-500">{msg.time}</span>
+                  </div>
+                  <p className="text-slate-200 text-[11px]">{msg.text}</p>
+                </div>
+              ))
+            )}
+            <div ref={chatEndRef} />
+          </div>
+
+          <form onSubmit={handleSendChat} className="flex gap-1.5 mt-2">
+            <input
+              type="text"
+              value={chatInput}
+              onChange={(e) => setChatInput(e.target.value)}
+              placeholder="כתוב הודעה..."
+              className="flex-1 bg-slate-950 border border-slate-800 rounded-lg px-2.5 py-1 text-xs text-slate-100 focus:outline-none focus:border-amber-500"
+            />
+            <button
+              type="submit"
+              className="px-3 py-1 bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold text-xs rounded-lg transition"
+            >
+              שלח
+            </button>
+          </form>
+        </div>
+      )}
 
       {/* אזור פעולת הקוביות */}
       <RollDiceContainer />
@@ -131,7 +233,7 @@ export const ActionSidebar: React.FC = () => {
         <WagonUpgradePanel />
       )}
 
-      {/* פאנל "הצעות לבנייה" וסטטוס בנייה גרפי עשיר */}
+      {/* פאנל הצעות לבנייה */}
       <BuildActionsPanel />
 
     </div>

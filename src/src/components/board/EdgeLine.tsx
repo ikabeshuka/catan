@@ -19,7 +19,7 @@ interface EdgeLineProps {
   setEdges: React.Dispatch<React.SetStateAction<BoardEdge[]>>;
   setPlayers: React.Dispatch<React.SetStateAction<Player[]>>;
   is3DMode: boolean;
-  showBuildingCostToast: (type: 'ROAD' | 'SETTLEMENT' | 'CITY' | 'SHIP', success: boolean, isFree?: boolean) => void;
+  showBuildingCostToast: (type: 'ROAD' | 'SETTLEMENT' | 'CITY' | 'SHIP', success: boolean, isFree?: boolean, errorMessage?: string) => void;
   addLog: (message: string) => void;
   roadBuildingRemaining: number;
   onClick?: () => void;
@@ -282,7 +282,10 @@ export const EdgeLine: React.FC<EdgeLineProps> = ({
     }
 
     if (isSetupPhase && !isCoast && bordersWater) {
-      buildShipOnEdge();
+      const isValid = currentPlayer && validateShipPlacement(edge.id, currentPlayer.id, vertices, edges, tiles || [], gamePhase);
+      if (isValid) {
+        buildShipOnEdge();
+      }
       return;
     }
 
@@ -292,13 +295,16 @@ export const EdgeLine: React.FC<EdgeLineProps> = ({
     }
 
     if (activeExpansion === 'SEAFARERS' && bordersWater && !isCoast) {
-      buildShipOnEdge();
+      const isValid = currentPlayer && validateShipPlacement(edge.id, currentPlayer.id, vertices, edges, tiles || [], gamePhase);
+      if (isValid) {
+        buildShipOnEdge();
+      }
       return;
     }
 
     if (roadBuildingRemaining > 0 && activeExpansion === 'SEAFARERS') {
-      const isValidRoad = currentPlayer && !isBlockedBySetup && validateRoadPlacement(edge.id, currentPlayer.id, vertices, edges, tiles);
-      const isValidShip = currentPlayer && !isBlockedBySetup && validateShipPlacement(edge.id, currentPlayer.id, vertices, edges, tiles || []);
+      const isValidRoad = currentPlayer && !isBlockedBySetup && validateRoadPlacement(edge.id, currentPlayer.id, vertices, edges, tiles, gamePhase);
+      const isValidShip = currentPlayer && !isBlockedBySetup && validateShipPlacement(edge.id, currentPlayer.id, vertices, edges, tiles || [], gamePhase);
       if (isValidRoad && !isValidShip) {
         buildRoadOnEdge();
       } else if (isValidShip && !isValidRoad) {
@@ -308,9 +314,15 @@ export const EdgeLine: React.FC<EdgeLineProps> = ({
     }
 
     if (currentAction === 'BUILD_SHIP') {
-      buildShipOnEdge();
+      const isValid = currentPlayer && validateShipPlacement(edge.id, currentPlayer.id, vertices, edges, tiles || [], gamePhase);
+      if (isValid) {
+        buildShipOnEdge();
+      }
     } else {
-      buildRoadOnEdge();
+      const isValid = currentPlayer && validateRoadPlacement(edge.id, currentPlayer.id, vertices, edges, tiles, gamePhase);
+      if (isValid) {
+        buildRoadOnEdge();
+      }
     }
   };
 
@@ -493,7 +505,9 @@ export const EdgeLine: React.FC<EdgeLineProps> = ({
                     gamePhase
                   );
                   if (!isValid) {
-                    addLog("❌ חוקי המשחק אוסרים על חיבור דרך ישירות לספינה ללא יישוב/עיר בצומת המקשרת!");
+                    const errorMsg = "חוקי המשחק אוסרים על חיבור דרך ישירות לספינה ללא יישוב/עיר בצומת המקשרת!";
+                    addLog(`❌ ${errorMsg}`);
+                    showBuildingCostToast('ROAD', false, false, errorMsg);
                     setShowCoastPopup(false);
                     return;
                   }
@@ -507,6 +521,21 @@ export const EdgeLine: React.FC<EdgeLineProps> = ({
               <button
                 onClick={(e) => {
                   e.stopPropagation();
+                  const isValid = currentPlayer && validateShipPlacement(
+                    edge.id,
+                    currentPlayer.id,
+                    vertices,
+                    edges,
+                    tiles || [],
+                    gamePhase
+                  );
+                  if (!isValid) {
+                    const errorMsg = "חוקי המשחק אוסרים על חיבור ספינה ישירות לדרך ללא יישוב/עיר בצומת המקשרת!";
+                    addLog(`❌ ${errorMsg}`);
+                    showBuildingCostToast('SHIP', false, false, errorMsg);
+                    setShowCoastPopup(false);
+                    return;
+                  }
                   buildShipOnEdge();
                   setShowCoastPopup(false);
                 }}

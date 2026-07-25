@@ -30,6 +30,28 @@ class SocketService {
     this.socket?.emit('join_room', { roomId, playerName });
   }
 
+  // יצירת חדר חדש עם מטא-דתה מלאה (הרחבה, סנאריו, מפה, כמות שחקנים)
+  createRoom(roomData: { 
+    roomId: string; 
+    hostName: string; 
+    expansion: string; 
+    scenario: string; 
+    boardType: string; 
+    maxPlayers: number 
+  }) {
+    this.socket?.emit('create_room', roomData);
+  }
+
+  // בקשת רשימת חדרים פתוחים מהשרת
+  getPublicRooms(callback: (rooms: any[]) => void) {
+    this.socket?.emit('get_public_rooms');
+    this.socket?.off('public_rooms_list');
+    this.socket?.on('public_rooms_list', (rooms: any[]) => {
+      console.log('📥 התקבלה רשימת חדרים פתוחים:', rooms);
+      callback(rooms);
+    });
+  }
+
   // שידור פעולה לחדר
   sendAction(roomId: string, action: GameAction) {
     this.socket?.emit('send_game_action', { roomId, action });
@@ -69,6 +91,18 @@ class SocketService {
     this.socket?.on('game_started', (gameStartData: any) => {
       console.log('📥 המשחק הותחל על ידי ה-Host!');
       callback(gameStartData);
+    });
+  }
+
+  // --- צ'אט בזמן אמת ---
+  sendChatMessage(roomId: string, message: { text: string; sender: string; color?: string; time?: string }) {
+    this.socket?.emit('send_chat_message', { roomId, message });
+  }
+
+  onChatMessageReceived(callback: (message: { text: string; sender: string; color?: string; time?: string }) => void) {
+    this.socket?.off('receive_chat_message');
+    this.socket?.on('receive_chat_message', (msg) => {
+      callback(msg);
     });
   }
 

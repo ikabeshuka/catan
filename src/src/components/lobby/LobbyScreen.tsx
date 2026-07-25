@@ -8,6 +8,7 @@ import { LobbyStep3_PlayerCount } from './steps/LobbyStep3_PlayerCount';
 import { LobbyStep4_PlayersSetup } from './steps/LobbyStep4_PlayersSetup';
 import { GeminiSettingsModal } from '../../services/gemini/GeminiSettingsModal';
 import { OnlineRoomModal } from './modals/OnlineRoomModal';
+import { LobbyChat } from './LobbyChat';
 import { socketService } from '../../services/network/socketService';
 
 interface LobbyScreenProps {
@@ -79,7 +80,7 @@ export const LobbyScreen: React.FC<LobbyScreenProps> = ({
     }
   }, [isGlobalDifficulty, globalDifficulty]);
 
-  // Host broadcast settings
+  // Host broadcast settings to room
   useEffect(() => {
     if (roomId && isHost) {
       socketService.updateGameSettings(roomId, {
@@ -94,9 +95,10 @@ export const LobbyScreen: React.FC<LobbyScreenProps> = ({
     }
   }, [roomId, isHost, gameType, activeExpansion, selectedScenario, boardType, playerCount, lobbyPlayers, botTimeLimit]);
 
-  // Guest listen to settings
+  // Guest listen to settings & jump directly to Step 4
   useEffect(() => {
     if (roomId && !isHost) {
+      setCurrentStep(4);
       socketService.onGameSettingsUpdated((settings) => {
         if (settings.gameType !== undefined) setGameType(settings.gameType);
         if (settings.activeExpansion !== undefined) setActiveExpansion(settings.activeExpansion);
@@ -141,7 +143,7 @@ export const LobbyScreen: React.FC<LobbyScreenProps> = ({
         backgroundAttachment: 'fixed'
       }}
     >
-      {/* Blurred dark overlay layer for superb text contrast */}
+      {/* Blurred dark overlay layer for contrast */}
       <div className="absolute inset-0 bg-slate-950/40 backdrop-blur-md pointer-events-none z-0" />
 
       {/* Main setup container */}
@@ -153,68 +155,30 @@ export const LobbyScreen: React.FC<LobbyScreenProps> = ({
             Catan Premium Edition
           </div>
           <h1 className="text-3xl md:text-4xl font-extrabold text-transparent bg-clip-text bg-gradient-to-r from-amber-400 to-orange-500 mb-2 font-sans">
-            הגדרת משחק קטאן
+            הגדרת משחק קטאן {roomId && <span className="text-sm font-mono text-emerald-400 bg-emerald-950/80 px-3 py-1 rounded-full border border-emerald-700">חדר: {roomId}</span>}
           </h1>
           <div className="w-20 h-1 bg-gradient-to-r from-amber-500 to-orange-500 mx-auto rounded-full mb-4" />
         </div>
 
-        {/* Beautiful Stepper Progress */}
+        {/* Stepper Progress */}
         <div className="w-full max-w-2xl flex items-center justify-between mb-8 relative px-4">
           <div className="absolute left-4 right-4 top-1/2 -translate-y-1/2 h-0.5 bg-slate-800 z-0" />
           
-          {/* Step 1 */}
-          <div className="flex flex-col items-center z-10">
-            <div className={`w-8 h-8 rounded-full flex items-center justify-center font-bold text-sm transition-all duration-300 ${
-              currentStep === 1 
-                ? 'bg-amber-500 text-slate-950 shadow-lg ring-4 ring-amber-500/20' 
-                : currentStep > 1 
-                  ? 'bg-emerald-500 text-white' 
-                  : 'bg-slate-800 text-slate-400'
-            }`}>
-              {currentStep > 1 ? '✓' : '1'}
+          {[
+            { num: 1, title: 'ערכת נושא' },
+            { num: 2, title: 'הרחבה ומפה' },
+            { num: 3, title: 'כמות שחקנים' },
+            { num: 4, title: 'משתתפים וזמן' }
+          ].map((s) => (
+            <div key={s.num} className="flex flex-col items-center z-10">
+              <div className={`w-8 h-8 rounded-full flex items-center justify-center font-bold text-sm transition-all duration-300 ${
+                currentStep === s.num ? 'bg-amber-500 text-slate-950 shadow-lg ring-4 ring-amber-500/20' : currentStep > s.num ? 'bg-emerald-500 text-white' : 'bg-slate-800 text-slate-400'
+              }`}>
+                {currentStep > s.num ? '✓' : s.num}
+              </div>
+              <span className={`text-xs mt-2 font-bold ${currentStep === s.num ? 'text-amber-400' : currentStep > s.num ? 'text-emerald-400' : 'text-slate-500'}`}>{s.title}</span>
             </div>
-            <span className={`text-xs mt-2 font-bold ${currentStep === 1 ? 'text-amber-400' : currentStep > 1 ? 'text-emerald-400' : 'text-slate-500'}`}>ערכת נושא</span>
-          </div>
-
-          {/* Step 2 */}
-          <div className="flex flex-col items-center z-10">
-            <div className={`w-8 h-8 rounded-full flex items-center justify-center font-bold text-sm transition-all duration-300 ${
-              currentStep === 2 
-                ? 'bg-amber-500 text-slate-950 shadow-lg ring-4 ring-amber-500/20' 
-                : currentStep > 2 
-                  ? 'bg-emerald-500 text-white' 
-                  : 'bg-slate-800 text-slate-400'
-            }`}>
-              {currentStep > 2 ? '✓' : '2'}
-            </div>
-            <span className={`text-xs mt-2 font-bold ${currentStep === 2 ? 'text-amber-400' : currentStep > 2 ? 'text-emerald-400' : 'text-slate-500'}`}>הרחבה ומפה</span>
-          </div>
-
-          {/* Step 3 */}
-          <div className="flex flex-col items-center z-10">
-            <div className={`w-8 h-8 rounded-full flex items-center justify-center font-bold text-sm transition-all duration-300 ${
-              currentStep === 3 
-                ? 'bg-amber-500 text-slate-950 shadow-lg ring-4 ring-amber-500/20' 
-                : currentStep > 3 
-                  ? 'bg-emerald-500 text-white' 
-                  : 'bg-slate-800 text-slate-400'
-            }`}>
-              {currentStep > 3 ? '✓' : '3'}
-            </div>
-            <span className={`text-xs mt-2 font-bold ${currentStep === 3 ? 'text-amber-400' : currentStep > 3 ? 'text-emerald-400' : 'text-slate-500'}`}>כמות שחקנים</span>
-          </div>
-
-          {/* Step 4 */}
-          <div className="flex flex-col items-center z-10">
-            <div className={`w-8 h-8 rounded-full flex items-center justify-center font-bold text-sm transition-all duration-300 ${
-              currentStep === 4 
-                ? 'bg-amber-500 text-slate-950 shadow-lg ring-4 ring-amber-500/20' 
-                : 'bg-slate-800 text-slate-400'
-            }`}>
-              4
-            </div>
-            <span className={`text-xs mt-2 font-bold ${currentStep === 4 ? 'text-amber-400' : 'text-slate-500'}`}>משתתפים וזמן</span>
-          </div>
+          ))}
         </div>
 
         {/* Step Content Render */}
@@ -249,30 +213,42 @@ export const LobbyScreen: React.FC<LobbyScreenProps> = ({
         )}
 
         {currentStep === 4 && (
-          <LobbyStep4_PlayersSetup
-            playerCount={playerCount}
-            lobbyPlayers={lobbyPlayers}
-            setLobbyPlayers={setLobbyPlayers}
-          togglePlayerType={togglePlayerType}
-          isGlobalDifficulty={isGlobalDifficulty}
-            setIsGlobalDifficulty={setIsGlobalDifficulty}
-            globalDifficulty={globalDifficulty}
-            setGlobalDifficulty={setGlobalDifficulty}
-            botTimeLimit={botTimeLimit}
-            setBotTimeLimit={setBotTimeLimit}
-            onPrev={handlePrevStep}
-            onStartGame={() => onStartGame(playerCount, lobbyPlayers, botTimeLimit)}
-            isGuest={roomId !== null && !isHost}
-          />
+          <div className="w-full flex flex-col gap-6">
+            <LobbyStep4_PlayersSetup
+              playerCount={playerCount}
+              lobbyPlayers={lobbyPlayers}
+              setLobbyPlayers={setLobbyPlayers}
+              togglePlayerType={togglePlayerType}
+              isGlobalDifficulty={isGlobalDifficulty}
+              setIsGlobalDifficulty={setIsGlobalDifficulty}
+              globalDifficulty={globalDifficulty}
+              setGlobalDifficulty={setGlobalDifficulty}
+              botTimeLimit={botTimeLimit}
+              setBotTimeLimit={setBotTimeLimit}
+              onPrev={handlePrevStep}
+              onStartGame={() => onStartGame(playerCount, lobbyPlayers, botTimeLimit)}
+              isGuest={roomId !== null && !isHost}
+            />
+
+            {/* הצגת צ'אט החדר רק כאשר קיים חדר אונליין פעיל */}
+            {roomId && (
+              <LobbyChat
+                roomId={roomId}
+                playerName={lobbyPlayers.find(p => !p.isBot)?.name || 'שחקן'}
+                playerColor={lobbyPlayers.find(p => !p.isBot)?.color}
+              />
+            )}
+          </div>
         )}
 
+        {/* כפתורי פקודות בתחתית */}
         <div className="flex gap-4 mt-6">
           <button
             type="button"
             onClick={() => setIsOnlineModalOpen(true)}
             className="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold rounded-lg shadow-md hover:shadow-blue-500/20 transition-all flex items-center gap-1.5"
           >
-            <span>🌐</span> משחק אונליין
+            <span>🌐</span> {roomId ? `חדר פעיל: ${roomId}` : 'משחק אונליין (דפדפן חדרים)'}
           </button>
 
           <button
@@ -295,9 +271,15 @@ export const LobbyScreen: React.FC<LobbyScreenProps> = ({
           onRoomJoined={(code, isHostLocal) => {
             setRoomId(code);
             setIsHost(isHostLocal);
-            console.log('Joined online room:', code, 'Host:', isHostLocal);
+            if (!isHostLocal) setCurrentStep(4);
           }}
           playerName={lobbyPlayers.find(p => !p.isBot)?.name || 'שחקן'}
+          currentSettings={{
+            activeExpansion,
+            selectedScenario,
+            boardType,
+            playerCount,
+          }}
         />
 
       </div>
