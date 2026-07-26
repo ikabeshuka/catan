@@ -200,7 +200,7 @@ export const BuildActionsPanel: React.FC = () => {
                     <div className="flex items-start justify-between gap-3 relative z-10">
                       {/* Framed Thumbnail on the side */}
                       <div className="w-11 h-11 rounded-lg overflow-hidden border border-slate-700/50 bg-slate-950/80 p-0.5 flex-shrink-0 flex items-center justify-center">
-                        <img src={item.bg} alt={item.name} className="w-full h-full object-contain" />
+                        {item.bg ? <img src={item.bg} alt={item.name} className="w-full h-full object-contain" /> : null}
                       </div>
 
                       {/* Card Info and Instruction */}

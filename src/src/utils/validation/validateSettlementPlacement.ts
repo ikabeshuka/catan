@@ -12,7 +12,8 @@ export function validateSettlementPlacement(
   gamePhase: GamePhase,
   vertices: BoardVertex[],
   edges: BoardEdge[],
-  tiles?: HexTile[]
+  tiles?: HexTile[],
+  selectedScenario?: string
 ): boolean {
   // 1. בדיקה שהצומת ריק לחלוטין
   const targetVertex = vertices.find(v => v.id === vertexId);
@@ -87,10 +88,19 @@ export function validateSettlementPlacement(
     // Seafarers Setup Restriction: Setup settlements allowed ONLY on the main island (islandId === 1)
     if (gamePhase === 'SETUP_ROUND_1' || gamePhase === 'SETUP_ROUND_2') {
       const borderingLandTiles = borderingTiles.filter(tile => tile.type !== 'WATER');
-      const touchesSecondaryIsland = borderingLandTiles.some(tile => tile.islandId !== undefined && tile.islandId > 1);
-      if (touchesSecondaryIsland) {
-        return false;
+      
+      if (selectedScenario === 'THROUGH_THE_DESERT') {
+        const notMainIsland = borderingLandTiles.some(tile => tile.islandId !== 1);
+        if (notMainIsland || borderingLandTiles.length === 0) {
+          return false;
+        }
+      } else {
+        const touchesSecondaryIsland = borderingLandTiles.some(tile => tile.islandId !== undefined && tile.islandId > 1);
+        if (touchesSecondaryIsland) {
+          return false;
+        }
       }
+      
       // איסור בנייה צמוד לערפל בשלבי ההקמה
       const touchesFog = borderingTiles.some(tile => tile.type === 'FOG');
       if (touchesFog) {

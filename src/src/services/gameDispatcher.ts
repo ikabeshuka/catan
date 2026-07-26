@@ -1,5 +1,6 @@
 import { GameAction } from '../types/gameActions.types';
 import { socketService } from './network/socketService';
+import { cubeToPixel } from '../utils/hexMath/cubeToPixel';
 
 export interface DispatcherContext {
   roomId?: string;
@@ -63,10 +64,70 @@ export function dispatchGameAction(action: GameAction, context?: DispatcherConte
           context.recordSetupPlacement('SETTLEMENT', vertexId);
         }
       } else {
+        let specialVPBonus = 0;
+        let targetIslandId: number | undefined;
+
+        if (context.selectedScenario === 'THROUGH_THE_DESERT') {
+          const [, xStr, yStr] = vertexId.split('_');
+          const vX = parseFloat(xStr);
+          const vY = parseFloat(yStr);
+
+          const borderingTiles = (context.tiles || []).filter((tile: any) => {
+            const center = cubeToPixel(tile.coord, 60);
+            for (let i = 0; i < 6; i++) {
+              const angleRad = (Math.PI / 180) * (60 * i - 30);
+              const x = center.x + 60 * Math.cos(angleRad);
+              const y = center.y + 60 * Math.sin(angleRad);
+              const roundedX = Math.round(x * 10) / 10;
+              const roundedY = Math.round(y * 10) / 10;
+              if (roundedX === vX && roundedY === vY) return true;
+            }
+            return false;
+          });
+
+          const landTiles = borderingTiles.filter((t: any) => t.type !== 'WATER');
+          const foreignIslandTile = landTiles.find((t: any) => t.islandId !== undefined && t.islandId > 1);
+
+          if (foreignIslandTile) {
+            targetIslandId = foreignIslandTile.islandId;
+            let isFirstSettlementOnThisIsland = true;
+
+            const playerVertices = (context.vertices || []).filter((v: any) => v.playerId === playerId && (v.structure === 'SETTLEMENT' || v.structure === 'CITY'));
+            for (const pv of playerVertices) {
+              if (pv.id === vertexId) continue;
+
+              const [, pvXStr, pvYStr] = pv.id.split('_');
+              const pvX = parseFloat(pvXStr);
+              const pvY = parseFloat(pvYStr);
+              const pvBorderingTiles = (context.tiles || []).filter((tile: any) => {
+                const center = cubeToPixel(tile.coord, 60);
+                for (let i = 0; i < 6; i++) {
+                  const angleRad = (Math.PI / 180) * (60 * i - 30);
+                  const x = center.x + 60 * Math.cos(angleRad);
+                  const y = center.y + 60 * Math.sin(angleRad);
+                  const roundedX = Math.round(x * 10) / 10;
+                  const roundedY = Math.round(y * 10) / 10;
+                  if (roundedX === pvX && roundedY === pvY) return true;
+                }
+                return false;
+              });
+              const touchesSameIsland = pvBorderingTiles.some((tile: any) => tile.islandId === targetIslandId);
+              if (touchesSameIsland) {
+                isFirstSettlementOnThisIsland = false;
+                break;
+              }
+            }
+
+            if (isFirstSettlementOnThisIsland) {
+              specialVPBonus = 2;
+            }
+          }
+        }
+
         context.setPlayers?.((prev: any[]) => prev.map(p => p.id === playerId
           ? {
               ...p,
-              victoryPoints: p.victoryPoints + 1,
+              victoryPoints: p.victoryPoints + 1 + specialVPBonus,
               resources: {
                 ...p.resources,
                 WOOD: p.resources.WOOD - 1,
@@ -79,6 +140,9 @@ export function dispatchGameAction(action: GameAction, context?: DispatcherConte
         ));
         context.showBuildingCostToast?.('SETTLEMENT', true);
         context.addLog?.(`שחקן ${player.name} בנה יישוב!`);
+        if (specialVPBonus > 0 && targetIslandId !== undefined) {
+          context.addLog?.(`🏆 ${player.name} התיישב לראשונה באי זר (אי מספר ${targetIslandId}) וקיבל 2 נקודות ניצחון מיוחדות! (סה"כ 3 נקודות על היישוב)`);
+        }
       }
       break;
     }

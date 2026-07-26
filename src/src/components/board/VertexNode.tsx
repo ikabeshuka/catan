@@ -4,7 +4,9 @@ import { BoardVertex, BoardEdge } from '../../types/boardElements.types';
 import { Player } from '../../types/player.types';
 import { parseVertexId } from '../../utils/hexMath/parseVertexId';
 import { validateSettlementPlacement } from '../../utils/validation/validateSettlementPlacement';
+import { cubeToPixel } from '../../utils/hexMath/cubeToPixel';
 import { useGame } from '../../context/GameContext';
+import { useBoard } from '../../context/BoardContext';
 
 interface VertexNodeProps {
   vertex: BoardVertex;
@@ -52,6 +54,7 @@ export const VertexNode: React.FC<VertexNodeProps> = ({
   const turnSubPhase = propTurnSubPhase !== undefined ? propTurnSubPhase : turnManager.turnSubPhase;
 
   const { tiles } = useGame();
+  const { selectedScenario } = useBoard();
   const [isHovered, setIsHovered] = useState(false);
   
   const { x, y } = parseVertexId(vertex.id);
@@ -60,7 +63,7 @@ export const VertexNode: React.FC<VertexNodeProps> = ({
   // בדיקת חוקיות לבניית יישוב
   const isBlockedBySetup = isSetupPhase && setupState.hasPlacedSettlement;
   const isValidPlacement = currentPlayer && !isBlockedBySetup
-    ? validateSettlementPlacement(vertex.id, currentPlayer.id, gamePhase, vertices, edges, tiles)
+    ? validateSettlementPlacement(vertex.id, currentPlayer.id, gamePhase, vertices, edges, tiles, selectedScenario)
     : false;
 
   // בדיקת חוקיות לשדרוג לעיר
@@ -148,11 +151,71 @@ export const VertexNode: React.FC<VertexNodeProps> = ({
         return;
       }
 
+      let specialVPBonus = 0;
+      let targetIslandId: number | undefined;
+
+      if (selectedScenario === 'THROUGH_THE_DESERT') {
+        const [, xStr, yStr] = vertex.id.split('_');
+        const vX = parseFloat(xStr);
+        const vY = parseFloat(yStr);
+
+        const borderingTiles = (tiles || []).filter((tile: any) => {
+          const center = cubeToPixel(tile.coord, 60);
+          for (let i = 0; i < 6; i++) {
+            const angleRad = (Math.PI / 180) * (60 * i - 30);
+            const x = center.x + 60 * Math.cos(angleRad);
+            const y = center.y + 60 * Math.sin(angleRad);
+            const roundedX = Math.round(x * 10) / 10;
+            const roundedY = Math.round(y * 10) / 10;
+            if (roundedX === vX && roundedY === vY) return true;
+          }
+          return false;
+        });
+
+        const landTiles = borderingTiles.filter((t: any) => t.type !== 'WATER');
+        const foreignIslandTile = landTiles.find((t: any) => t.islandId !== undefined && t.islandId > 1);
+
+        if (foreignIslandTile) {
+          targetIslandId = foreignIslandTile.islandId;
+          let isFirstSettlementOnThisIsland = true;
+
+          const playerVertices = (vertices || []).filter((v: any) => v.playerId === currentPlayer.id && (v.structure === 'SETTLEMENT' || v.structure === 'CITY'));
+          for (const pv of playerVertices) {
+            if (pv.id === vertex.id) continue;
+
+            const [, pvXStr, pvYStr] = pv.id.split('_');
+            const pvX = parseFloat(pvXStr);
+            const pvY = parseFloat(pvYStr);
+            const pvBorderingTiles = (tiles || []).filter((tile: any) => {
+              const center = cubeToPixel(tile.coord, 60);
+              for (let i = 0; i < 6; i++) {
+                const angleRad = (Math.PI / 180) * (60 * i - 30);
+                const x = center.x + 60 * Math.cos(angleRad);
+                const y = center.y + 60 * Math.sin(angleRad);
+                const roundedX = Math.round(x * 10) / 10;
+                const roundedY = Math.round(y * 10) / 10;
+                if (roundedX === pvX && roundedY === pvY) return true;
+              }
+              return false;
+            });
+            const touchesSameIsland = pvBorderingTiles.some((tile: any) => tile.islandId === targetIslandId);
+            if (touchesSameIsland) {
+              isFirstSettlementOnThisIsland = false;
+              break;
+            }
+          }
+
+          if (isFirstSettlementOnThisIsland) {
+            specialVPBonus = 2;
+          }
+        }
+      }
+
       // הפחתת משאבים והוספת נקודת ניצחון
       setPlayers(prev => prev.map(p => p.id === currentPlayer.id 
         ? {
             ...p,
-            victoryPoints: p.victoryPoints + 1,
+            victoryPoints: p.victoryPoints + 1 + specialVPBonus,
             resources: {
               ...p.resources,
               WOOD: p.resources.WOOD - 1,
@@ -171,6 +234,9 @@ export const VertexNode: React.FC<VertexNodeProps> = ({
       ));
 
       addLog(`שחקן ${currentPlayer.name} בנה יישוב! עלות: 1 עץ, 1 לבנה, 1 כבש, 1 חיטה.`);
+      if (specialVPBonus > 0 && targetIslandId !== undefined) {
+        addLog(`🏆 ${currentPlayer.name} התיישב לראשונה באי זר (אי מספר ${targetIslandId}) וקיבל 2 נקודות ניצחון מיוחדות! (סה"כ 3 נקודות על היישוב)`);
+      }
       return;
     }
   };

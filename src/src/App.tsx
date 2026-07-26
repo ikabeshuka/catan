@@ -22,8 +22,6 @@ import { LobbyScreen } from './components/lobby/LobbyScreen';
 import { TrophyPopup } from './components/modals/TrophyModal';
 import { useAppTrade } from './hooks/useAppTrade';
 import { useAppTrophies } from './hooks/useAppTrophies';
-import { check } from '@tauri-apps/plugin-updater';
-import { relaunch } from '@tauri-apps/plugin-process';
 import { UpdateNotification } from './services/network/UpdateNotification';
 import { useBotTimer } from './hooks/useBotTimer';
 import { useOnlineGameSync } from './hooks/useOnlineGameSync';
@@ -33,21 +31,6 @@ import { GameModalsManager } from './components/modals/GameModalsManager';
 const GameContent: React.FC = () => {
   const lastProcessedTurnRef = useRef<string>("");
   const lastStartedTurnRef = useRef<string>("");
-  useEffect(() => {
-    const checkForUpdates = async () => {
-      try {
-        const update = await check();
-        if (update?.available) {
-          console.log(`🎉 נמצאה גרסה חדשה: ${update.version}`);
-          await update.downloadAndInstall();
-          await relaunch();
-        }
-      } catch (error) {
-        console.log('בדיקת עדכונים מושהית במצב פיתוח מקומי:', error);
-      }
-    };
-    checkForUpdates();
-  }, []);
 
   const { 
     gamePhase, 
@@ -102,7 +85,7 @@ const GameContent: React.FC = () => {
   });
 
   const victoryGoal = activeExpansion === 'SEAFARERS'
-    ? (selectedScenario === 'HEADING_FOR_NEW_SHORES' ? 14 : (selectedScenario === 'FOUR_ISLANDS' ? 13 : 10))
+    ? (selectedScenario === 'HEADING_FOR_NEW_SHORES' || selectedScenario === 'THROUGH_THE_DESERT' ? 14 : (selectedScenario === 'FOUR_ISLANDS' ? 13 : 10))
     : 10;
 
   const activePlayer = players[currentPlayerIndex];
@@ -445,7 +428,7 @@ const GameContent: React.FC = () => {
                             className={`flex flex-col items-center justify-center p-2.5 rounded-xl border text-[10px] font-black transition-all cursor-pointer gap-1
                               ${isActive ? res.activeBg + ' ring-1 ring-amber-500/40 text-white font-black' : 'bg-slate-950/40 border-slate-800/80 text-slate-400 hover:bg-slate-950/70'}`}
                           >
-                            <img src={res.img} className="w-8 h-8 object-contain" alt={res.label} />
+                            {res.img ? <img src={res.img} className="w-8 h-8 object-contain" alt={res.label} /> : null}
                             <span>{res.label}</span>
                             <span className="text-[8px] opacity-75">({stock})</span>
                           </button>
@@ -488,7 +471,7 @@ const GameContent: React.FC = () => {
                             className={`flex flex-col items-center justify-center p-2.5 rounded-xl border text-[10px] font-black transition-all cursor-pointer gap-1
                               ${isActive ? res.activeBg + ' ring-1 ring-amber-500/40 text-white font-black' : 'bg-slate-950/40 border-slate-800/80 text-slate-400 hover:bg-slate-950/70'}`}
                           >
-                            <img src={res.img} className="w-8 h-8 object-contain" alt={res.label} />
+                            {res.img ? <img src={res.img} className="w-8 h-8 object-contain" alt={res.label} /> : null}
                             <span>{res.label}</span>
                           </button>
                         );
@@ -767,7 +750,7 @@ const GameContent: React.FC = () => {
                             className={`flex flex-col items-center justify-center p-2 rounded-xl border text-[10px] font-black transition-all cursor-pointer gap-1
                               ${isSelected ? 'bg-amber-500/10 border-amber-500 text-amber-300' : 'bg-slate-950/40 border-slate-800/80 text-slate-400 hover:bg-slate-950/70'}`}
                           >
-                            <img src={imgs[res]} className="w-7 h-7 object-contain" alt={labels[res]} />
+                            {imgs[res] ? <img src={imgs[res]} className="w-7 h-7 object-contain" alt={labels[res]} /> : null}
                             <span>{labels[res]}</span>
                             <span className="text-[8px] opacity-75 font-mono">({stock})</span>
                           </button>
@@ -793,7 +776,7 @@ const GameContent: React.FC = () => {
                               className={`flex flex-col items-center justify-center p-2 rounded-xl border text-[10px] font-black transition-all cursor-pointer gap-1
                                 ${isSelected ? 'bg-emerald-500/10 border-emerald-500 text-emerald-300' : 'bg-slate-950/40 border-slate-800/80 text-slate-400 hover:bg-slate-950/70'}`}
                             >
-                              <img src={imgs[res]} className="w-7 h-7 object-contain" alt={labels[res]} />
+                              {imgs[res] ? <img src={imgs[res]} className="w-7 h-7 object-contain" alt={labels[res]} /> : null}
                               <span>{labels[res]}</span>
                             </button>
                           );
@@ -1032,7 +1015,7 @@ const GameContent: React.FC = () => {
                     return (
                       <div key={card.id} className={`flex gap-4 p-4 rounded-2xl border transition-all ${hasCard ? 'bg-slate-950/60 border-purple-500/30 shadow-[0_0_15px_rgba(168,85,247,0.1)]' : 'bg-slate-950/20 border-slate-900 opacity-50'}`}>
                         <div className="w-[60px] h-[84px] flex-none rounded-xl overflow-hidden border border-slate-800 shadow-md bg-slate-900">
-                          <img src={card.img} alt={card.name} className="w-full h-full object-cover" />
+                          {card.img ? <img src={card.img} alt={card.name} className="w-full h-full object-cover" /> : null}
                         </div>
                         <div className="flex-1 flex flex-col justify-between">
                           <div>

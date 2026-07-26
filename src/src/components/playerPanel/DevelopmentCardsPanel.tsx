@@ -149,7 +149,7 @@ export const DevelopmentCardsPanel: React.FC<DevelopmentCardsPanelProps> = ({
               className="relative flex items-center justify-center w-11 h-11 rounded-xl border border-slate-700/30 bg-slate-900/60 p-0.5 group hover:scale-115 transition-all cursor-pointer overflow-hidden"
               title={`${card.name}: ${card.count}`}
             >
-              <img src={card.img} alt={card.name} className="w-full h-full object-cover rounded-lg" />
+              {card.img ? <img src={card.img} alt={card.name} className="w-full h-full object-cover rounded-lg" /> : null}
               <div className="absolute -top-1 -right-1 flex items-center justify-center min-w-[18px] h-4.5 px-1 rounded bg-slate-950 border border-slate-750 text-purple-400 font-mono text-[9px] font-black shadow-md">
                 {card.count}
               </div>
@@ -463,11 +463,13 @@ export const DevelopmentCardsPanel: React.FC<DevelopmentCardsPanelProps> = ({
                     }}
                   >
                     {/* תמונת הקלף האמיתית */}
-                    <img
-                      src={card.img}
-                      alt={card.name}
-                      className="absolute inset-0 w-full h-full object-cover transition-transform duration-300 group-hover:scale-105 pointer-events-none select-none"
-                    />
+                    {card.img ? (
+                      <img
+                        src={card.img}
+                        alt={card.name}
+                        className="absolute inset-0 w-full h-full object-cover transition-transform duration-300 group-hover:scale-105 pointer-events-none select-none"
+                      />
+                    ) : null}
 
                     {/* הצללה עליונה לקריאות המונה */}
                     <div className="absolute top-0 left-0 right-0 h-10 bg-gradient-to-b from-black/40 to-transparent pointer-events-none" />

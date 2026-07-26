@@ -325,7 +325,7 @@ export const GameBoard3D: React.FC = () => {
                 {/* Header with Icon & Name */}
                 <div className="flex items-center justify-between gap-3 border-b border-white/10 pb-2 mb-1.5">
                   <div className="flex items-center gap-2">
-                    <img src={info.img} className="h-5 w-5 object-contain ml-1 inline-block align-middle" alt={info.title} />
+                    {info.img ? <img src={info.img} className="h-5 w-5 object-contain ml-1 inline-block align-middle" alt={info.title} /> : null}
                     <span className="text-sm font-black text-white leading-none">{info.title}</span>
                   </div>
                   <div className="bg-slate-950/50 px-2.5 py-1 rounded-lg border border-white/5 shadow flex items-center justify-center font-black text-xs text-amber-400">
@@ -372,7 +372,7 @@ export const GameBoard3D: React.FC = () => {
                 {/* Header with Icon & Name */}
                 <div className="flex items-center justify-between gap-3 border-b border-white/10 pb-2 mb-1.5">
                   <div className="flex items-center gap-2">
-                    <img src={info.img} className="h-5 w-5 object-contain ml-1 inline-block align-middle" alt={info.name} />
+                    {info.img ? <img src={info.img} className="h-5 w-5 object-contain ml-1 inline-block align-middle" alt={info.name} /> : null}
                     <span className="text-sm font-black text-white leading-none">{info.name}</span>
                   </div>
                   {/* Small SVG Resource Icon */}

@@ -3,6 +3,7 @@ import { useGame } from '../context/GameContext';
 import { useTurnManager } from './useTurnManager';
 import { socketService } from '../services/network/socketService';
 import { dispatchGameAction } from '../services/gameDispatcher';
+import { useBoard } from '../context/BoardContext';
 
 interface UseOnlineGameSyncProps {
   roomId: string | null;
@@ -41,6 +42,7 @@ export const useOnlineGameSync = ({
   } = useGame();
 
   const { recordSetupPlacement, endTurn, handleDiceRoll } = useTurnManager();
+  const { selectedScenario } = useBoard();
 
   // Guest listens to game start and loads host's board
   useEffect(() => {
@@ -103,12 +105,15 @@ export const useOnlineGameSync = ({
           activeRobberType,
           setRobberyState,
           setTurnSubPhase,
+          selectedScenario,
+          vertices,
         });
       });
     }
   }, [
     roomId, gamePhase, players, tiles, vertices, edges,
     activeExpansion, activeRobberType, roadBuildingRemaining,
-    handleDiceRoll, buyDevelopmentCard, endTurn, setVertices, setEdges, setPlayers, setTiles, showBuildingCostToast, addLog, recordSetupPlacement, setRoadBuildingRemaining, setRobberyState, setTurnSubPhase
+    handleDiceRoll, buyDevelopmentCard, endTurn, setVertices, setEdges, setPlayers, setTiles, showBuildingCostToast, addLog, recordSetupPlacement, setRoadBuildingRemaining, setRobberyState, setTurnSubPhase,
+    selectedScenario
   ]);
 };

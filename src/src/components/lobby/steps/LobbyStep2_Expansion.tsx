@@ -3,8 +3,8 @@ import React, { useState, useEffect } from 'react';
 interface LobbyStep2ExpansionProps {
   activeExpansion: 'BASE' | 'MERCHANTS_AND_BARBARIANS' | 'SEAFARERS';
   setActiveExpansion: (exp: 'BASE' | 'MERCHANTS_AND_BARBARIANS' | 'SEAFARERS') => void;
-  selectedScenario: 'HEADING_FOR_NEW_SHORES' | 'FOUR_ISLANDS' | 'FOG_ISLAND';
-  setSelectedScenario: (scen: 'HEADING_FOR_NEW_SHORES' | 'FOUR_ISLANDS' | 'FOG_ISLAND') => void;
+  selectedScenario: 'HEADING_FOR_NEW_SHORES' | 'FOUR_ISLANDS' | 'FOG_ISLAND' | 'THROUGH_THE_DESERT';
+  setSelectedScenario: (scen: 'HEADING_FOR_NEW_SHORES' | 'FOUR_ISLANDS' | 'FOG_ISLAND' | 'THROUGH_THE_DESERT') => void;
   boardType: 'RANDOM' | 'STARTER';
   setBoardType: (type: 'RANDOM' | 'STARTER') => void;
   onNext: () => void;
@@ -154,7 +154,7 @@ export const LobbyStep2_Expansion: React.FC<LobbyStep2ExpansionProps> = ({
             </h3>
           </div>
           
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4 w-full">
+          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4 w-full">
             {/* אל חופים חדשים */}
             <button
               type="button"
@@ -224,6 +224,30 @@ export const LobbyStep2_Expansion: React.FC<LobbyStep2ExpansionProps> = ({
               <span className="text-sm font-bold text-slate-100 group-hover/scenario:text-amber-400 transition-colors">"אי הערפל"</span>
               <span className="text-[10px] text-slate-400 leading-relaxed text-center">
                 מרכז הלוח מכוסה בערפל מסתורי הנחשף רק בעת הגעת ספינות.
+              </span>
+            </button>
+
+            {/* דרך המדבר */}
+            <button
+              type="button"
+              onClick={() => setSelectedScenario('THROUGH_THE_DESERT')}
+              className={`group/scenario p-3 rounded-xl border text-center transition-all duration-300 hover:scale-[1.02] cursor-pointer flex flex-col items-center gap-2 relative overflow-hidden ${
+                selectedScenario === 'THROUGH_THE_DESERT'
+                  ? 'border-amber-500 bg-slate-950/80 shadow-[0_0_15px_rgba(245,158,11,0.2)]'
+                  : 'border-slate-850 bg-slate-950/40 hover:border-slate-700 hover:bg-slate-950/60'
+              }`}
+            >
+              {selectedScenario === 'THROUGH_THE_DESERT' && (
+                <div className="absolute top-2 right-2 bg-amber-500 text-slate-950 rounded-full p-0.5 shadow z-10">
+                  <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M5 13l4 4L19 7" />
+                  </svg>
+                </div>
+              )}
+              <span className="text-2xl filter drop-shadow">🏜️</span>
+              <span className="text-sm font-bold text-slate-100 group-hover/scenario:text-amber-400 transition-colors">"דרך המדבר"</span>
+              <span className="text-[10px] text-slate-400 leading-relaxed text-center">
+                מעבר דרך רצועת מדבר מאתגרת להתיישבות באיים זרים ועשירים.
               </span>
             </button>
           </div>

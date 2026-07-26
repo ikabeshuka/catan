@@ -9,7 +9,8 @@ import {
   seafarers3PlayersFourIslands, 
   seafarers4PlayersFourIslands,
   seafarers3PlayersFogIsland,
-  seafarers4PlayersFogIsland
+  seafarers4PlayersFogIsland,
+  seafarers4PlayersThroughTheDesert
 } from '../../config/seafarersPresets';
 
 /**
@@ -266,7 +267,7 @@ export function generateBoard(
         }
 
         // Set initial pirate and robber positions
-        const pirateTargetId = playerCount === 3 ? 'hex_fi3_36' : 'hex_fi4_36';
+        const pirateTargetId = playerCount === 3 ? 'hex_fi3_37' : 'hex_fi4_37';
         tiles.forEach(t => {
           t.hasPirate = t.id === pirateTargetId;
           t.hasRobber = false;
@@ -319,6 +320,54 @@ export function generateBoard(
             }
           }
         });
+
+        tiles.sort((a, b) => a.coord.r - b.coord.r || a.coord.q - b.coord.q);
+        return tiles;
+      }
+      case 'THROUGH_THE_DESERT': {
+        const preset = seafarers4PlayersThroughTheDesert;
+        const tiles = JSON.parse(JSON.stringify(preset)) as HexTile[];
+
+        if (boardType === 'RANDOM') {
+          // Shuffle land tiles that are not desert/water on the main island (islandId === 1)
+          const mainIslandLandTiles = tiles.filter(t => t.islandId === 1 && t.type !== 'WATER' && t.type !== 'DESERT');
+          const mainResources = shuffleArray(mainIslandLandTiles.map(t => t.type));
+          const mainTokens = shuffleArray(mainIslandLandTiles.map(t => t.numberToken as number));
+
+          let mainResourceIndex = 0;
+          let mainTokenIndex = 0;
+
+          mainIslandLandTiles.forEach(tile => {
+            tile.type = mainResources[mainResourceIndex++];
+            tile.numberToken = mainTokens[mainTokenIndex++];
+          });
+
+          // Shuffle other land tiles (islandId > 1)
+          const foreignLandTiles = tiles.filter(t => t.islandId !== undefined && t.islandId > 1 && t.type !== 'WATER' && t.type !== 'DESERT');
+          if (foreignLandTiles.length > 0) {
+            const foreignResources = shuffleArray(foreignLandTiles.map(t => t.type));
+            const foreignTokens = shuffleArray(foreignLandTiles.map(t => t.numberToken as number));
+
+            let foreignResIndex = 0;
+            let foreignTokIndex = 0;
+            foreignLandTiles.forEach(tile => {
+              tile.type = foreignResources[foreignResIndex++];
+              tile.numberToken = foreignTokens[foreignTokIndex++];
+            });
+          }
+        }
+
+        // Ensure robber starts on the desert tile and pirate starts on a water tile
+        const pirateTargetId = 'hex_td_18';
+        tiles.forEach(t => {
+          t.hasPirate = t.id === pirateTargetId;
+          t.hasRobber = false;
+        });
+
+        const desertTile = tiles.find(t => t.type === 'DESERT');
+        if (desertTile) {
+          desertTile.hasRobber = true;
+        }
 
         tiles.sort((a, b) => a.coord.r - b.coord.r || a.coord.q - b.coord.q);
         return tiles;

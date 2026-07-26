@@ -30,12 +30,14 @@ export const TrophyPopup: React.FC<TrophyPopupProps> = ({
           <CrossIcon size={16} />
         </button>
         
-        <img 
-          src={img} 
-          alt={isRoad ? "Longest Road" : "Largest Army"} 
-          className="w-20 h-20 mx-auto mb-4 object-contain animate-bounce" 
-          style={{ animationDuration: '3s' }} 
-        />
+        {img ? (
+          <img 
+            src={img} 
+            alt={isRoad ? "Longest Road" : "Largest Army"} 
+            className="w-20 h-20 mx-auto mb-4 object-contain animate-bounce" 
+            style={{ animationDuration: '3s' }} 
+          />
+        ) : null}
         
         <h3 className={`text-2xl font-black text-transparent bg-clip-text bg-gradient-to-r ${isRoad ? 'from-emerald-400 to-teal-500' : 'from-amber-400 to-orange-500'} mb-2`}>
           {title}
@@ -102,7 +104,7 @@ export const TrophyDetailModal: React.FC<TrophyDetailModalProps> = ({
         
         <div className="w-24 h-24 mx-auto mb-5 relative">
           <div className="absolute inset-0 bg-amber-500/15 rounded-full animate-ping" style={{ animationDuration: '3s' }} />
-          <img src={img} alt={title} className="w-full h-full object-contain relative z-10 animate-bounce" style={{ animationDuration: '4s' }} />
+          {img ? <img src={img} alt={title} className="w-full h-full object-contain relative z-10 animate-bounce" style={{ animationDuration: '4s' }} /> : null}
         </div>
         
         <h3 className="text-2xl font-black text-transparent bg-clip-text bg-gradient-to-r from-amber-400 to-orange-500 mb-4">
