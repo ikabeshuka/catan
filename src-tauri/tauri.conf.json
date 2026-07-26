@@ -1,8 +1,8 @@
 {
   "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
-  "productName": "catan-game",
-  "version": "0.1.0",
-  "identifier": "com.catan.dev",
+"productName": "catan",
+  "version": "0.1.1",
+    "identifier": "com.catan.dev",
   "build": {
     "frontendDist": "../dist",
     "devUrl": "http://localhost:5173",
@@ -25,6 +25,7 @@
   },
   "bundle": {
     "active": true,
+    "createUpdaterArtifacts": true,
     "targets": "all",
     "icon": [
       "icons/32x32.png",
@@ -35,6 +36,14 @@
     ],
     "android": {
       "debugApplicationIdSuffix": ".debug"
+    }
+  },
+  "plugins": {
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEFCRjRDODJFMDYyODhDREYKUldUZmpDZ0dMc2owcTJPYTRUamh0L2ZLaVVYTkI4Q0ZQeWFWVXpPc3JMNEhYYU9UOEdJaUxJT1MK",
+      "endpoints": [
+        "https://github.com/ikabeshuka/catan/releases/latest/download/latest.json"
+      ]
     }
   }
 }

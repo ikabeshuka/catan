@@ -27,11 +27,27 @@ import { GoldFieldSelectionModal } from './components/modals/GoldFieldSelectionM
 import { TrophyPopup, TrophyDetailModal } from './components/modals/TrophyModal';
 import { useAppTrade } from './hooks/useAppTrade';
 import { useAppTrophies } from './hooks/useAppTrophies';
+import { check } from '@tauri-apps/plugin-updater';
+import { relaunch } from '@tauri-apps/plugin-process';
 
 const GameContent: React.FC = () => {
   const lastProcessedTurnRef = useRef<string>("");
   const lastStartedTurnRef = useRef<string>("");
-
+  useEffect(() => {
+    const checkForUpdates = async () => {
+      try {
+        const update = await check();
+        if (update?.available) {
+          console.log(`🎉 נמצאה גרסה חדשה: ${update.version}`);
+          await update.downloadAndInstall();
+          await relaunch();
+        }
+      } catch (error) {
+        console.log('בדיקת עדכונים מושהית במצב פיתוח מקומי:', error);
+      }
+    };
+    checkForUpdates();
+  }, []);
   const [botTimeLimit, setBotTimeLimit] = useState<number>(10);
   const [botTimeRemaining, setBotTimeRemaining] = useState<number>(10 * 1000);
 
