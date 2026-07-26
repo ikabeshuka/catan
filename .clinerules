@@ -1,0 +1,14 @@
+# Strict Rules for Documentation & Roadmap Updates
+
+1. **Mandatory Roadmap Update:**
+   - After completing any task, modifying code, creating files, or fixing errors, you MUST update `ROADMAP.md` immediately.
+   - Never consider a task "finished" or respond to the user without verifying that `ROADMAP.md` reflects the latest changes.
+
+2. **Update Checklist:**
+   - Mark completed items with `[x]`.
+   - Update the "Current Status" and "Next Steps" sections to reflect the exact current state.
+   - If new files, components, or configurations were added, document them in `ROADMAP.md`.
+
+3. **Execution Workflow:**
+   - Read `ROADMAP.md` at the beginning of a task to understand context.
+   - Edit `ROADMAP.md` before finalizing your work.

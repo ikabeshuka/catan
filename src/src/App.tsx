@@ -6,7 +6,6 @@ import { generateVertices } from './utils/gameEngine/generateVertices';
 import { generateEdges } from './utils/gameEngine/generateEdges';
 import { standardCatanConfig } from './config/standardVersion';
 import { socketService } from './services/network/socketService';
-import { dispatchGameAction } from './services/gameDispatcher';
 import { ActionSidebar } from './components/actions/ActionSidebar';
 import { ResourceContainer } from './components/playerPanel/ResourceContainer';
 import { GameLog } from './components/notifications/GameLog';
@@ -20,15 +19,16 @@ import {
   CrossIcon, WarningIcon
 } from './components/common/Icons';
 import { LobbyScreen } from './components/lobby/LobbyScreen';
-import { DiscardOverlay } from './components/modals/DiscardOverlay';
-import { MonopolyModal } from './components/modals/MonopolyModal';
-import { YearOfPlentyModal } from './components/modals/YearOfPlentyModal';
-import { GoldFieldSelectionModal } from './components/modals/GoldFieldSelectionModal';
-import { TrophyPopup, TrophyDetailModal } from './components/modals/TrophyModal';
+import { TrophyPopup } from './components/modals/TrophyModal';
 import { useAppTrade } from './hooks/useAppTrade';
 import { useAppTrophies } from './hooks/useAppTrophies';
 import { check } from '@tauri-apps/plugin-updater';
 import { relaunch } from '@tauri-apps/plugin-process';
+import { UpdateNotification } from './services/network/UpdateNotification';
+import { useBotTimer } from './hooks/useBotTimer';
+import { useOnlineGameSync } from './hooks/useOnlineGameSync';
+import { BotTimerIndicator } from './components/common/BotTimerIndicator';
+import { GameModalsManager } from './components/modals/GameModalsManager';
 
 const GameContent: React.FC = () => {
   const lastProcessedTurnRef = useRef<string>("");
@@ -48,8 +48,6 @@ const GameContent: React.FC = () => {
     };
     checkForUpdates();
   }, []);
-  const [botTimeLimit, setBotTimeLimit] = useState<number>(10);
-  const [botTimeRemaining, setBotTimeRemaining] = useState<number>(10 * 1000);
 
   const { 
     gamePhase, 
@@ -68,8 +66,6 @@ const GameContent: React.FC = () => {
     setCurrentPlayerIndex,
     addLog,
     roadBuildingRemaining,
-    setRoadBuildingRemaining,
-    buyDevelopmentCard,
     resourcePosition,
     setResourcePosition,
     isResourceCollapsed,
@@ -85,87 +81,25 @@ const GameContent: React.FC = () => {
     activeExpansion,
     activeRobberType,
     setActiveRobberType,
-    goldSelectionQueue,
     selectedScenario,
-    setActiveExpansion,
-    setSelectedScenario,
-    boardType,
-    setBoardType
+    boardType
   } = useGame();
 
   const [roomId, setRoomId] = useState<string | null>(null);
   const [isHost, setIsHost] = useState<boolean>(false);
   const { recordSetupPlacement, endTurn, handleDiceRoll, startTurn } = useTurnManager();
 
-  // Guest listens to game start and loads host's board
-  useEffect(() => {
-    if (roomId && !isHost) {
-      socketService.onGameStarted((gameStartData) => {
-        console.log('🎮 Game started by Host, loading board and players...', gameStartData);
-        
-        // 1. Set bot time limit
-        setBotTimeLimit(gameStartData.botTimeLimit);
+  const {
+    setBotTimeLimit,
+    botTimeRemaining,
+    isWaitingForPlayerAction,
+  } = useBotTimer();
 
-        // 2. Sync expansion & board type
-        if (gameStartData.activeExpansion) {
-          setActiveExpansion(gameStartData.activeExpansion);
-        }
-        if (gameStartData.selectedScenario) {
-          setSelectedScenario(gameStartData.selectedScenario);
-        }
-        if (gameStartData.boardType) {
-          setBoardType(gameStartData.boardType);
-        }
-
-        // 3. Initialize game using host-provided board data
-        initNewGame(
-          gameStartData.players.length,
-          gameStartData.boardData.tiles,
-          gameStartData.boardData.vertices,
-          gameStartData.boardData.edges
-        );
-
-        // 4. Set players
-        setPlayers(gameStartData.players);
-      });
-    }
-  }, [roomId, isHost, initNewGame, setPlayers, setBotTimeLimit, setActiveExpansion, setSelectedScenario, setBoardType]);
-
-// 2. האזנה לפעולות מרוחקות נכנסות מיריבים בחדר האונליין
-  useEffect(() => {
-    if (roomId) {
-      socketService.onActionReceived((remoteAction) => {
-        console.log('📥 התקבלה פעולה מרוחקת מהרשת:', remoteAction);
-        dispatchGameAction(remoteAction, {
-          roomId,
-          isRemote: true,
-          gamePhase,
-          players,
-          setVertices,
-          setEdges,
-          setPlayers,
-          setTiles,
-          showBuildingCostToast,
-          addLog,
-          recordSetupPlacement,
-          handleDiceRoll,
-          buyDevelopmentCard,
-          endTurn,
-          roadBuildingRemaining,
-          setRoadBuildingRemaining,
-          activeExpansion,
-          tiles,
-          activeRobberType,
-          setRobberyState,
-          setTurnSubPhase,
-        });
-      });
-    }
-  }, [
-    roomId, gamePhase, players, tiles, vertices, edges,
-    activeExpansion, activeRobberType, roadBuildingRemaining,
-    handleDiceRoll, buyDevelopmentCard, endTurn, setVertices, setEdges, setPlayers, setTiles, showBuildingCostToast, addLog, recordSetupPlacement, setRoadBuildingRemaining, setRobberyState, setTurnSubPhase
-  ]);
+  useOnlineGameSync({
+    roomId,
+    isHost,
+    setBotTimeLimit,
+  });
 
   const victoryGoal = activeExpansion === 'SEAFARERS'
     ? (selectedScenario === 'HEADING_FOR_NEW_SHORES' ? 14 : (selectedScenario === 'FOUR_ISLANDS' ? 13 : 10))
@@ -212,21 +146,6 @@ const GameContent: React.FC = () => {
     setActiveTrophyModal,
   } = useAppTrophies();
 
-  // מעבר בטוח לתור הבא במקרה של עצירה ידנית או אוטומטית (זמן תם)
-  const forceNextTurn = () => {
-    if (gamePhase !== 'LOBBY' && activePlayer && activePlayer.isBot) {
-      addLog(`[מערכת] תור הבוט ${activePlayer.name} הופסק ידנית או עקב חריגה מזמן התגובה (${botTimeLimit} שניות).`);
-      
-      if (gamePhase === 'SETUP_ROUND_1' || gamePhase === 'SETUP_ROUND_2') {
-        endTurn();
-      } else {
-        const nextIndex = (currentPlayerIndex + 1) % players.length;
-        setCurrentPlayerIndex(nextIndex);
-        setTurnSubPhase('BEFORE_ROLL');
-      }
-    }
-  };
-
   // מניעת גלילה של חלון הדפדפן/התצוגה כדי להבטיח שהכותרת לא תיחתך ושלא יופיע שטח ריק למטה
   useEffect(() => {
     const resetScroll = () => {
@@ -265,60 +184,6 @@ const GameContent: React.FC = () => {
       clearTimeout(timer2);
     };
   }, [gamePhase]);
-
-
-  // איפוס זמן התגובה בכל תחילת תור או החלפת שלב
-  useEffect(() => {
-    setBotTimeRemaining(botTimeLimit * 1000);
-  }, [currentPlayerIndex, turnSubPhase, gamePhase, activePlayer?.id, botTimeLimit]);
-
-  // זיהוי האם אנו ממתינים למהלך של השחקן האנושי (שיגרור הקפאה של הטיימר)
-  const isWaitingForPlayerAction = 
-    (turnSubPhase as string) === 'DISCARD_PHASE' ||
-    (turnSubPhase === 'GOLD_RESOURCE_SELECTION' && goldSelectionQueue && goldSelectionQueue.length > 0 && goldSelectionQueue.some(item => {
-      const p = players.find(pl => pl.id === item.playerId);
-      return p && !p.isBot;
-    })) ||
-    (typeof window !== 'undefined' && (window as any).isBotTimerPaused === true);
-
-  // אפקט שעוקב אחר זמן התגובה של הבוטים ומריץ ספירה לאחור עם אפשרות להקפאה והמשך
-  useEffect(() => {
-    if (gamePhase === 'LOBBY' || !activePlayer || !activePlayer.isBot) {
-      return;
-    }
-
-    if (isWaitingForPlayerAction) {
-      return;
-    }
-
-    const intervalId = setInterval(() => {
-      setBotTimeRemaining(prev => {
-        // בדיקה חוזרת בתוך הלולאה למקרה שהמצב השתנה ללא רינדור מחדש מיידי
-        const currentlyPaused = 
-          (turnSubPhase as string) === 'DISCARD_PHASE' ||
-          (turnSubPhase === 'GOLD_RESOURCE_SELECTION' && goldSelectionQueue && goldSelectionQueue.length > 0 && goldSelectionQueue.some(item => {
-            const p = players.find(pl => pl.id === item.playerId);
-            return p && !p.isBot;
-          })) ||
-          (typeof window !== 'undefined' && (window as any).isBotTimerPaused === true);
-
-        if (currentlyPaused) {
-          return prev;
-        }
-
-        if (prev <= 100) {
-          clearInterval(intervalId);
-          forceNextTurn();
-          return 0;
-        }
-        return prev - 100;
-      });
-    }, 100);
-
-    return () => {
-      clearInterval(intervalId);
-    };
-  }, [currentPlayerIndex, turnSubPhase, gamePhase, activePlayer?.id, isWaitingForPlayerAction, botTimeLimit]);
 
   // בדיקת תנאי ניצחון דינמית בזמן אמת (אנושי או בוט)
   useEffect(() => {
@@ -407,67 +272,71 @@ const GameContent: React.FC = () => {
   // תצוגת מסך הלובי / פתיחה - תומכת בגלילה פנימית כדי למנוע גלילה גלובלית ביישום
   if (gamePhase === 'LOBBY') {
     return (
-      <LobbyScreen
-        roomId={roomId}
-        setRoomId={setRoomId}
-        isHost={isHost}
-        setIsHost={setIsHost}
-        onStartGame={(pCount, lobbyP, limit) => {
-          setBotTimeLimit(limit);
-          
-          lastProcessedTurnRef.current = "";
-          lastStartedTurnRef.current = "";
+      <>
+        <UpdateNotification />
+        <LobbyScreen
+          roomId={roomId}
+          setRoomId={setRoomId}
+          isHost={isHost}
+          setIsHost={setIsHost}
+          onStartGame={(pCount, lobbyP, limit) => {
+            setBotTimeLimit(limit);
+            
+            lastProcessedTurnRef.current = "";
+            lastStartedTurnRef.current = "";
 
-          // Generate board data
-          const newTiles = generateBoard(standardCatanConfig, boardType, activeExpansion, selectedScenario, pCount);
-          const newVertices = generateVertices(newTiles, activeExpansion);
-          const newEdges = generateEdges(newTiles, activeExpansion);
+            // Generate board data
+            const newTiles = generateBoard(standardCatanConfig, boardType, activeExpansion, selectedScenario, pCount);
+            const newVertices = generateVertices(newTiles, activeExpansion);
+            const newEdges = generateEdges(newTiles, activeExpansion);
 
-          // Call initNewGame with presets
-          initNewGame(pCount, newTiles, newVertices, newEdges);
+            // Call initNewGame with presets
+            initNewGame(pCount, newTiles, newVertices, newEdges);
 
-          const selectedPlayers = lobbyP.slice(0, pCount).map((p) => {
-            const difficulty: 'EASY' | 'MEDIUM' | 'HARD' | 'SUPER_HARD' | undefined = p.isBot ? (p.difficulty === 'קל' ? 'EASY' : p.difficulty === 'קשה' ? 'HARD' : p.difficulty === 'סופר קשה' ? 'SUPER_HARD' : 'MEDIUM') : undefined;
-            const archetype: 'BUILDER' | 'DEVELOPER' | undefined = (p.isBot && difficulty === 'HARD') ? (Math.random() < 0.5 ? 'BUILDER' : 'DEVELOPER') : undefined;
+            const selectedPlayers = lobbyP.slice(0, pCount).map((p) => {
+              const difficulty: 'EASY' | 'MEDIUM' | 'HARD' | 'SUPER_HARD' | undefined = p.isBot ? (p.difficulty === 'קל' ? 'EASY' : p.difficulty === 'קשה' ? 'HARD' : p.difficulty === 'סופר קשה' ? 'SUPER_HARD' : 'MEDIUM') : undefined;
+              const archetype: 'BUILDER' | 'DEVELOPER' | undefined = (p.isBot && difficulty === 'HARD') ? (Math.random() < 0.5 ? 'BUILDER' : 'DEVELOPER') : undefined;
 
-            return {
-              id: p.id,
-              name: p.name,
-              color: p.color,
-              isBot: p.isBot,
-              playerType: p.playerType,
-              difficulty,
-              ...(archetype ? { archetype } : {}),
-              victoryPoints: 2,
-              resources: { WOOD: 0, BRICK: 0, SHEEP: 0, WHEAT: 0, ORE: 0 },
-              developmentCards: { KNIGHT: 0, MONOPOLY: 0, ROAD_BUILDING: 0, YEAR_OF_PLENTY: 0, VICTORY_POINT: 0 },
-              knightsPlayed: 0
-            };
-          });
-          setPlayers(selectedPlayers);
-
-          // If in an online room as host, broadcast START_GAME!
-          if (roomId && isHost) {
-            socketService.startGame(roomId, {
-              boardData: {
-                tiles: newTiles,
-                vertices: newVertices,
-                edges: newEdges
-              },
-              players: selectedPlayers,
-              botTimeLimit: limit,
-              activeExpansion,
-              selectedScenario,
-              boardType
+              return {
+                id: p.id,
+                name: p.name,
+                color: p.color,
+                isBot: p.isBot,
+                playerType: p.playerType,
+                difficulty,
+                ...(archetype ? { archetype } : {}),
+                victoryPoints: 2,
+                resources: { WOOD: 0, BRICK: 0, SHEEP: 0, WHEAT: 0, ORE: 0 },
+                developmentCards: { KNIGHT: 0, MONOPOLY: 0, ROAD_BUILDING: 0, YEAR_OF_PLENTY: 0, VICTORY_POINT: 0 },
+                knightsPlayed: 0
+              };
             });
-          }
-        }}
-      />
+            setPlayers(selectedPlayers);
+
+            // If in an online room as host, broadcast START_GAME!
+            if (roomId && isHost) {
+              socketService.startGame(roomId, {
+                boardData: {
+                  tiles: newTiles,
+                  vertices: newVertices,
+                  edges: newEdges
+                },
+                players: selectedPlayers,
+                botTimeLimit: limit,
+                activeExpansion,
+                selectedScenario,
+                boardType
+              });
+            }
+          }}
+        />
+      </>
     );
   }
 
   return (
     <div className="flex flex-row h-screen w-screen overflow-hidden bg-black text-slate-100 font-sans p-4 gap-4">
+      <UpdateNotification />
       
       {/* פריסה צידית: מכילה את פאנל השליטה (למעלה) ולוג ההיסטוריה קבוע בתחתית (למטה) */}
       <aside className="w-[336px] flex flex-col gap-4 h-full z-10 flex-none">
@@ -485,22 +354,11 @@ const GameContent: React.FC = () => {
         {/* ה-Header הוסר לחלוטין כדי לפנות שטח אנכי מקסימלי ללוח המשחק */}
 
         {/* חיווי ויזואלי של טיימר הבוט כולל זמני הקפאה והמתנה */}
-        {activePlayer && activePlayer.isBot && (
-          <div className="flex-none mx-4 mb-2 p-3 bg-amber-500/10 border border-amber-500/20 rounded-xl text-right flex items-center justify-between" dir="rtl">
-            <div className="flex items-center gap-3">
-              <span className="text-xl animate-pulse">⏱️</span>
-              <div>
-                <div className="text-sm font-bold text-amber-400">תור הבוט {activePlayer.name} פעיל...</div>
-                <div className="text-xs text-slate-400">זמן שנותר למהלך: {Math.max(0, Math.ceil(botTimeRemaining / 1000))} שניות</div>
-              </div>
-            </div>
-            {isWaitingForPlayerAction && (
-              <div className="text-emerald-400 font-extrabold text-xs px-3 py-1 bg-emerald-500/20 border border-emerald-500/30 rounded-full animate-pulse">
-                ⏳ הטיימר מושהה - ממתין לפעולת השחקן האנושי (השלכת קלפים, בחירת זהב או מענה למסחר)
-              </div>
-            )}
-          </div>
-        )}
+        <BotTimerIndicator
+          activePlayer={activePlayer}
+          botTimeRemaining={botTimeRemaining}
+          isWaitingForPlayerAction={isWaitingForPlayerAction}
+        />
 
         {/* התראה על בניית כבישים חינם */}
         {roadBuildingRemaining > 0 && (
@@ -694,27 +552,21 @@ const GameContent: React.FC = () => {
           </div>
         )}
 
-        {/* מודל מונופול לקבלת משאבים */}
-        <MonopolyModal
-          isOpen={isMonopolyModalOpen}
-          onClose={() => setIsMonopolyModalOpen(false)}
+        {/* מנהל מודאלים מופרד */}
+        <GameModalsManager
+          isMonopolyModalOpen={isMonopolyModalOpen}
+          setIsMonopolyModalOpen={setIsMonopolyModalOpen}
+          isYearOfPlentyModalOpen={isYearOfPlentyModalOpen}
+          setIsYearOfPlentyModalOpen={setIsYearOfPlentyModalOpen}
           players={players}
           humanPlayer={humanPlayer}
           setPlayers={setPlayers}
           addLog={addLog}
+          activeTrophyModal={activeTrophyModal}
+          setActiveTrophyModal={setActiveTrophyModal}
+          longestRoadPlayerId={longestRoadPlayerId}
+          largestArmyPlayerId={largestArmyPlayerId}
         />
-
-        {/* מודל שנת שפע לבחירת משאבים */}
-        <YearOfPlentyModal
-          isOpen={isYearOfPlentyModalOpen}
-          onClose={() => setIsYearOfPlentyModalOpen(false)}
-          humanPlayer={humanPlayer}
-          setPlayers={setPlayers}
-          addLog={addLog}
-        />
-
-        {/* מודל בחירת זהב ממכרה זהב */}
-        <GoldFieldSelectionModal />
 
       {/* סיידבר ימני קבוע ומרונדר על המסך תמיד */}
       <aside className={`transition-all duration-300 flex flex-col gap-4 h-full z-10 flex-none ${
@@ -1143,18 +995,6 @@ const GameContent: React.FC = () => {
           />
         )}
 
-        {/* קומפוננטת Overlay במסך מלא עבור זריקת משאבים כשהשודד מופעל */}
-        <DiscardOverlay />
-
-        {/* מודל תארים צף גדול במרכז */}
-        <TrophyDetailModal
-          isOpen={!!activeTrophyModal}
-          type={activeTrophyModal!}
-          longestRoadPlayerId={longestRoadPlayerId}
-          largestArmyPlayerId={largestArmyPlayerId}
-          players={players}
-          onClose={() => setActiveTrophyModal(null)}
-        />
 
         {/* מודל קלפי פיתוח צף גדול במרכז */}
         {isDevCardsOverlayOpen && (() => {
