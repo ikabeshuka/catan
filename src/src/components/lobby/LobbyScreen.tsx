@@ -28,30 +28,38 @@ export const LobbyScreen: React.FC<LobbyScreenProps> = ({
 }) => {
   const [isGeminiSettingsOpen, setIsGeminiSettingsOpen] = useState(false);
   const [isOnlineModalOpen, setIsOnlineModalOpen] = useState(false);
+  const [isOnlineCreationMode, setIsOnlineCreationMode] = useState<boolean>(false);
   const { 
     boardType,
     setBoardType, 
     activeExpansion, 
     setActiveExpansion,
     selectedScenario,
-    setSelectedScenario
+    setSelectedScenario,
+    setMyPlayerId
   } = useGame();
   
   const [playerCount, setPlayerCount] = useState<3 | 4>(4);
   const [botTimeLimit, setBotTimeLimit] = useState<number>(10);
 
   const [lobbyPlayers, setLobbyPlayers] = useState<LobbyPlayer[]>([
-    { id: 'p1', name: 'פיבי', color: '#e53935', isBot: false, playerType: 'HUMAN', difficulty: undefined },
-    { id: 'p2', name: 'רוס', color: '#1e88e5', isBot: true, playerType: 'LOCAL_BOT', difficulty: 'בינוני' },
-    { id: 'p3', name: 'צ\'נדלר', color: '#fdd835', isBot: true, playerType: 'LOCAL_BOT', difficulty: 'בינוני' },
-    { id: 'p4', name: 'ג\'ואי', color: '#43a047', isBot: true, playerType: 'LOCAL_BOT', difficulty: 'בינוני' },
+    { id: 'p1', name: 'שחקן 1 (רוס)', color: '#e53935', isBot: false, playerType: 'HUMAN', difficulty: undefined },
+    { id: 'p2', name: 'שחקן 2', color: '#1e88e5', isBot: false, playerType: 'HUMAN', difficulty: undefined },
+    { id: 'p3', name: 'שחקן 3', color: '#fdd835', isBot: false, playerType: 'HUMAN', difficulty: undefined },
+    { id: 'p4', name: 'שחקן 4', color: '#43a047', isBot: false, playerType: 'HUMAN', difficulty: undefined },
   ]);
 
   const togglePlayerType = (id: string, playerType: PlayerType) => {
     setLobbyPlayers(prev => prev.map((item, idx) => {
       if (item.id === id) {
-        const defaultNames = ['פיבי', 'רוס', 'צ\'נדלר', 'ג\'ואי'];
+        const defaultNames = ['שחקן 1 (רוס)', 'שחקן 2', 'שחקן 3', 'שחקן 4'];
         const newName = defaultNames[idx] || item.name;
+        
+        if (roomId && isHost) {
+          const status = (playerType === 'LOCAL_BOT' || playerType === 'GEMINI_AI') ? 'LOCKED_BOT' : 'OPEN';
+          socketService.updateSlotStatus(roomId, id, status);
+        }
+
         return {
           ...item,
           isBot: playerType !== 'HUMAN',
@@ -111,6 +119,44 @@ export const LobbyScreen: React.FC<LobbyScreenProps> = ({
     }
   }, [roomId, isHost, setActiveExpansion, setSelectedScenario, setBoardType]);
 
+  // Host listen for incoming player joins
+  useEffect(() => {
+    if (roomId && isHost) {
+      socketService.onPlayerJoined(({ playerName }) => {
+        setLobbyPlayers(prev => {
+          // Find first open HUMAN slot that doesn't belong to the host (idx > 0)
+          const openSlot = prev.find((p, idx) => idx > 0 && p.playerType === 'HUMAN' && !p.isBot && (p.name.startsWith('שחקן') || p.name === ''));
+          if (openSlot) {
+            return prev.map(p => p.id === openSlot.id ? { ...p, name: playerName } : p);
+          }
+          return prev;
+        });
+      });
+    }
+  }, [roomId, isHost]);
+
+  // When host reaches Step 4 in online creation mode, create the online room
+  useEffect(() => {
+    if (currentStep === 4 && isOnlineCreationMode && !roomId && isHost) {
+      const newRoomId = 'CATAN-' + Math.floor(1000 + Math.random() * 9000);
+      
+      socketService.createRoom({
+        roomId: newRoomId,
+        hostName: lobbyPlayers.find(p => !p.isBot)?.name || 'שחקן',
+        expansion: activeExpansion,
+        scenario: selectedScenario,
+        boardType: boardType,
+        maxPlayers: playerCount,
+      });
+
+      socketService.joinRoom(newRoomId, lobbyPlayers.find(p => !p.isBot)?.name || 'שחקן').then((assignedId) => {
+        setMyPlayerId(assignedId);
+      });
+      setRoomId(newRoomId);
+      setIsOnlineCreationMode(false);
+    }
+  }, [currentStep, isOnlineCreationMode, roomId, isHost, activeExpansion, selectedScenario, boardType, playerCount, lobbyPlayers, setRoomId, setMyPlayerId]);
+
   const handleNextStep = () => {
     if (currentStep === 1) {
       setCurrentStep(2);
@@ -155,7 +201,11 @@ export const LobbyScreen: React.FC<LobbyScreenProps> = ({
             Catan Premium Edition
           </div>
           <h1 className="text-3xl md:text-4xl font-extrabold text-transparent bg-clip-text bg-gradient-to-r from-amber-400 to-orange-500 mb-2 font-sans">
-            הגדרת משחק קטאן {roomId && <span className="text-sm font-mono text-emerald-400 bg-emerald-950/80 px-3 py-1 rounded-full border border-emerald-700">חדר: {roomId}</span>}
+            הגדרת משחק קטאן {roomId ? (
+              <span className="text-sm font-mono text-emerald-400 bg-emerald-950/80 px-3 py-1 rounded-full border border-emerald-700">חדר: {roomId}</span>
+            ) : isOnlineCreationMode ? (
+              <span className="text-sm font-sans text-amber-400 bg-amber-950/80 px-3 py-1 rounded-full border border-amber-700">Configuring Online Scenario</span>
+            ) : null}
           </h1>
           <div className="w-20 h-1 bg-gradient-to-r from-amber-500 to-orange-500 mx-auto rounded-full mb-4" />
         </div>
@@ -248,7 +298,7 @@ export const LobbyScreen: React.FC<LobbyScreenProps> = ({
             onClick={() => setIsOnlineModalOpen(true)}
             className="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold rounded-lg shadow-md hover:shadow-blue-500/20 transition-all flex items-center gap-1.5"
           >
-            <span>🌐</span> {roomId ? `חדר פעיל: ${roomId}` : 'משחק אונליין (דפדפן חדרים)'}
+            <span>🌐</span> {roomId ? `חדר פעיל: ${roomId}` : isOnlineCreationMode ? 'Configuring Online Scenario' : 'משחק אונליין (דפדפן חדרים)'}
           </button>
 
           <button
@@ -268,10 +318,21 @@ export const LobbyScreen: React.FC<LobbyScreenProps> = ({
         <OnlineRoomModal
           isOpen={isOnlineModalOpen}
           onClose={() => setIsOnlineModalOpen(false)}
-          onRoomJoined={(code, isHostLocal) => {
+          onRoomJoined={(code, isHostLocal, assignedId) => {
             setRoomId(code);
             setIsHost(isHostLocal);
+            if (isHostLocal) {
+              setMyPlayerId('p1');
+            } else if (typeof assignedId === 'string') {
+              setMyPlayerId(assignedId);
+            }
             if (!isHostLocal) setCurrentStep(4);
+            setIsOnlineCreationMode(false);
+          }}
+          onStartOnlineCreation={() => {
+            setIsOnlineCreationMode(true);
+            setIsHost(true);
+            setRoomId(null);
           }}
           playerName={lobbyPlayers.find(p => !p.isBot)?.name || 'שחקן'}
           currentSettings={{

@@ -1,7 +1,7 @@
 import React from 'react';
 import { ResourceCards } from '../../types/resources.types';
 import { ResourceCard } from './ResourceCard';
-import { WoodIcon, BrickIcon, SheepIcon, WheatIcon, OreIcon, SearchIcon, CompressIcon } from '../common/Icons';
+import { SearchIcon, CompressIcon } from '../common/Icons';
 
 interface ResourceContainerProps {
   resources: ResourceCards;
@@ -21,11 +21,11 @@ export const ResourceContainer: React.FC<ResourceContainerProps> = ({
   onToggleCollapsed,
 }) => {
   const resourceTypes = [
-    { type: 'WOOD' as const, label: 'עץ', iconSvg: <WoodIcon size={24} className="text-emerald-400 group-hover:text-white transition-colors duration-200" />, color: 'text-emerald-800', bg: 'bg-emerald-50 border-emerald-200' },
-    { type: 'BRICK' as const, label: 'לבנה', iconSvg: <BrickIcon size={24} className="text-orange-400 group-hover:text-white transition-colors duration-200" />, color: 'text-orange-800', bg: 'bg-orange-50 border-orange-200' },
-    { type: 'SHEEP' as const, label: 'כבש', iconSvg: <SheepIcon size={24} className="text-lime-400 group-hover:text-white transition-colors duration-200" />, color: 'text-lime-800', bg: 'bg-lime-50 border-lime-200' },
-    { type: 'WHEAT' as const, label: 'חיטה', iconSvg: <WheatIcon size={24} className="text-amber-400 group-hover:text-white transition-colors duration-200" />, color: 'text-amber-800', bg: 'bg-amber-50 border-amber-200' },
-    { type: 'ORE' as const, label: 'ברזל', iconSvg: <OreIcon size={24} className="text-slate-400 group-hover:text-white transition-colors duration-200" />, color: 'text-slate-800', bg: 'bg-slate-50 border-slate-200' },
+    { type: 'WOOD' as const, label: 'עץ', imgPath: '/wood1.png', color: 'text-emerald-800', bg: 'bg-emerald-50 border-emerald-200' },
+    { type: 'BRICK' as const, label: 'לבנה', imgPath: '/brick1.png', color: 'text-orange-800', bg: 'bg-orange-50 border-orange-200' },
+    { type: 'SHEEP' as const, label: 'כבש', imgPath: '/wool1.png', color: 'text-lime-800', bg: 'bg-lime-50 border-lime-200' },
+    { type: 'WHEAT' as const, label: 'חיטה', imgPath: '/wheat1.png', color: 'text-amber-800', bg: 'bg-amber-50 border-amber-200' },
+    { type: 'ORE' as const, label: 'ברזל', imgPath: '/rock1.png', color: 'text-slate-800', bg: 'bg-slate-50 border-slate-200' },
   ];
 
   return (
@@ -100,7 +100,9 @@ export const ResourceContainer: React.FC<ResourceContainerProps> = ({
                     className="relative flex items-center justify-center w-11 h-11 rounded-xl border border-slate-700/30 bg-slate-900/60 p-1 group hover:scale-115 transition-all cursor-pointer"
                     title={`${res.label}: ${count}`}
                   >
-                    <span className="filter drop-shadow scale-90">{res.iconSvg}</span>
+                    <span className="filter drop-shadow scale-90">
+                      {res.imgPath ? <img src={res.imgPath} className="w-6 h-6 object-contain bg-transparent" alt={res.label} /> : null}
+                    </span>
                     <div className="absolute -top-1 -right-1 flex items-center justify-center min-w-[18px] h-4.5 px-1 rounded bg-slate-950 border border-slate-750 text-slate-200 font-mono text-[9px] font-black shadow-md">
                       {count}
                     </div>
@@ -201,7 +203,7 @@ export const ResourceContainer: React.FC<ResourceContainerProps> = ({
                       className="flex items-center gap-3 group px-3 py-1 rounded-lg hover:bg-slate-800/40 transition-all duration-200"
                       title={`${res.label}: ${count}`}
                     >
-                      {res.iconSvg}
+                      {res.imgPath ? <img src={res.imgPath} className="w-6 h-6 object-contain bg-transparent" alt={res.label} /> : null}
                       <span className="text-slate-100 text-2xl font-black font-mono tracking-tight drop-shadow-sm">
                         {count}
                       </span>

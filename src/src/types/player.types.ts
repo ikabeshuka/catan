@@ -21,6 +21,13 @@ export interface Player {
     YEAR_OF_PLENTY?: number;
     VICTORY_POINT?: number;
   };
+  playedDevCardThisTurn?: boolean;
+  boughtDevCardsThisTurn?: {
+    KNIGHT?: number;
+    MONOPOLY?: number;
+    ROAD_BUILDING?: number;
+    YEAR_OF_PLENTY?: number;
+  };
   knightsPlayed?: number;
   wagonPosition?: string; // mazahe vertexId
   wagonLevel?: number; // 1-3

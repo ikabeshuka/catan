@@ -2,6 +2,7 @@ import { BoardVertex, BoardEdge } from '../../types/boardElements.types';
 import { GamePhase } from '../../context/GameContext';
 import { HexTile } from '../../types/hex.types';
 import { cubeToPixel } from '../hexMath/cubeToPixel';
+import { checkPieceLimit } from '../../hooks/useBuild';
 
 /**
  * בודקת האם שחקן יכול לבנות יישוב בצומת מסוים על הלוח
@@ -15,6 +16,11 @@ export function validateSettlementPlacement(
   tiles?: HexTile[],
   selectedScenario?: string
 ): boolean {
+  // Check piece limit (max 5 settlements)
+  if (!checkPieceLimit(playerId, 'SETTLEMENT', vertices, edges)) {
+    return false;
+  }
+
   // 1. בדיקה שהצומת ריק לחלוטין
   const targetVertex = vertices.find(v => v.id === vertexId);
   if (!targetVertex || targetVertex.structure !== 'NONE') return false;

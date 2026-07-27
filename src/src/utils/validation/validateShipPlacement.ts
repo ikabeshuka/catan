@@ -1,6 +1,7 @@
 import { BoardVertex, BoardEdge } from '../../types/boardElements.types';
 import { HexTile } from '../../types/hex.types';
 import { getTileEdgeIds } from '../gameEngine/generateEdges';
+import { checkPieceLimit } from '../../hooks/useBuild';
 
 /**
  * בודקת האם שחקן יכול למקם ספינה על צלע מסוימת
@@ -13,6 +14,11 @@ export function validateShipPlacement(
   tiles: HexTile[],
   gamePhase?: string
 ): boolean {
+  // Check piece limit (max 15 ships)
+  if (!checkPieceLimit(playerId, 'SHIP', vertices, edges)) {
+    return false;
+  }
+
   // 1. בדיקה שהנתיב פנוי לחלוטין (אין עליו כביש קיים ואין עליו ספינה קיימת)
   const targetEdge = edges.find(e => e.id === edgeId);
   if (!targetEdge || targetEdge.hasRoad || targetEdge.hasShip) {

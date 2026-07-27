@@ -33,7 +33,8 @@ export function useVertexInteraction() {
       : false;
 
     const isOwnSettlement = vertex.structure === 'SETTLEMENT' && vertex.playerId === currentPlayer?.id;
-    const canUpgradeToCity = currentPlayer && !isSetupPhase && turnSubPhase === 'TRADE_AND_BUILD' && isOwnSettlement;
+    const playerCitiesCount = vertices.filter(v => v.playerId === currentPlayer?.id && v.structure === 'CITY').length;
+    const canUpgradeToCity = currentPlayer && !isSetupPhase && turnSubPhase === 'TRADE_AND_BUILD' && isOwnSettlement && playerCitiesCount < 4;
     const isOwnedHarbor = vertex.isHarbor && vertex.playerId === currentPlayer?.id;
     const isClickable = ((isValidPlacement || canUpgradeToCity) || (isOwnedHarbor && turnSubPhase === 'TRADE_AND_BUILD')) && !currentPlayer?.isBot;
 
@@ -209,7 +210,7 @@ export function useVertexInteraction() {
       setPlayers(prev => prev.map(p => p.id === currentPlayer.id 
         ? {
             ...p,
-            victoryPoints: p.victoryPoints + 1 + specialVPBonus,
+            victoryPoints: p.victoryPoints + 1,
             resources: {
               ...p.resources,
               WOOD: p.resources.WOOD - 1,

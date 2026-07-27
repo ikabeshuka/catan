@@ -6,6 +6,7 @@ export type GameAction =
   // --- תורות וקוביות ---
   | { type: 'ROLL_DICE'; playerId: string; diceValues: [number, number] }
   | { type: 'END_TURN'; playerId: string }
+  | { type: 'DISCARD_CARDS'; playerId: string; resourcesToDiscard: Partial<Record<ResourceType, number>> }
 
   // --- בנייה ושדרוגים ---
   | { type: 'BUILD_SETTLEMENT'; playerId: string; vertexId: string }

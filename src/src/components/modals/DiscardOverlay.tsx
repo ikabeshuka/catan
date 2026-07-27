@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useGame } from '../../context/GameContext';
 import { ResourceCards } from '../../types/resources.types';
+import { dispatchGameAction } from '../../services/gameDispatcher';
 
 const CARD_IMAGES: Record<string, string> = {
   WOOD: '/card_wood.png',
@@ -27,7 +28,7 @@ const CARD_COLORS: Record<string, string> = {
 };
 
 export const DiscardOverlay: React.FC = () => {
-  const { players, setPlayers, setTurnSubPhase, addLog, turnSubPhase } = useGame();
+  const { players, setPlayers, setTurnSubPhase, addLog, turnSubPhase, roomId, myPlayerId } = useGame();
 
   const [discardCount, setDiscardCount] = useState<Record<string, number>>({
     WOOD: 0,
@@ -51,11 +52,16 @@ export const DiscardOverlay: React.FC = () => {
 
   if (turnSubPhase !== 'DISCARD_PHASE') return null;
 
-  const humanPlayer = players.find(p => !p.isBot);
+  const humanPlayer = (roomId && myPlayerId)
+    ? players.find(p => p.id === myPlayerId)
+    : players.find(p => !p.isBot);
+
   if (!humanPlayer) return null;
 
   const totalCards = Object.values(humanPlayer.resources).reduce((a, b) => a + b, 0);
   const toDiscard = Math.floor(totalCards / 2);
+
+  if (toDiscard <= 0) return null;
 
   const chosenTotal = Object.values(discardCount).reduce((a, b) => a + b, 0);
   const remaining = toDiscard - chosenTotal;
@@ -87,27 +93,19 @@ export const DiscardOverlay: React.FC = () => {
   const handleConfirm = () => {
     if (chosenTotal !== toDiscard) return;
 
-    setPlayers(prevPlayers => prevPlayers.map(p => {
-      if (!p.isBot) {
-        const updatedRes = { ...p.resources };
-        (Object.keys(discardCount) as (keyof ResourceCards)[]).forEach(k => {
-          updatedRes[k] = Math.max(0, updatedRes[k] - discardCount[k]);
-        });
-        return { ...p, resources: updatedRes };
-      }
-      return p;
-    }));
-
-    // Log the discard details in Hebrew
-    const discardedItemsLog = Object.entries(discardCount)
-      .filter(([_, val]) => val > 0)
-      .map(([key, val]) => `${val} ${CARD_LABELS[key] || key}`)
-      .join(', ');
-
-    addLog(`שחקן אנושי זרק ${toDiscard} קלפים לקופה: ${discardedItemsLog || 'ללא קלפים'}.`);
-    addLog(`השודד הופעל. יש למקם את השודד באריח חדש.`);
-    
-    setTurnSubPhase('ROBBER_PLACEMENT');
+    dispatchGameAction({
+      type: 'DISCARD_CARDS' as any,
+      playerId: humanPlayer.id,
+      resourcesToDiscard: discardCount
+    } as any, {
+      roomId: roomId || undefined,
+      isRemote: false,
+      myPlayerId,
+      players,
+      setPlayers,
+      setTurnSubPhase,
+      addLog
+    });
   };
 
   const resourceKeys: ('WOOD' | 'BRICK' | 'SHEEP' | 'WHEAT' | 'ORE')[] = ['WOOD', 'BRICK', 'SHEEP', 'WHEAT', 'ORE'];

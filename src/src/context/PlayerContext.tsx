@@ -36,6 +36,7 @@ interface PlayerContextType {
   selectedShipIdToMove: string | null;
   roomId: string | null;
   isHost: boolean;
+  myPlayerId: string | null;
 
   setPlayers: React.Dispatch<React.SetStateAction<Player[]>>;
   setCurrentPlayerIndex: React.Dispatch<React.SetStateAction<number>>;
@@ -51,6 +52,7 @@ interface PlayerContextType {
   setSelectedShipIdToMove: React.Dispatch<React.SetStateAction<string | null>>;
   setRoomId: React.Dispatch<React.SetStateAction<string | null>>;
   setIsHost: React.Dispatch<React.SetStateAction<boolean>>;
+  setMyPlayerId: React.Dispatch<React.SetStateAction<string | null>>;
   addLog: (message: string) => void;
   initNewGame: (
     playerCount?: number,
@@ -98,6 +100,7 @@ export const PlayerProvider: React.FC<{ children: ReactNode }> = ({ children }) 
 
   const [roomId, setRoomId] = useState<string | null>(null);
   const [isHost, setIsHost] = useState<boolean>(false);
+  const [myPlayerId, setMyPlayerId] = useState<string | null>(null);
 
   const prevLongestRoadRef = useRef<string | null>(null);
   const prevLargestArmyRef = useRef<string | null>(null);
@@ -441,6 +444,7 @@ export const PlayerProvider: React.FC<{ children: ReactNode }> = ({ children }) 
         selectedShipIdToMove,
         roomId,
         isHost,
+        myPlayerId,
         setPlayers,
         setCurrentPlayerIndex,
         setGamePhase,
@@ -455,6 +459,7 @@ export const PlayerProvider: React.FC<{ children: ReactNode }> = ({ children }) 
         setSelectedShipIdToMove,
         setRoomId,
         setIsHost,
+        setMyPlayerId,
         addLog,
         initNewGame,
         createTurnSnapshot,

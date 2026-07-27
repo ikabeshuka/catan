@@ -78,7 +78,9 @@ export function useTurnManager() {
             ...p,
             wagonLevel: p.wagonLevel || 1,
             wagonPosition: p.wagonPosition || defaultPos,
-            remainingMovementPoints: maxPoints
+            remainingMovementPoints: maxPoints,
+            playedDevCardThisTurn: false,
+            boughtDevCardsThisTurn: {}
           };
         }
         return p;
@@ -125,12 +127,10 @@ export function useTurnManager() {
       if (diceResult.total === 7) {
         addLog(`המספר 7 עלה! השודד הופעל.`);
         
-        const humanPlayer = players.find(p => !p.isBot);
-        const humanTotalCards = humanPlayer ? Object.values(humanPlayer.resources).reduce((a, b) => a + b, 0) : 0;
-        const humanNeedsToDiscard = humanTotalCards > 7;
+        const anyHumanNeedsToDiscard = players.some(p => !p.isBot && Object.values(p.resources).reduce((a, b) => a + b, 0) > 7);
 
-        if (humanNeedsToDiscard) {
-          addLog(`השודד הגיע! שחקן אנושי מחזיק ${humanTotalCards} קלפים ונאלץ לזרוק ${Math.floor(humanTotalCards / 2)} קלפים לקופה.`);
+        if (anyHumanNeedsToDiscard) {
+          addLog(`השודד הגיע! שחקנים עם מעל 7 קלפים נאלצים לזרוק קלפים לקופה.`);
           setTurnSubPhase('DISCARD_PHASE');
         } else {
           addLog(`השודד הופעל. יש למקם את השודד באריח חדש.`);
@@ -139,11 +139,11 @@ export function useTurnManager() {
         
         // חוק חצי הקלפים: שחקנים עם יותר מ-7 קלפים מאבדים חצי (לוגיקה פשוטה)
         setPlayers((prevPlayers: Player[]) => prevPlayers.map(p => {
-          if (!p.isBot && humanNeedsToDiscard) {
-            // שחקן אנושי יזרוק ידנית בשלב ה-DISCARD_PHASE
+          const totalCards = Object.values(p.resources).reduce((a, b) => a + b, 0);
+          if (!p.isBot && totalCards > 7) {
+            // כל שחקן אנושי עם מעל 7 קלפים יזרוק ידנית בשלב ה-DISCARD_PHASE
             return p;
           }
-          const totalCards = Object.values(p.resources).reduce((a, b) => a + b, 0);
           if (totalCards > 7) {
             const toDiscard = Math.floor(totalCards / 2);
             addLog(`שחקן ${p.name} מחזיק ${totalCards} קלפים ונאלץ לזרוק ${toDiscard} קלפים לקופה.`);
@@ -346,6 +346,10 @@ export function useTurnManager() {
             ...updatedPlayer.developmentCards,
             [cardKey]: (updatedPlayer.developmentCards[cardKey] || 0) + 1
           };
+          updatedPlayer.boughtDevCardsThisTurn = {
+            ...updatedPlayer.boughtDevCardsThisTurn,
+            [cardKey]: ((updatedPlayer.boughtDevCardsThisTurn?.[cardKey]) || 0) + 1
+          };
         }
         return updatedPlayer;
       }
@@ -432,6 +436,17 @@ export function useTurnManager() {
     setHasMovedShipThisTurn(false);
 
     const nextIndex = (currentPlayerIndex + 1) % players.length;
+    const nextPlayer = players[nextIndex];
+    setPlayers((prev: Player[]) => prev.map(p => {
+      if (p.id === nextPlayer.id) {
+        return {
+          ...p,
+          playedDevCardThisTurn: false,
+          boughtDevCardsThisTurn: {}
+        };
+      }
+      return p;
+    }));
     setCurrentPlayerIndex(nextIndex);
     setTurnSubPhase('BEFORE_ROLL');
   };

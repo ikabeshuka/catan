@@ -6,7 +6,7 @@ export const getHarborDescription = (type: string) => {
         ratio: '3:1',
         description: 'החלף 3 משאבים זהים עבור משאב 1 לבחירתך מהבנק.',
         color: 'from-blue-500/20 to-blue-950/40 border-blue-500/40 text-blue-300',
-        img: '/favicon.svg'
+        img: '/gold1.png'
       };
     case 'WOOD':
       return {
@@ -54,7 +54,7 @@ export const getHarborDescription = (type: string) => {
         ratio: '3:1',
         description: 'החלף משאבים עם הבנק ביחס מועדף.',
         color: 'from-slate-500/20 to-slate-950/40 border-slate-500/40 text-slate-300',
-        img: '/favicon.svg'
+        img: '/gold1.png'
       };
   }
 };
@@ -116,15 +116,23 @@ export const getTileTooltipInfo = (type: string) => {
       return {
         name: 'ים',
         produces: 'אין',
-        img: '',
+        img: '/cea1.png',
         description: 'מים פתוחים וסוערים שניתן לשוט בהם באמצעות ספינות.',
         color: 'from-blue-500/20 to-blue-950/40 border-blue-500/40 text-blue-300'
+      };
+    case 'GOLD_FIELD':
+      return {
+        name: 'שדה זהב (Gold Field)',
+        produces: 'זהב (Gold)',
+        img: '/gold1.png',
+        description: 'שדה עשיר בזהב המאפשר לבחור כל משאב שתרצה בעת ייצור.',
+        color: 'from-yellow-500/20 to-amber-950/40 border-yellow-500/40 text-yellow-300'
       };
     default:
       return {
         name: 'אריח משאב',
         produces: 'משאב',
-        img: '/favicon.svg',
+        img: '/gold1.png',
         description: 'מייצר משאבים עבור השחקנים.',
         color: 'from-slate-500/20 to-slate-950/40 border-slate-500/40 text-slate-300'
       };

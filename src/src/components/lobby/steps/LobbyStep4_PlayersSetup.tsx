@@ -49,7 +49,7 @@ const PawnIcon = ({ color, size = 32 }: { color: string; size?: number }) => (
 );
 
 export const LobbyStep4_PlayersSetup: React.FC<LobbyStep4PlayersSetupProps> = ({
-  playerCount,
+  playerCount: _playerCount,
   lobbyPlayers,
   setLobbyPlayers,
   togglePlayerType,
@@ -63,7 +63,7 @@ export const LobbyStep4_PlayersSetup: React.FC<LobbyStep4PlayersSetupProps> = ({
   onStartGame,
   isGuest = false,
 }) => {
-  const activePlayers = lobbyPlayers.slice(0, playerCount);
+  const activePlayers = lobbyPlayers.slice(0, 4);
   const hasBots = activePlayers.some(p => p.isBot);
 
   // State to track which player's color picker popover is currently open
@@ -88,7 +88,7 @@ export const LobbyStep4_PlayersSetup: React.FC<LobbyStep4PlayersSetupProps> = ({
       const previousColorHex = currentPlayer.color;
 
       // Find if another active player is already using this color
-      const otherActivePlayer = currentPlayers.slice(0, playerCount).find(
+      const otherActivePlayer = currentPlayers.slice(0, 4).find(
         pl => pl.id !== playerId && pl.color === selectedColorHex
       );
 
@@ -145,7 +145,10 @@ export const LobbyStep4_PlayersSetup: React.FC<LobbyStep4PlayersSetupProps> = ({
                   <button
                     type="button"
                     onClick={() => togglePlayerType(p.id, 'HUMAN')}
-                    className={`flex-1 py-1.5 px-1 rounded-lg text-[11px] font-bold transition-all duration-200 relative z-10 flex items-center justify-center gap-0.5 cursor-pointer ${
+                    disabled={isGuest}
+                    className={`flex-1 py-1.5 px-1 rounded-lg text-[11px] font-bold transition-all duration-200 relative z-10 flex items-center justify-center gap-0.5 ${
+                      isGuest ? 'cursor-not-allowed opacity-50' : 'cursor-pointer'
+                    } ${
                       p.playerType === 'HUMAN' 
                         ? 'text-amber-400 font-extrabold' 
                         : 'text-slate-500 hover:text-slate-400'
@@ -158,7 +161,10 @@ export const LobbyStep4_PlayersSetup: React.FC<LobbyStep4PlayersSetupProps> = ({
                   <button
                     type="button"
                     onClick={() => togglePlayerType(p.id, 'LOCAL_BOT')}
-                    className={`flex-1 py-1.5 px-1 rounded-lg text-[11px] font-bold transition-all duration-200 relative z-10 flex items-center justify-center gap-0.5 cursor-pointer ${
+                    disabled={isGuest}
+                    className={`flex-1 py-1.5 px-1 rounded-lg text-[11px] font-bold transition-all duration-200 relative z-10 flex items-center justify-center gap-0.5 ${
+                      isGuest ? 'cursor-not-allowed opacity-50' : 'cursor-pointer'
+                    } ${
                       p.playerType === 'LOCAL_BOT' 
                         ? 'text-amber-400 font-extrabold' 
                         : 'text-slate-500 hover:text-slate-400'
@@ -171,7 +177,10 @@ export const LobbyStep4_PlayersSetup: React.FC<LobbyStep4PlayersSetupProps> = ({
                   <button
                     type="button"
                     onClick={() => togglePlayerType(p.id, 'GEMINI_AI')}
-                    className={`flex-1 py-1.5 px-1 rounded-lg text-[11px] font-bold transition-all duration-200 relative z-10 flex items-center justify-center gap-0.5 cursor-pointer ${
+                    disabled={isGuest}
+                    className={`flex-1 py-1.5 px-1 rounded-lg text-[11px] font-bold transition-all duration-200 relative z-10 flex items-center justify-center gap-0.5 ${
+                      isGuest ? 'cursor-not-allowed opacity-50' : 'cursor-pointer'
+                    } ${
                       p.playerType === 'GEMINI_AI' 
                         ? 'text-amber-400 font-extrabold' 
                         : 'text-slate-500 hover:text-slate-400'

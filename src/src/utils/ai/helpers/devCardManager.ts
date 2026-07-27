@@ -37,6 +37,10 @@ export function handleDevelopmentCardsPlay({
   played: boolean;
   stopTurn: boolean;
 } {
+  if (botPlayer.playedDevCardThisTurn) {
+    return { updatedBot: botPlayer, updatedEdges: edges, updatedPlayers: players, played: false, stopTurn: false };
+  }
+
   let currentBot = { ...botPlayer, developmentCards: { ...botPlayer.developmentCards } };
   let currentEdges = [...edges];
   let playersCopy = players.map(p => ({ ...p, resources: { ...p.resources } }));
@@ -45,7 +49,9 @@ export function handleDevelopmentCardsPlay({
   const botDevCards = currentBot.developmentCards || { KNIGHT: 0, MONOPOLY: 0, ROAD_BUILDING: 0 };
 
   // 1. Play Knight Card
-  if ((botDevCards.KNIGHT || 0) > 0) {
+  const boughtKnightThisTurn = botPlayer.boughtDevCardsThisTurn?.KNIGHT || 0;
+  const playableKnights = (botDevCards.KNIGHT || 0) - boughtKnightThisTurn;
+  if (playableKnights > 0) {
     // Check if robber is blocking bot's productive hexes
     const HEX_SIZE = 60;
     const isRobberBlockingBot = tiles.some(tile => {
@@ -73,6 +79,7 @@ export function handleDevelopmentCardsPlay({
         KNIGHT: Math.max(0, (currentBot.developmentCards.KNIGHT || 0) - 1)
       };
       currentBot.knightsPlayed = (currentBot.knightsPlayed || 0) + 1;
+      currentBot.playedDevCardThisTurn = true;
       playersCopy = playersCopy.map(p => p.id === botPlayer.id ? currentBot : p);
       setPlayers(playersCopy);
       if (setTurnSubPhase) {
@@ -83,7 +90,9 @@ export function handleDevelopmentCardsPlay({
   }
 
   // 2. Play Road Building Card
-  if ((botDevCards.ROAD_BUILDING || 0) > 0) {
+  const boughtRoadBuildingThisTurn = botPlayer.boughtDevCardsThisTurn?.ROAD_BUILDING || 0;
+  const playableRoadBuilding = (botDevCards.ROAD_BUILDING || 0) - boughtRoadBuildingThisTurn;
+  if (playableRoadBuilding > 0) {
     // Find best edges to build roads
     let tempEdges = [...currentEdges];
     const bestEdges1 = evaluateEdges(botPlayer.id, gamePhase, tiles, vertices, tempEdges, botPlayer.difficulty || 'MEDIUM');
@@ -103,6 +112,7 @@ export function handleDevelopmentCardsPlay({
         ...currentBot.developmentCards,
         ROAD_BUILDING: Math.max(0, (currentBot.developmentCards.ROAD_BUILDING || 0) - 1)
       };
+      currentBot.playedDevCardThisTurn = true;
       played = true;
 
       if (addLog) {
@@ -112,7 +122,9 @@ export function handleDevelopmentCardsPlay({
   }
 
   // 3. Play Monopoly Card
-  if ((botDevCards.MONOPOLY || 0) > 0 && !played) {
+  const boughtMonopolyThisTurn = botPlayer.boughtDevCardsThisTurn?.MONOPOLY || 0;
+  const playableMonopoly = (botDevCards.MONOPOLY || 0) - boughtMonopolyThisTurn;
+  if (playableMonopoly > 0 && !played) {
     const resourceTypes = ['WOOD', 'BRICK', 'SHEEP', 'WHEAT', 'ORE'] as const;
     let bestResource: 'WOOD' | 'BRICK' | 'SHEEP' | 'WHEAT' | 'ORE' = resourceTypes[0];
     let maxStolen = -1;
@@ -156,6 +168,7 @@ export function handleDevelopmentCardsPlay({
       ...currentBot.developmentCards,
       MONOPOLY: Math.max(0, (currentBot.developmentCards.MONOPOLY || 0) - 1)
     };
+    currentBot.playedDevCardThisTurn = true;
     played = true;
 
     if (addLog) {
@@ -163,6 +176,7 @@ export function handleDevelopmentCardsPlay({
     }
   }
 
+  playersCopy = playersCopy.map(p => p.id === botPlayer.id ? currentBot : p);
   return { updatedBot: currentBot, updatedEdges: currentEdges, updatedPlayers: playersCopy, played, stopTurn: false };
 }
 
@@ -181,7 +195,8 @@ export function handleBuyDevCard(
       WHEAT: (botPlayer.resources.WHEAT || 0) - 1,
       ORE: (botPlayer.resources.ORE || 0) - 1
     },
-    developmentCards: { ...botPlayer.developmentCards }
+    developmentCards: { ...botPlayer.developmentCards },
+    boughtDevCardsThisTurn: { ...botPlayer.boughtDevCardsThisTurn }
   };
 
   if (randomCard === 'VICTORY_POINT') {
@@ -194,6 +209,10 @@ export function handleBuyDevCard(
     currentBot.developmentCards = {
       ...currentBot.developmentCards,
       [cardKey]: (currentBot.developmentCards[cardKey] || 0) + 1
+    };
+    currentBot.boughtDevCardsThisTurn = {
+      ...currentBot.boughtDevCardsThisTurn,
+      [cardKey]: ((currentBot.boughtDevCardsThisTurn?.[cardKey]) || 0) + 1
     };
   }
 

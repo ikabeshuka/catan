@@ -68,8 +68,16 @@ export const useAppTrade = () => {
 
   const handlePlayCard = (cardType: 'KNIGHT' | 'MONOPOLY' | 'ROAD_BUILDING' | 'YEAR_OF_PLENTY') => {
     if (activePlayer?.id !== humanPlayer.id || turnSubPhase !== 'TRADE_AND_BUILD') return;
+    if (humanPlayer.playedDevCardThisTurn) {
+      alert("כבר שיחקת קלף פיתוח אחד בתור זה!");
+      return;
+    }
     const devCards = humanPlayer.developmentCards || { KNIGHT: 0, MONOPOLY: 0, ROAD_BUILDING: 0, YEAR_OF_PLENTY: 0 };
-    if ((devCards[cardType] || 0) <= 0) return;
+    const boughtThisTurn = humanPlayer.boughtDevCardsThisTurn?.[cardType] || 0;
+    if ((devCards[cardType] || 0) - boughtThisTurn <= 0) {
+      alert("לא ניתן לשחק קלף פיתוח שנקנה באותו התור!");
+      return;
+    }
 
     if (cardType === 'KNIGHT') {
       setPlayers((prevPlayers: any[]) => prevPlayers.map(p => {
@@ -77,6 +85,7 @@ export const useAppTrade = () => {
           return {
             ...p,
             knightsPlayed: (p.knightsPlayed || 0) + 1,
+            playedDevCardThisTurn: true,
             developmentCards: {
               ...p.developmentCards,
               KNIGHT: Math.max(0, p.developmentCards.KNIGHT - 1)
@@ -94,6 +103,7 @@ export const useAppTrade = () => {
         if (p.id === humanPlayer.id) {
           return {
             ...p,
+            playedDevCardThisTurn: true,
             developmentCards: {
               ...p.developmentCards,
               ROAD_BUILDING: Math.max(0, p.developmentCards.ROAD_BUILDING - 1)

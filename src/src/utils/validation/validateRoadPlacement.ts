@@ -1,6 +1,7 @@
 import { BoardVertex, BoardEdge } from '../../types/boardElements.types';
 import { HexTile } from '../../types/hex.types';
 import { getTileEdgeIds } from '../gameEngine/generateEdges';
+import { checkPieceLimit } from '../../hooks/useBuild';
 
 /**
  * בודקת האם שחקן יכול לבנות כביש בנתיב מסוים על הלוח
@@ -13,6 +14,11 @@ export function validateRoadPlacement(
   tiles?: HexTile[],
   gamePhase?: string
 ): boolean {
+  // Check piece limit (max 15 roads)
+  if (!checkPieceLimit(playerId, 'ROAD', vertices, edges)) {
+    return false;
+  }
+
   // 1. בדיקה שהנתיב פנוי
   const targetEdge = edges.find(e => e.id === edgeId);
   if (!targetEdge || targetEdge.hasRoad || targetEdge.hasShip) return false;

@@ -26,8 +26,20 @@ class SocketService {
   }
 
   // הצטרפות לחדר משחק
-  joinRoom(roomId: string, playerName: string) {
-    this.socket?.emit('join_room', { roomId, playerName });
+  joinRoom(roomId: string, playerName: string): Promise<string> {
+    return new Promise((resolve) => {
+      if (!this.socket) {
+        resolve('p2');
+        return;
+      }
+      this.socket.emit('join_room', { roomId, playerName }, (response: any) => {
+        if (response && response.assignedPlayerId) {
+          resolve(response.assignedPlayerId);
+        } else {
+          resolve('p2');
+        }
+      });
+    });
   }
 
   // יצירת חדר חדש עם מטא-דתה מלאה (הרחבה, סנאריו, מפה, כמות שחקנים)
@@ -77,6 +89,20 @@ class SocketService {
     this.socket?.on('game_settings_updated', (settings: any) => {
       console.log('📥 התקבל עדכון הגדרות מהלובי:', settings);
       callback(settings);
+    });
+  }
+
+  // עדכון סטטוס סלוט שחקן בשרת (למשל נעילה עבור בוט או AI)
+  updateSlotStatus(roomId: string, slotId: string, status: 'OPEN' | 'LOCKED_BOT') {
+    this.socket?.emit('update_slot_status', { roomId, slotId, status });
+  }
+
+  // האזנה להצטרפות שחקן חדש (לשימוש ה-Host)
+  onPlayerJoined(callback: (data: { playerId: string; playerName: string }) => void) {
+    this.socket?.off('player_joined');
+    this.socket?.on('player_joined', (data) => {
+      console.log('📥 שחקן חדש הצטרף לחדר:', data);
+      callback(data);
     });
   }
 

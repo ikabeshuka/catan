@@ -2,7 +2,6 @@ import React, { Suspense, useRef } from 'react';
 import { useGame } from '../../context/GameContext';
 import { validateRoadPlacement } from '../../utils/validation/validateRoadPlacement';
 import { validateShipPlacement } from '../../utils/validation/validateShipPlacement';
-import { WoodIcon, BrickIcon, SheepIcon, WheatIcon, OreIcon } from '../common/Icons';
 import { Canvas } from '@react-three/fiber';
 import { OrbitControls } from '@react-three/drei';
 import * as THREE from 'three';
@@ -14,6 +13,12 @@ import { getHarborDescription, getTileTooltipInfo } from '../../utils/boardToolt
 export const GameBoard3D: React.FC = () => {
   const orbitControlsRef = useRef<any>(null);
   const containerRef = useRef<HTMLDivElement>(null);
+
+  const woodPath = "/wood1.png";
+  const brickPath = "/brick1.png";
+  const sheepPath = "/wool1.png";
+  const wheatPath = "/wheat1.png";
+  const orePath = "/rock1.png";
 
   React.useEffect(() => {
     if (containerRef.current) {
@@ -138,9 +143,9 @@ export const GameBoard3D: React.FC = () => {
                   <span className="text-emerald-400 font-extrabold">חינם! (שלב הקמה / קלף בניית כבישים)</span>
                 ) : (
                   <>
-                    <span className="inline-flex items-center gap-1"><WoodIcon size={12} /> עץ x1</span>
+                    <span className="inline-flex items-center gap-1">{woodPath ? <img src={woodPath} className="w-3 h-3 object-contain bg-transparent" alt="עץ" /> : null} עץ x1</span>
                     <span>,</span>
-                    <span className="inline-flex items-center gap-1"><BrickIcon size={12} /> לבנה x1</span>
+                    <span className="inline-flex items-center gap-1">{brickPath ? <img src={brickPath} className="w-3 h-3 object-contain bg-transparent" alt="לבנה" /> : null} לבנה x1</span>
                   </>
                 )}
               </span>
@@ -152,13 +157,13 @@ export const GameBoard3D: React.FC = () => {
                   <span className="text-emerald-400 font-extrabold">חינם! (שלב הקמה)</span>
                 ) : (
                   <>
-                    <span className="inline-flex items-center gap-1"><WoodIcon size={12} /> עץ x1</span>
+                    <span className="inline-flex items-center gap-1">{woodPath ? <img src={woodPath} className="w-3 h-3 object-contain bg-transparent" alt="עץ" /> : null} עץ x1</span>
                     <span>,</span>
-                    <span className="inline-flex items-center gap-1"><BrickIcon size={12} /> לבנה x1</span>
+                    <span className="inline-flex items-center gap-1">{brickPath ? <img src={brickPath} className="w-3 h-3 object-contain bg-transparent" alt="לבנה" /> : null} לבנה x1</span>
                     <span>,</span>
-                    <span className="inline-flex items-center gap-1"><SheepIcon size={12} /> כבש x1</span>
+                    <span className="inline-flex items-center gap-1">{sheepPath ? <img src={sheepPath} className="w-3 h-3 object-contain bg-transparent" alt="כבש" /> : null} כבש x1</span>
                     <span>,</span>
-                    <span className="inline-flex items-center gap-1"><WheatIcon size={12} /> חיטה x1</span>
+                    <span className="inline-flex items-center gap-1">{wheatPath ? <img src={wheatPath} className="w-3 h-3 object-contain bg-transparent" alt="חיטה" /> : null} חיטה x1</span>
                   </>
                 )}
               </span>
@@ -166,17 +171,17 @@ export const GameBoard3D: React.FC = () => {
             {buildingToast.type === 'CITY' && (
               <span className="inline-flex items-center gap-1.5 flex-wrap justify-center">
                 <span>עלות שדרוג לעיר:</span>
-                <span className="inline-flex items-center gap-1"><OreIcon size={12} /> ברזל x3</span>
+                <span className="inline-flex items-center gap-1">{orePath ? <img src={orePath} className="w-3 h-3 object-contain bg-transparent" alt="ברזל" /> : null} ברזל x3</span>
                 <span>,</span>
-                <span className="inline-flex items-center gap-1"><WheatIcon size={12} /> חיטה x2</span>
+                <span className="inline-flex items-center gap-1">{wheatPath ? <img src={wheatPath} className="w-3 h-3 object-contain bg-transparent" alt="חיטה" /> : null} חיטה x2</span>
               </span>
             )}
             {buildingToast.type === 'SHIP' && (
               <span className="inline-flex items-center gap-1.5 flex-wrap justify-center">
                 <span>עלות בניית ספינה:</span>
-                <span className="inline-flex items-center gap-1"><WoodIcon size={12} /> עץ x1</span>
+                <span className="inline-flex items-center gap-1">{woodPath ? <img src={woodPath} className="w-3 h-3 object-contain bg-transparent" alt="עץ" /> : null} עץ x1</span>
                 <span>,</span>
-                <span className="inline-flex items-center gap-1"><SheepIcon size={12} /> כבש x1</span>
+                <span className="inline-flex items-center gap-1">{sheepPath ? <img src={sheepPath} className="w-3 h-3 object-contain bg-transparent" alt="כבש" /> : null} כבש x1</span>
               </span>
             )}
               </>
@@ -375,14 +380,24 @@ export const GameBoard3D: React.FC = () => {
                     {info.img ? <img src={info.img} className="h-5 w-5 object-contain ml-1 inline-block align-middle" alt={info.name} /> : null}
                     <span className="text-sm font-black text-white leading-none">{info.name}</span>
                   </div>
-                  {/* Small SVG Resource Icon */}
+                  {/* Small Resource Icon */}
                   <div className="bg-slate-950/50 p-1.5 rounded-lg border border-white/5 shadow flex items-center justify-center">
-                    {hoveredTile.tile.type === 'WOOD' && <WoodIcon size={14} />}
-                    {hoveredTile.tile.type === 'BRICK' && <BrickIcon size={14} />}
-                    {hoveredTile.tile.type === 'SHEEP' && <SheepIcon size={14} />}
-                    {hoveredTile.tile.type === 'WHEAT' && <WheatIcon size={14} />}
-                    {hoveredTile.tile.type === 'ORE' && <OreIcon size={14} />}
-                    {hoveredTile.tile.type === 'DESERT' && <span className="text-xs leading-none">🏜️</span>}
+                    {(() => {
+                      const type = hoveredTile.tile.type;
+                      let iconPath = '';
+                      if (type === 'WOOD') iconPath = '/wood1.png';
+                      else if (type === 'BRICK') iconPath = '/brick1.png';
+                      else if (type === 'SHEEP') iconPath = '/wool1.png';
+                      else if (type === 'WHEAT') iconPath = '/wheat1.png';
+                      else if (type === 'ORE') iconPath = '/rock1.png';
+                      else if (type === 'GOLD_FIELD') iconPath = '/gold1.png';
+                      else if (type === 'WATER') iconPath = '/cea1.png';
+                      else if (type === 'DESERT') return <span className="text-xs leading-none">🏜️</span>;
+
+                      return iconPath ? (
+                        <img src={iconPath} className="w-3.5 h-3.5 object-contain bg-transparent" alt={type} />
+                      ) : null;
+                    })()}
                   </div>
                 </div>
 

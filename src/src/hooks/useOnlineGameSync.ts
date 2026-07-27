@@ -39,6 +39,7 @@ export const useOnlineGameSync = ({
     setSelectedScenario,
     setBoardType,
     showBuildingCostToast,
+    myPlayerId,
   } = useGame();
 
   const { recordSetupPlacement, endTurn, handleDiceRoll } = useTurnManager();
@@ -86,6 +87,7 @@ export const useOnlineGameSync = ({
         dispatchGameAction(remoteAction, {
           roomId,
           isRemote: true,
+          myPlayerId,
           gamePhase,
           players,
           setVertices,
@@ -114,6 +116,6 @@ export const useOnlineGameSync = ({
     roomId, gamePhase, players, tiles, vertices, edges,
     activeExpansion, activeRobberType, roadBuildingRemaining,
     handleDiceRoll, buyDevelopmentCard, endTurn, setVertices, setEdges, setPlayers, setTiles, showBuildingCostToast, addLog, recordSetupPlacement, setRoadBuildingRemaining, setRobberyState, setTurnSubPhase,
-    selectedScenario
+    selectedScenario, myPlayerId
   ]);
 };

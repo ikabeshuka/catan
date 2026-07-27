@@ -5,6 +5,7 @@ import { cubeToPixel } from '../utils/hexMath/cubeToPixel';
 export interface DispatcherContext {
   roomId?: string;
   isRemote?: boolean;
+  myPlayerId?: string | null;
   gamePhase?: string;
   players?: any[];
   setVertices?: React.Dispatch<React.SetStateAction<any[]>>;
@@ -35,6 +36,11 @@ export function dispatchGameAction(action: GameAction, context?: DispatcherConte
   console.log(`🎲 Dispatching Action [${context?.isRemote ? 'REMOTE' : 'LOCAL'}]:`, action);
   if (!context) return;
 
+  if (context.isRemote === true && action.playerId !== context.myPlayerId) {
+    console.warn(`Action security block: action.playerId (${action.playerId}) does not match myPlayerId (${context.myPlayerId})`);
+    return;
+  }
+
   const { type, playerId } = action;
 
   switch (type) {
@@ -43,6 +49,52 @@ export function dispatchGameAction(action: GameAction, context?: DispatcherConte
       if (context.handleDiceRoll) {
         context.handleDiceRoll(action.diceValues);
       }
+      break;
+    }
+
+    case 'DISCARD_CARDS': {
+      const { resourcesToDiscard } = action as any;
+      const player = context.players?.find((p: any) => p.id === playerId);
+      if (!player) return;
+
+      context.setPlayers?.((prev: any[]) => {
+        const updatedPlayers = prev.map(p => {
+          if (p.id === playerId) {
+            const updatedRes = { ...p.resources };
+            Object.entries(resourcesToDiscard).forEach(([res, amt]) => {
+              updatedRes[res] = Math.max(0, (updatedRes[res] || 0) - (amt as number));
+            });
+            return { ...p, resources: updatedRes };
+          }
+          return p;
+        });
+
+        const othersStillNeedToDiscard = updatedPlayers.some(p => 
+          !p.isBot && Object.values(p.resources).reduce((sum: number, count: any) => sum + (count as number), 0) > 7
+        );
+
+        if (!othersStillNeedToDiscard && context.setTurnSubPhase) {
+          context.addLog?.(`כל השחקנים סיימו לזרוק קלפים. השודד הופעל! יש למקם את השודד באריח חדש.`);
+          context.setTurnSubPhase('ROBBER_PLACEMENT');
+        }
+
+        return updatedPlayers;
+      });
+
+      const resourceLabelsHE: Record<string, string> = {
+        WOOD: 'עץ',
+        BRICK: 'לבנה',
+        SHEEP: 'כבש',
+        WHEAT: 'חיטה',
+        ORE: 'ברזל'
+      };
+
+      const discardedItemsLog = Object.entries(resourcesToDiscard)
+        .filter(([_, val]) => (val as number) > 0)
+        .map(([key, val]) => `${val} ${resourceLabelsHE[key] || key}`)
+        .join(', ');
+
+      context.addLog?.(`שחקן ${player.name} זרק קלפים לקופה: ${discardedItemsLog || 'ללא קלפים'}.`);
       break;
     }
 
@@ -127,7 +179,7 @@ export function dispatchGameAction(action: GameAction, context?: DispatcherConte
         context.setPlayers?.((prev: any[]) => prev.map(p => p.id === playerId
           ? {
               ...p,
-              victoryPoints: p.victoryPoints + 1 + specialVPBonus,
+              victoryPoints: p.victoryPoints + 1,
               resources: {
                 ...p.resources,
                 WOOD: p.resources.WOOD - 1,
@@ -374,6 +426,11 @@ export function dispatchGameAction(action: GameAction, context?: DispatcherConte
         context.setIncomingTradeOffer({ proposerId: playerId, tradeOffer });
       }
 
+      context.setPlayers?.((prev: any[]) => prev.map(p => p.id === playerId
+        ? { ...p, activeTradeOffer: tradeOffer }
+        : p
+      ));
+
       context.addLog?.(`🤝 ${player?.name || 'שחקן'} הציע מסחר חדש.`);
       break;
     }
@@ -383,6 +440,44 @@ export function dispatchGameAction(action: GameAction, context?: DispatcherConte
       const { targetPlayerId } = action; // proposerId
       const proposer = context.players?.find((p: any) => p.id === targetPlayerId);
       const acceptor = context.players?.find((p: any) => p.id === playerId);
+
+      const tradeOffer = proposer?.activeTradeOffer || (action as any).tradeOffer || context.incomingTradeOffer?.tradeOffer || context.activeTradeOffer;
+
+      if (proposer && acceptor && tradeOffer) {
+        const { offer, request } = tradeOffer;
+
+        context.setPlayers?.((prev: any[]) => prev.map(p => {
+          if (p.id === targetPlayerId) { // proposer
+            const updatedResources = { ...p.resources };
+            if (offer) {
+              Object.entries(offer).forEach(([res, amt]) => {
+                updatedResources[res] = Math.max(0, (updatedResources[res] || 0) - (amt as number));
+              });
+            }
+            if (request) {
+              Object.entries(request).forEach(([res, amt]) => {
+                updatedResources[res] = (updatedResources[res] || 0) + (amt as number);
+              });
+            }
+            return { ...p, resources: updatedResources, activeTradeOffer: null };
+          }
+          if (p.id === playerId) { // acceptor
+            const updatedResources = { ...p.resources };
+            if (offer) {
+              Object.entries(offer).forEach(([res, amt]) => {
+                updatedResources[res] = (updatedResources[res] || 0) + (amt as number);
+              });
+            }
+            if (request) {
+              Object.entries(request).forEach(([res, amt]) => {
+                updatedResources[res] = Math.max(0, (updatedResources[res] || 0) - (amt as number));
+              });
+            }
+            return { ...p, resources: updatedResources };
+          }
+          return p;
+        }));
+      }
 
       context.addLog?.(`✅ ${acceptor?.name || 'שחקן'} אישר את הצעת המסחר של ${proposer?.name || 'שחקן'}.`);
       break;

@@ -15,7 +15,8 @@ export interface RoomInfo {
 interface OnlineRoomModalProps {
   isOpen: boolean;
   onClose: () => void;
-  onRoomJoined: (roomId: string, isHost: boolean, roomData?: RoomInfo) => void;
+  onRoomJoined: (roomId: string, isHost: boolean, assignedId?: string) => void;
+  onStartOnlineCreation?: () => void;
   playerName: string;
   currentSettings: {
     activeExpansion: string;
@@ -29,6 +30,7 @@ export const OnlineRoomModal: React.FC<OnlineRoomModalProps> = ({
   isOpen,
   onClose,
   onRoomJoined,
+  onStartOnlineCreation,
   playerName,
   currentSettings,
 }) => {
@@ -59,26 +61,17 @@ export const OnlineRoomModal: React.FC<OnlineRoomModalProps> = ({
 
   // 1. יצירת חדר חדש ע"י ה-Host על בסיס ההגדרות שנבחרו בשלבים 1-3
   const handleCreateRoom = () => {
-    const newRoomId = 'CATAN-' + Math.floor(1000 + Math.random() * 9000);
-    
-    socketService.createRoom({
-      roomId: newRoomId,
-      hostName: playerName || 'שחקן',
-      expansion: currentSettings.activeExpansion,
-      scenario: currentSettings.selectedScenario,
-      boardType: currentSettings.boardType,
-      maxPlayers: currentSettings.playerCount,
-    });
-
-    socketService.joinRoom(newRoomId, playerName || 'שחקן');
-    onRoomJoined(newRoomId, true);
+    if (onStartOnlineCreation) {
+      onStartOnlineCreation();
+    }
     onClose();
   };
 
   // 2. הצטרפות לחדר מתוך הרשימה
   const handleJoinPublicRoom = (room: RoomInfo) => {
-    socketService.joinRoom(room.roomId, playerName || 'שחקן');
-    onRoomJoined(room.roomId, false, room);
+    socketService.joinRoom(room.roomId, playerName || 'שחקן').then((assignedId) => {
+      onRoomJoined(room.roomId, false, assignedId);
+    });
     onClose();
   };
 
@@ -87,8 +80,9 @@ export const OnlineRoomModal: React.FC<OnlineRoomModalProps> = ({
     const code = manualCode.trim().toUpperCase();
     if (!code) return;
 
-    socketService.joinRoom(code, playerName || 'שחקן');
-    onRoomJoined(code, false);
+    socketService.joinRoom(code, playerName || 'שחקן').then((assignedId) => {
+      onRoomJoined(code, false, assignedId);
+    });
     onClose();
   };
 

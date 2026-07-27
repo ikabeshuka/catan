@@ -10,6 +10,12 @@
 
 ```text
 catan-game/src/src/
+├── App.tsx                       # הרכיב הראשי של האפליקציה
+├── App.css                       # עיצובים גלובליים של האפליקציה
+├── fonts.css                     # הגדרות גופנים לוקאליים
+├── index.css                     # הגדרות CSS בסיסיות ואינטגרציית Tailwind
+├── main.tsx                      # נקודת הכניסה הראשית (Entry Point) של React
+├── vite-env.d.ts                 # הגדרות סביבה וטיפוסים של Vite
 ├── assets/                       # קבצי מדיה, תמונות וגופנים לוקאליים
 │   └── react.svg
 ├── config/                       # קונפיגורציות ופריסות לוחות משחק
@@ -32,11 +38,16 @@ catan-game/src/src/
 ├── hooks/                        # לוגיקה ייעודית מופרדת (Custom Hooks)
 │   ├── useAppTrade.ts            # ניהול הצעות ומסחר במערכת האפליקציה
 │   ├── useAppTrophies.ts         # ניהול הישגים וגביעים
-│   ├── useBoardInteraction.ts    # טיפול בלחיצות על קודקודים (כולל עגלות), צלעות ואריחים
+│   ├── useBoardInteraction.ts    # טיפול בלחיצות על קודקודים, צלעות ואריחים
+│   ├── useBoardTextures.ts       # טעינה וניהול טקסטורות ללוח התלת-ממדי
+│   ├── useBotTimer.ts            # ניהול זמני ההמתנה ותורי הבוטים (AI)
 │   ├── useBuild.ts               # ניהול פעולות בנייה (כבישים, יישובים, ערים, ספינות)
 │   ├── useDice.ts                # ניהול זריקת הקוביות, אנימציות ותוצאות
+│   ├── useEdgeInteraction.ts     # טיפול באינטראקציה ישירה עם צלעות הלוח
+│   ├── useOnlineGameSync.ts      # סנכרון וניהול מצב משחק מרובה משתתפים מול השרת
 │   ├── useTrade.ts               # ניהול ממשק המסחר בין שחקנים ועם הבנק
-│   └── useTurnManager.ts         # ניהול מחזור התור, שלבי משנה, סבבי הקמה ותנועת עגלות
+│   ├── useTurnManager.ts         # ניהול מחזור התור, שלבי משנה, סבבי הקמה ותנועת עגלות
+│   └── useVertexInteraction.ts   # טיפול באינטראקציה ישירה עם קודקודי הלוח (בנייה/עגלות)
 ├── services/                     # שירותי תקשורת ואינטגרציה
 │   ├── gameApi.ts                # ממשקי API של המשחק
 │   ├── gameDispatcher.ts         # ניהול וניתוב פעולות משחק לוקאליות וסנכרון מול הרשת
@@ -48,7 +59,8 @@ catan-game/src/src/
 │   │   ├── GeminiSettingsModal.tsx # מודאל הגדרת מפתח API וסוג המודל עבור שחקני AI מבוססי Gemini
 │   │   └── geminiTypes.ts        # הגדרות טיפוסים, ממשקים וקונפיגורציות ל-Gemini
 │   └── network/                  # רכיבי תקשורת רשת בזמן אמת
-│       └── socketService.ts      # שירות התחברות לשרת WebSocket (Render) וניהול שידורי פעולות בחדרי משחק
+│       ├── socketService.ts      # שירות התחברות לשרת WebSocket (Render) וניהול שידורי פעולות בחדרי משחק
+│       └── UpdateNotification.tsx # רכיב התרעות והודעות על עדכוני רשת של האפליקציה
 ├── types/                        # טיפוסים והגדרות סוגים (TypeScript Typings)
 │   ├── boardElements.types.ts    # טיפוסי צמתים (Vertices), צלעות (Edges) ומבנים
 │   ├── game.types.ts             # טיפוסי שלבי משחק, סנאריוז ושלבי משנה

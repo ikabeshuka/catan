@@ -1,11 +1,11 @@
 {
-  "version": "v0.1.1",
-  "notes": "גרסה 0.1.1 - שדרוג מולטיפלייר, סנכרון מפות וצ'אט אונליין",
+  "version": "v0.1.3",
+  "notes": "גרסה 0.1.3 - שדרוג מולטיפלייר, סנכרון מפות וצ'אט אונליין",
   "pub_date": "2026-07-26T00:00:00Z",
   "platforms": {
     "windows-x86_64": {
       "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVUZmpDZ0dMc2owcTBjTVB0anBKWFloZS95eTRtTzZxNkdscUJhbE1YT0RyM2VaVnJKRXZSd09VZ2Z0ZW10eXhUMEtaRmRRZERqb3FURkNmWHBiODFmaGlhTjRKVXFhY1F3PQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzg1MDI1OTE1CWZpbGU6Y2F0YW5fMC4xLjFfeDY0X2VuLVVTLm1zaQpNRk9pdjNER1BmT1BYQU9ORzNGY21XNzRQcWZxWXRWREhOcDRVczBNK09yajdsRHdQVEZuUkI0RkZCTzV4N3FaUTNYc2FXYjBMQW13bzlYUzhpRGlCQT09Cg==",
-      "url": "https://github.com/ikabeshuka/catan/releases/download/v0.1.1/catan_0.1.1_x64_en-US.msi"
+      "url": "https://github.com/ikabeshuka/catan/releases/download/v0.1.3/catan_0.1.3_x64-setup.exe"
     }
   }
 }

@@ -13,8 +13,8 @@ import { DevelopmentCardsPanel } from './components/playerPanel/DevelopmentCards
 import { runAITurn } from './utils/ai/aiController';
 import { useTurnManager } from './hooks/useTurnManager';
 import { stealRandomCard } from './utils/gameEngine/robberSteal';
+import { Player } from './types/player.types';
 import { 
-  WoodIcon, BrickIcon, SheepIcon, WheatIcon, OreIcon,
   DealIcon, CardIcon,
   CrossIcon, WarningIcon
 } from './components/common/Icons';
@@ -203,6 +203,17 @@ const GameContent: React.FC = () => {
       // פונקציית סיום תור מותאמת לבוט
       const endTurnForBot = () => {
         const nextIndex = (currentPlayerIndex + 1) % players.length;
+        const nextPlayer = players[nextIndex];
+        setPlayers((prev: Player[]) => prev.map(p => {
+          if (p.id === nextPlayer.id) {
+            return {
+              ...p,
+              playedDevCardThisTurn: false,
+              boughtDevCardsThisTurn: {}
+            };
+          }
+          return p;
+        }));
         setCurrentPlayerIndex(nextIndex);
         setTurnSubPhase("BEFORE_ROLL");
       };
@@ -690,11 +701,11 @@ const GameContent: React.FC = () => {
                       </span>
                     </div>
                     <div className="flex items-center gap-3 bg-slate-900 p-2.5 rounded-lg border border-slate-800 font-bold text-sm text-slate-200">
-                      {activePortTrade.harborType === 'WOOD' && <><WoodIcon size={18} className="text-emerald-500" /> <span>2 עץ</span></>}
-                      {activePortTrade.harborType === 'BRICK' && <><BrickIcon size={18} className="text-orange-500" /> <span>2 לבנה</span></>}
-                      {activePortTrade.harborType === 'SHEEP' && <><SheepIcon size={18} className="text-lime-500" /> <span>2 כבש</span></>}
-                      {activePortTrade.harborType === 'WHEAT' && <><WheatIcon size={18} className="text-amber-500" /> <span>2 חיטה</span></>}
-                      {activePortTrade.harborType === 'ORE' && <><OreIcon size={18} className="text-slate-500" /> <span>2 ברזל</span></>}
+                      {activePortTrade.harborType === 'WOOD' && <><img src="/wood1.png" className="w-5 h-5 object-contain bg-transparent ml-1 inline-block align-middle" alt="עץ" /> <span>2 עץ</span></>}
+                      {activePortTrade.harborType === 'BRICK' && <><img src="/brick1.png" className="w-5 h-5 object-contain bg-transparent ml-1 inline-block align-middle" alt="לבנה" /> <span>2 לבנה</span></>}
+                      {activePortTrade.harborType === 'SHEEP' && <><img src="/wool1.png" className="w-5 h-5 object-contain bg-transparent ml-1 inline-block align-middle" alt="כבש" /> <span>2 כבש</span></>}
+                      {activePortTrade.harborType === 'WHEAT' && <><img src="/wheat1.png" className="w-5 h-5 object-contain bg-transparent ml-1 inline-block align-middle" alt="חיטה" /> <span>2 חיטה</span></>}
+                      {activePortTrade.harborType === 'ORE' && <><img src="/rock1.png" className="w-5 h-5 object-contain bg-transparent ml-1 inline-block align-middle" alt="ברזל" /> <span>2 ברזל</span></>}
                     </div>
                   </div>
 
@@ -706,11 +717,11 @@ const GameContent: React.FC = () => {
                         .map(res => {
                           const labels: Record<string, string> = { WOOD: 'עץ', BRICK: 'לבנה', SHEEP: 'כבש', WHEAT: 'חיטה', ORE: 'ברזל' };
                           const icons: Record<string, any> = { 
-                            WOOD: <WoodIcon size={16} className="text-emerald-500" />,
-                            BRICK: <BrickIcon size={16} className="text-orange-500" />,
-                            SHEEP: <SheepIcon size={16} className="text-lime-500" />,
-                            WHEAT: <WheatIcon size={16} className="text-amber-500" />,
-                            ORE: <OreIcon size={16} className="text-slate-500" />
+                            WOOD: <img src="/wood1.png" className="w-4 h-4 object-contain bg-transparent ml-1 inline-block align-middle" alt="עץ" />,
+                            BRICK: <img src="/brick1.png" className="w-4 h-4 object-contain bg-transparent ml-1 inline-block align-middle" alt="לבנה" />,
+                            SHEEP: <img src="/wool1.png" className="w-4 h-4 object-contain bg-transparent ml-1 inline-block align-middle" alt="כבש" />,
+                            WHEAT: <img src="/wheat1.png" className="w-4 h-4 object-contain bg-transparent ml-1 inline-block align-middle" alt="חיטה" />,
+                            ORE: <img src="/rock1.png" className="w-4 h-4 object-contain bg-transparent ml-1 inline-block align-middle" alt="ברזל" />
                           };
                           return (
                             <button

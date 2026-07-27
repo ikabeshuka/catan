@@ -33,6 +33,7 @@ export const YearOfPlentyModal: React.FC<YearOfPlentyModalProps> = ({
             [yopRes1]: (p.resources[yopRes1] || 0) + 1,
             [yopRes2]: (p.resources[yopRes2] || 0) + 1
           },
+          playedDevCardThisTurn: true,
           developmentCards: {
             ...p.developmentCards,
             YEAR_OF_PLENTY: Math.max(0, (p.developmentCards.YEAR_OF_PLENTY || 0) - 1)

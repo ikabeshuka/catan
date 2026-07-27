@@ -215,7 +215,7 @@ export const VertexNode: React.FC<VertexNodeProps> = ({
       setPlayers(prev => prev.map(p => p.id === currentPlayer.id 
         ? {
             ...p,
-            victoryPoints: p.victoryPoints + 1 + specialVPBonus,
+            victoryPoints: p.victoryPoints + 1,
             resources: {
               ...p.resources,
               WOOD: p.resources.WOOD - 1,
@@ -298,7 +298,7 @@ export const VertexNode: React.FC<VertexNodeProps> = ({
           {vertex.harborType === 'GENERIC' ? (
             <g style={{ transform: is3DMode ? `translate(${x}px, ${y}px) translateZ(12px)` : `translate(${x}px, ${y}px)`, transformStyle: 'preserve-3d' }}>
               <image
-                href="/favicon.svg"
+                href="/gold1.png"
                 x="-7"
                 y="-11"
                 width="14"
@@ -437,7 +437,7 @@ export const VertexNode: React.FC<VertexNodeProps> = ({
           {vertex.harborType && (
             <image
               href={
-                vertex.harborType === 'GENERIC' ? '/favicon.svg' :
+                vertex.harborType === 'GENERIC' ? '/gold1.png' :
                 vertex.harborType === 'WOOD' ? '/wood1.png' :
                 vertex.harborType === 'BRICK' ? '/brick1.png' :
                 vertex.harborType === 'SHEEP' ? '/wool1.png' :

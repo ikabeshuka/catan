@@ -52,7 +52,7 @@ export const MonopolyModal: React.FC<MonopolyModalProps> = ({
               onClick={() => {
                 let stolen = 0;
                 players.forEach(p => {
-                  if (p.id !== humanPlayer.id && p.isBot) {
+                  if (p.id !== humanPlayer.id) {
                     stolen += p.resources[res.type] || 0;
                   }
                 });
@@ -65,12 +65,13 @@ export const MonopolyModal: React.FC<MonopolyModalProps> = ({
                         ...p.resources,
                         [res.type]: (p.resources[res.type] || 0) + stolen
                       },
+                      playedDevCardThisTurn: true,
                       developmentCards: {
                         ...p.developmentCards,
                         MONOPOLY: Math.max(0, (p.developmentCards.MONOPOLY || 0) - 1)
                       }
                     };
-                  } else if (p.isBot) {
+                  } else {
                     return {
                       ...p,
                       resources: {
@@ -79,7 +80,6 @@ export const MonopolyModal: React.FC<MonopolyModalProps> = ({
                       }
                     };
                   }
-                  return p;
                 }));
 
                 addLog(`[קלף פיתוח] ${humanPlayer.name} הפעיל קלף מונופול ומקבל את כל קלפי ה-${res.label}! נגזלו ${stolen} קלפים משאר השחקנים.`);
