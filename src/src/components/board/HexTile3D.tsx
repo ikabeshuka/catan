@@ -34,16 +34,17 @@ export const HexTile3D: React.FC<HexTile3DProps> = ({
 
   const texturesRef = useRef(textures);
   texturesRef.current = textures;
+  const wheatTexture = textures.WHEAT;
 
   const windTexture = useMemo(() => {
-    const tex = texturesRef.current.WHEAT;
+    const tex = wheatTexture;
     if (!tex) return null;
     const cloned = tex.clone();
     cloned.wrapS = THREE.RepeatWrapping;
     cloned.wrapT = THREE.RepeatWrapping;
     cloned.needsUpdate = true;
     return cloned;
-  }, [textures.WHEAT]);
+  }, [wheatTexture]);
 
   useEffect(() => {
     return () => {

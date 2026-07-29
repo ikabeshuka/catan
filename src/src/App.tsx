@@ -1,6 +1,7 @@
 import React, { useEffect, useState, useRef } from 'react';
 import { GameProvider, useGame, getPlayerTotalVP } from './context/GameContext';
 import { GameBoard3D } from './components/board/GameBoard3D';
+import { ResourceFlowOverlay } from './components/board/ResourceFlowOverlay';
 import { generateBoard } from './utils/gameEngine/generateBoard';
 import { generateVertices } from './utils/gameEngine/generateVertices';
 import { generateEdges } from './utils/gameEngine/generateEdges';
@@ -10,13 +11,14 @@ import { ActionSidebar } from './components/actions/ActionSidebar';
 import { ResourceContainer } from './components/playerPanel/ResourceContainer';
 import { GameLog } from './components/notifications/GameLog';
 import { DevelopmentCardsPanel } from './components/playerPanel/DevelopmentCardsPanel';
+import { TradePanel } from './components/actions/TradePanel';
 import { runAITurn } from './utils/ai/aiController';
 import { useTurnManager } from './hooks/useTurnManager';
 import { stealRandomCard } from './utils/gameEngine/robberSteal';
 import { Player } from './types/player.types';
 import { 
-  DealIcon, CardIcon,
-  CrossIcon, WarningIcon
+  CardIcon,
+  CrossIcon
 } from './components/common/Icons';
 import { LobbyScreen } from './components/lobby/LobbyScreen';
 import { TrophyPopup } from './components/modals/TrophyModal';
@@ -27,6 +29,9 @@ import { useBotTimer } from './hooks/useBotTimer';
 import { useOnlineGameSync } from './hooks/useOnlineGameSync';
 import { BotTimerIndicator } from './components/common/BotTimerIndicator';
 import { GameModalsManager } from './components/modals/GameModalsManager';
+import { UnifiedTradeModal } from './components/modals/UnifiedTradeModal';
+import { getVictoryPointTarget } from './config/gameRules';
+import { dispatchGameAction } from './services/gameDispatcher';
 
 const GameContent: React.FC = () => {
   const lastProcessedTurnRef = useRef<string>("");
@@ -49,28 +54,30 @@ const GameContent: React.FC = () => {
     setCurrentPlayerIndex,
     addLog,
     roadBuildingRemaining,
-    resourcePosition,
     setResourcePosition,
     isResourceCollapsed,
     setIsResourceCollapsed,
-    activePortTrade,
     setActivePortTrade,
     setTiles,
     robberyState,
     setRobberyState,
-    showBuildingCostToast,
     longestRoadPlayerId,
     largestArmyPlayerId,
     activeExpansion,
     activeRobberType,
     setActiveRobberType,
     selectedScenario,
-    boardType
+    boardType,
+    roomId,
+    setRoomId,
+    isHost,
+    setIsHost,
+    myPlayerId,
+    buyDevelopmentCard,
   } = useGame();
 
-  const [roomId, setRoomId] = useState<string | null>(null);
-  const [isHost, setIsHost] = useState<boolean>(false);
-  const { recordSetupPlacement, endTurn, handleDiceRoll, startTurn } = useTurnManager();
+  const [activeRightTab, setActiveRightTab] = useState<'DEV_CARDS' | 'TRADE'>('DEV_CARDS');
+  const { recordSetupPlacement, endTurn, handleDiceRoll, startTurn, checkIfGameEnds } = useTurnManager();
 
   const {
     setBotTimeLimit,
@@ -84,13 +91,14 @@ const GameContent: React.FC = () => {
     setBotTimeLimit,
   });
 
-  const victoryGoal = activeExpansion === 'SEAFARERS'
-    ? (selectedScenario === 'HEADING_FOR_NEW_SHORES' || selectedScenario === 'THROUGH_THE_DESERT' ? 14 : (selectedScenario === 'FOUR_ISLANDS' ? 13 : 10))
-    : 10;
+  const victoryGoal = getVictoryPointTarget(activeExpansion, selectedScenario);
 
   const activePlayer = players[currentPlayerIndex];
+  const currentTurnPlayerId = activePlayer?.id;
 
-  const humanPlayer = players.find(p => !p.isBot) || players[0];
+  const humanPlayer = (roomId
+    ? players.find(p => p.id === myPlayerId)
+    : players.find(p => !p.isBot) || players[0])!;
 
   const {
     isDevCardsOverlayOpen,
@@ -101,23 +109,7 @@ const GameContent: React.FC = () => {
     setIsMonopolyModalOpen,
     isYearOfPlentyModalOpen,
     setIsYearOfPlentyModalOpen,
-    giveRes,
-    setGiveRes,
-    giveAmt,
-    setGiveAmt,
-    receiveRes,
-    setReceiveRes,
-    receiveAmt,
-    setReceiveAmt,
-    targetBotId,
-    setTargetBotId,
-    harborGiveRes,
-    setHarborGiveRes,
-    harborReceiveRes,
-    setHarborReceiveRes,
     handlePlayCard,
-    executeHarborTrade,
-    handleProposeTrade,
   } = useAppTrade();
 
   const {
@@ -170,18 +162,28 @@ const GameContent: React.FC = () => {
 
   // בדיקת תנאי ניצחון דינמית בזמן אמת (אנושי או בוט)
   useEffect(() => {
-    if (gamePhase === 'MAIN_GAME') {
-      const winner = players.find(p => getPlayerTotalVP(p, longestRoadPlayerId, largestArmyPlayerId, true, vertices, tiles) >= victoryGoal);
+    if (gamePhase === 'MAIN_GAME' && currentTurnPlayerId) {
+      const winner = players.find(p =>
+        p.id === currentTurnPlayerId &&
+        getPlayerTotalVP(p, longestRoadPlayerId, largestArmyPlayerId, true, vertices, tiles, selectedScenario) >= victoryGoal
+      );
       if (winner) {
-        const totalVP = getPlayerTotalVP(winner, longestRoadPlayerId, largestArmyPlayerId, true, vertices, tiles);
+        checkIfGameEnds(winner);
+        return;
+        /* Legacy direct mutation replaced by checkIfGameEnds.
+        const totalVP = getPlayerTotalVP(winner, longestRoadPlayerId, largestArmyPlayerId, true, vertices, tiles, selectedScenario);
         setGamePhase('GAME_OVER');
         addLog(`המשחק נגמר! ${winner.name} ניצח/ה עם ${totalVP} נקודות ניצחון!`);
+        */
       }
     }
-  }, [players, longestRoadPlayerId, largestArmyPlayerId, gamePhase, vertices, tiles]);
+  }, [players, currentTurnPlayerId, longestRoadPlayerId, largestArmyPlayerId, gamePhase, vertices, tiles, victoryGoal, selectedScenario, checkIfGameEnds]);
 
   // האפקט המרכזי שמזהה תור של בוט ומפעיל את ה-AI באופן אוטומטי
   useEffect(() => {
+    // In online rooms only the host advances bots. Its canonical snapshots
+    // are replicated to every guest.
+    if (roomId && !isHost) return;
     // Check win condition for the current player at the start of their turn
     if (gamePhase === "MAIN_GAME" && activePlayer && !activePlayer.isBot && turnSubPhase === 'BEFORE_ROLL') {
       const turnKey = `${gamePhase}-${currentPlayerIndex}-${turnSubPhase}`;
@@ -245,6 +247,7 @@ const GameContent: React.FC = () => {
         setVertices: guard(setVertices),
         setEdges: guard(setEdges),
         setPlayers: guard(setPlayers),
+        buyDevelopmentCard: guard(buyDevelopmentCard),
         recordSetupPlacement: guard(recordSetupPlacement),
         setTiles: guard(setTiles),
         setTurnSubPhase: guard(setTurnSubPhase),
@@ -261,7 +264,7 @@ const GameContent: React.FC = () => {
         legalActions: {} as any, // Placeholder, will be replaced with actual legal actions
       });
     }
-  }, [currentPlayerIndex, turnSubPhase, gamePhase, activePlayer, endTurn, recordSetupPlacement, handleDiceRoll, players, addLog, setTiles, setTurnSubPhase, startTurn]);
+  }, [roomId, isHost, currentPlayerIndex, turnSubPhase, gamePhase, activePlayer, endTurn, recordSetupPlacement, handleDiceRoll, buyDevelopmentCard, players, addLog, setTiles, setTurnSubPhase, startTurn, tiles, vertices, edges, setPlayers, setVertices, setEdges, setCurrentPlayerIndex]);
 
   // תצוגת מסך הלובי / פתיחה - תומכת בגלילה פנימית כדי למנוע גלילה גלובלית ביישום
   if (gamePhase === 'LOBBY') {
@@ -285,7 +288,7 @@ const GameContent: React.FC = () => {
             const newEdges = generateEdges(newTiles, activeExpansion);
 
             // Call initNewGame with presets
-            initNewGame(pCount, newTiles, newVertices, newEdges);
+            const initialDeck = initNewGame(pCount, newTiles, newVertices, newEdges);
 
             const selectedPlayers = lobbyP.slice(0, pCount).map((p) => {
               const difficulty: 'EASY' | 'MEDIUM' | 'HARD' | 'SUPER_HARD' | undefined = p.isBot ? (p.difficulty === 'קל' ? 'EASY' : p.difficulty === 'קשה' ? 'HARD' : p.difficulty === 'סופר קשה' ? 'SUPER_HARD' : 'MEDIUM') : undefined;
@@ -319,7 +322,27 @@ const GameContent: React.FC = () => {
                 botTimeLimit: limit,
                 activeExpansion,
                 selectedScenario,
-                boardType
+                boardType,
+                initialState: {
+                  players: selectedPlayers,
+                  tiles: newTiles,
+                  vertices: newVertices,
+                  edges: newEdges,
+                  currentPlayerIndex: 0,
+                  gamePhase: 'SETUP_ROUND_1',
+                  turnSubPhase: 'BEFORE_ROLL',
+                  setupState: { hasPlacedSettlement: false, hasPlacedRoad: false },
+                  devCardDeck: initialDeck,
+                  resourceBank: { WOOD: 19, BRICK: 19, SHEEP: 19, WHEAT: 19, ORE: 19 },
+                  goldCoins: Object.fromEntries(selectedPlayers.map(player => [player.id, 0])),
+                  roadBuildingRemaining: 0,
+                  goldSelectionQueue: [],
+                  currentTurnBuiltShips: [],
+                  hasMovedShipThisTurn: false,
+                  activeExpansion,
+                  selectedScenario,
+                  boardType,
+                }
               });
             }
           }}
@@ -331,6 +354,7 @@ const GameContent: React.FC = () => {
   return (
     <div className="flex flex-row h-screen w-screen overflow-hidden bg-black text-slate-100 font-sans p-4 gap-4">
       <UpdateNotification />
+      <ResourceFlowOverlay />
       
       {/* פריסה צידית: מכילה את פאנל השליטה (למעלה) ולוג ההיסטוריה קבוע בתחתית (למטה) */}
       <aside className="w-[336px] flex flex-col gap-4 h-full z-10 flex-none">
@@ -374,176 +398,22 @@ const GameContent: React.FC = () => {
         <div className="flex flex-1 gap-4 min-h-0 w-full flex-col overflow-hidden">
           
           {/* לוח ה-SVG המשושה - GameBoard3D */}
-          <div className="flex-1 bg-slate-900/40 border-2 border-slate-800 rounded-xl overflow-hidden relative shadow-inner flex items-center justify-center min-h-0">
+          <div id="game-board-wrapper" className="flex-1 bg-slate-900/40 border-2 border-slate-800 rounded-xl overflow-hidden relative shadow-inner flex items-center justify-center min-h-0">
             <GameBoard3D />
           </div>
 
-          {/* פאנל המשאבים התחתון (אם נבחר מיקום תחתון) - ממוקם כחלק מהפריסה הדינמית למניעת הסתרה וחורים ריקים */}
-          {resourcePosition === 'bottom' && (
-            <footer className="w-full z-10 flex flex-col md:flex-row gap-4 flex-none">
-              <div className="flex-1">
-                <ResourceContainer 
-                  resources={humanPlayer.resources} 
-                  playerName={humanPlayer.name} 
-                  position={resourcePosition}
-                  isCollapsed={isResourceCollapsed}
-                  onPositionChange={setResourcePosition}
-                  onToggleCollapsed={() => setIsResourceCollapsed(prev => !prev)}
-                />
-              </div>
-            </footer>
-          )}
 
         </div>
       </main>
 
-        {/* מודל מסחר אינטראקטיבי */}
+        {/* פאנל מסחר מאוחד */}
         {isTradeModalOpen && (
-          <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-md flex items-center justify-center z-50 p-4">
-            <div className="bg-slate-900 border border-slate-800 rounded-2xl w-full max-w-lg p-6 shadow-2xl relative text-right" dir="rtl">
-              <button 
-                onClick={() => setIsTradeModalOpen(false)}
-                className="absolute top-4 left-4 text-slate-400 hover:text-white transition-colors duration-200 cursor-pointer p-1 rounded-lg hover:bg-slate-800 flex items-center justify-center"
-              >
-                <CrossIcon size={16} />
-              </button>
-              
-              <h3 className="text-xl font-extrabold text-transparent bg-clip-text bg-gradient-to-r from-amber-400 to-orange-500 mb-6 border-b border-slate-800 pb-3 flex items-center gap-2">
-                <DealIcon size={22} className="text-amber-500 inline-block" />
-                <span>הצעת מסחר לשחקני המחשב</span>
-              </h3>
-
-              <div className="space-y-5">
-                {/* GIVE SECTION */}
-                <div>
-                  <label className="block text-slate-300 text-sm font-bold mb-3">אני מציע לתת (Give):</label>
-                  <div className="space-y-3">
-                    <div className="grid grid-cols-5 gap-2">
-                      {[
-                        { type: 'WOOD' as const, label: 'עץ', img: '/wood1.png', activeBg: 'bg-emerald-950/45 border-emerald-500' },
-                        { type: 'BRICK' as const, label: 'לבנה', img: '/brick1.png', activeBg: 'bg-orange-950/45 border-orange-500' },
-                        { type: 'SHEEP' as const, label: 'כבש', img: '/wool1.png', activeBg: 'bg-lime-950/45 border-lime-500' },
-                        { type: 'WHEAT' as const, label: 'חיטה', img: '/wheat1.png', activeBg: 'bg-amber-950/45 border-amber-500' },
-                        { type: 'ORE' as const, label: 'ברזל', img: '/rock1.png', activeBg: 'bg-slate-800/50 border-slate-500' },
-                      ].map((res) => {
-                        const isActive = giveRes === res.type;
-                        const stock = humanPlayer.resources[res.type] || 0;
-                        return (
-                          <button
-                            key={res.type}
-                            type="button"
-                            onClick={() => {
-                              setGiveRes(res.type);
-                              setGiveAmt(1);
-                            }}
-                            className={`flex flex-col items-center justify-center p-2.5 rounded-xl border text-[10px] font-black transition-all cursor-pointer gap-1
-                              ${isActive ? res.activeBg + ' ring-1 ring-amber-500/40 text-white font-black' : 'bg-slate-950/40 border-slate-800/80 text-slate-400 hover:bg-slate-950/70'}`}
-                          >
-                            {res.img ? <img src={res.img} className="w-8 h-8 object-contain" alt={res.label} /> : null}
-                            <span>{res.label}</span>
-                            <span className="text-[8px] opacity-75">({stock})</span>
-                          </button>
-                        );
-                      })}
-                    </div>
-                    
-                    <div className="flex items-center gap-3">
-                      <span className="text-xs text-slate-400 font-bold">כמות:</span>
-                      <input
-                        type="number"
-                        min={1}
-                        max={humanPlayer.resources[giveRes] || 0}
-                        value={giveAmt}
-                        onChange={(e) => setGiveAmt(Math.max(1, parseInt(e.target.value) || 1))}
-                        className="flex-1 bg-slate-950 border border-slate-800 text-slate-100 p-2 rounded-xl text-sm text-center focus:outline-none focus:ring-1 focus:ring-amber-500"
-                      />
-                    </div>
-                  </div>
-                </div>
-
-                {/* RECEIVE SECTION */}
-                <div>
-                  <label className="block text-slate-300 text-sm font-bold mb-3">אני מבקש לקבל (Receive):</label>
-                  <div className="space-y-3">
-                    <div className="grid grid-cols-5 gap-2">
-                      {[
-                        { type: 'WOOD' as const, label: 'עץ', img: '/wood1.png', activeBg: 'bg-emerald-950/45 border-emerald-500' },
-                        { type: 'BRICK' as const, label: 'לבנה', img: '/brick1.png', activeBg: 'bg-orange-950/45 border-orange-500' },
-                        { type: 'SHEEP' as const, label: 'כבש', img: '/wool1.png', activeBg: 'bg-lime-950/45 border-lime-500' },
-                        { type: 'WHEAT' as const, label: 'חיטה', img: '/wheat1.png', activeBg: 'bg-amber-950/45 border-amber-500' },
-                        { type: 'ORE' as const, label: 'ברזל', img: '/rock1.png', activeBg: 'bg-slate-800/50 border-slate-500' },
-                      ].map((res) => {
-                        const isActive = receiveRes === res.type;
-                        return (
-                          <button
-                            key={res.type}
-                            type="button"
-                            onClick={() => setReceiveRes(res.type)}
-                            className={`flex flex-col items-center justify-center p-2.5 rounded-xl border text-[10px] font-black transition-all cursor-pointer gap-1
-                              ${isActive ? res.activeBg + ' ring-1 ring-amber-500/40 text-white font-black' : 'bg-slate-950/40 border-slate-800/80 text-slate-400 hover:bg-slate-950/70'}`}
-                          >
-                            {res.img ? <img src={res.img} className="w-8 h-8 object-contain" alt={res.label} /> : null}
-                            <span>{res.label}</span>
-                          </button>
-                        );
-                      })}
-                    </div>
-
-                    <div className="flex items-center gap-3">
-                      <span className="text-xs text-slate-400 font-bold">כמות:</span>
-                      <input
-                        type="number"
-                        min={1}
-                        value={receiveAmt}
-                        onChange={(e) => setReceiveAmt(Math.max(1, parseInt(e.target.value) || 1))}
-                        className="flex-1 bg-slate-950 border border-slate-800 text-slate-100 p-2 rounded-xl text-sm text-center focus:outline-none focus:ring-1 focus:ring-amber-500"
-                      />
-                    </div>
-                  </div>
-                </div>
-
-                {/* TARGET BOT */}
-                <div>
-                  <label className="block text-slate-300 text-sm font-bold mb-2">שחקן יעד להצעה:</label>
-                  <select
-                    value={targetBotId}
-                    onChange={(e) => setTargetBotId(e.target.value)}
-                    className="w-full bg-slate-950 border border-slate-800 text-slate-100 p-2.5 rounded-xl text-sm focus:outline-none focus:ring-1 focus:ring-amber-500"
-                  >
-                    <option value="ALL">כל השחקנים (הבוט הראשון שמסכים יבצע את העסקה)</option>
-                    {players.filter(p => p.isBot).map(bot => (
-                      <option key={bot.id} value={bot.id}>{bot.name}</option>
-                    ))}
-                  </select>
-                </div>
-
-                {/* VALIDATION WARNING */}
-                {(humanPlayer.resources[giveRes] || 0) < giveAmt && (
-                  <div className="text-red-400 text-xs font-bold bg-red-500/10 p-2.5 rounded-xl border border-red-500/25 flex items-center gap-2">
-                    <WarningIcon size={16} className="text-red-500 inline-block" />
-                    <span>שים לב: אין לך מספיק משאבים מסוג {giveRes} להצעה זו!</span>
-                  </div>
-                )}
-              </div>
-
-              {/* ACTIONS */}
-              <div className="flex gap-3 mt-8">
-                <button
-                  onClick={handleProposeTrade}
-                  disabled={(humanPlayer.resources[giveRes] || 0) < giveAmt || giveRes === receiveRes}
-                  className="flex-1 bg-gradient-to-r from-amber-500 to-orange-500 text-slate-950 font-extrabold py-3 rounded-xl shadow-lg hover:brightness-110 active:scale-95 disabled:opacity-45 disabled:cursor-not-allowed transition-all text-sm"
-                >
-                  שלח הצעת מסחר
-                </button>
-                <button
-                  onClick={() => setIsTradeModalOpen(false)}
-                  className="px-6 bg-slate-800 text-slate-300 font-bold py-3 rounded-xl hover:bg-slate-700 hover:text-white transition-all text-sm"
-                >
-                  ביטול
-                </button>
-              </div>
-            </div>
-          </div>
+          <UnifiedTradeModal
+            onClose={() => {
+              setIsTradeModalOpen(false);
+              setActivePortTrade(null);
+            }}
+          />
         )}
 
         {/* מנהל מודאלים מופרד */}
@@ -566,8 +436,42 @@ const GameContent: React.FC = () => {
       <aside className={`transition-all duration-300 flex flex-col gap-4 h-full z-10 flex-none ${
         isResourceCollapsed ? 'w-20' : 'w-80'
       }`}>
-        {resourcePosition === 'bottom' ? (
-          /* בגובה מלא ונוח לקריאה, ללא אפשרות כיווץ */
+        <ResourceContainer
+          resources={humanPlayer.resources}
+          playerName={humanPlayer.name}
+          position="right"
+          isCollapsed={isResourceCollapsed}
+          onPositionChange={setResourcePosition}
+          onToggleCollapsed={() => setIsResourceCollapsed(prev => !prev)}
+          playerId={humanPlayer.id}
+        />
+
+        {!isResourceCollapsed && (
+          <div className="flex bg-slate-900/80 p-1 rounded-xl border border-slate-800" dir="rtl">
+            <button
+              onClick={() => setActiveRightTab('DEV_CARDS')}
+              className={`flex-1 py-2 text-xs font-black rounded-lg transition-all cursor-pointer ${
+                activeRightTab === 'DEV_CARDS'
+                  ? 'bg-amber-500 text-slate-950 shadow'
+                  : 'text-slate-400 hover:text-slate-200'
+              }`}
+            >
+              קלפי פיתוח ותארים
+            </button>
+            <button
+              onClick={() => setActiveRightTab('TRADE')}
+              className={`flex-1 py-2 text-xs font-black rounded-lg transition-all cursor-pointer ${
+                activeRightTab === 'TRADE'
+                  ? 'bg-amber-500 text-slate-950 shadow'
+                  : 'text-slate-400 hover:text-slate-200'
+              }`}
+            >
+              מסחר והצעות
+            </button>
+          </div>
+        )}
+
+        {activeRightTab === 'DEV_CARDS' ? (
           <div className="flex-1 min-h-0">
             <DevelopmentCardsPanel 
               handlePlayCard={handlePlayCard} 
@@ -579,297 +483,12 @@ const GameContent: React.FC = () => {
             />
           </div>
         ) : (
-          /* resourcePosition === 'right' */
-          /* אגד את שני הרכיבים במבנה אנכי: פאנל המשאבים למעלה, ופאנל קלפי הפיתוח למטה */
-          <div className="flex flex-col gap-4 h-full min-h-0">
-            {/* פאנל המשאבים למעלה */}
-            <div className="flex-1 min-h-0 overflow-y-auto scrollbar-none">
-              <ResourceContainer 
-                resources={humanPlayer.resources} 
-                playerName={humanPlayer.name} 
-                position={resourcePosition}
-                isCollapsed={isResourceCollapsed}
-                onPositionChange={setResourcePosition}
-                onToggleCollapsed={() => setIsResourceCollapsed(prev => !prev)}
-              />
-            </div>
-            {/* פאנל קלפי פיתוח למטה */}
-            <div className="flex-1 min-h-0">
-              <DevelopmentCardsPanel 
-                handlePlayCard={handlePlayCard} 
-                isCollapsed={isResourceCollapsed}
-                onToggle={() => {}}
-                onTrophyClick={(type) => setActiveTrophyModal(type)}
-                onHeaderClick={() => setIsDevCardsOverlayOpen(true)}
-                onOfferTradeClick={() => setIsTradeModalOpen(true)}
-              />
-            </div>
+          <div className="flex-1 min-h-0 overflow-y-auto scrollbar-none">
+            <TradePanel />
           </div>
         )}
       </aside>
 
-        {/* מודל מסחר בנמל מונחה-משתמש */}
-        {activePortTrade && (
-          <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-md flex items-center justify-center z-50 p-4">
-            <div className="bg-slate-900 border border-slate-800 rounded-2xl w-full max-w-md p-6 shadow-2xl relative text-right" dir="rtl">
-              <button 
-                onClick={() => setActivePortTrade(null)}
-                className="absolute top-4 left-4 text-slate-400 hover:text-white transition-colors duration-200 cursor-pointer p-1 rounded-lg hover:bg-slate-800 flex items-center justify-center"
-              >
-                <CrossIcon size={16} />
-              </button>
-              
-              <h3 className="text-xl font-extrabold text-transparent bg-clip-text bg-gradient-to-r from-emerald-400 to-teal-500 mb-6 border-b border-slate-800 pb-3 flex items-center gap-2">
-                <DealIcon size={22} className="text-emerald-500 inline-block" />
-                <span>
-                  {activePortTrade.harborType === 'GENERIC' 
-                    ? '⛵ מסחר בנמל כללי (3:1)' 
-                    : `⚓ מסחר בנמל ${activePortTrade.harborType === 'WOOD' ? 'עץ (2:1)' : 
-                       activePortTrade.harborType === 'BRICK' ? 'לבנה (2:1)' : 
-                       activePortTrade.harborType === 'SHEEP' ? 'כבש (2:1)' : 
-                       activePortTrade.harborType === 'WHEAT' ? 'חיטה (2:1)' : 'ברזל (2:1)'}`}
-                </span>
-              </h3>
-
-              {/* כפתור שדרוג מהיר לעיר בראש פאנל המסחר */}
-              {(() => {
-                const liveVertex = vertices.find(v => v.id === activePortTrade.id);
-                const canUpgrade = liveVertex && liveVertex.structure === 'SETTLEMENT' && liveVertex.playerId === humanPlayer.id;
-                
-                if (!canUpgrade) return null;
-
-                const hasResources = humanPlayer.resources.WHEAT >= 2 && humanPlayer.resources.ORE >= 3;
-                
-                return (
-                  <div className="mb-6 p-4 bg-amber-500/10 border border-amber-500/35 rounded-xl text-right flex flex-col sm:flex-row items-center justify-between gap-4">
-                    <div className="text-right">
-                      <div className="text-sm font-bold text-amber-400">👑 ניתן לשדרג יישוב נמל זה לעיר!</div>
-                      <div className="text-xs text-slate-400 mt-1">עלות: 3 ברזל, 2 חיטה (ברשותך: {humanPlayer.resources.ORE || 0} ברזל, {humanPlayer.resources.WHEAT || 0} חיטה)</div>
-                    </div>
-                    <button
-                      onClick={() => {
-                        showBuildingCostToast('CITY', hasResources);
-                        if (!hasResources) {
-                          addLog(`אין לך מספיק משאבים לשדרוג לעיר! נדרש: 3 ברזל, 2 חיטה.`);
-                          return;
-                        }
-                        
-                        // Deduct resources & add victory points
-                        setPlayers((prev: any[]) => prev.map(p => p.id === humanPlayer.id 
-                          ? {
-                              ...p,
-                              victoryPoints: p.victoryPoints + 1,
-                              resources: {
-                                ...p.resources,
-                                WHEAT: p.resources.WHEAT - 2,
-                                ORE: p.resources.ORE - 3
-                              }
-                            }
-                          : p
-                        ));
-
-                        // Update the vertex on the board
-                        setVertices((prevVertices: any[]) => prevVertices.map(v => 
-                          v.id === activePortTrade.id 
-                            ? { ...v, structure: 'CITY' } 
-                            : v
-                        ));
-
-                        addLog(`שחקן ${humanPlayer.name} שדרג יישוב נמל לעיר! עלות: 3 ברזל, 2 חיטה.`);
-                        setActivePortTrade(null);
-                      }}
-                      className="w-full sm:w-auto px-4 py-2 bg-gradient-to-r from-amber-500 to-orange-500 text-slate-950 font-black rounded-lg hover:brightness-110 active:scale-[0.97] transition-all text-xs cursor-pointer shadow-md shadow-amber-500/10"
-                    >
-                      שדרג לעיר
-                    </button>
-                  </div>
-                );
-              })()}
-
-              {activePortTrade.harborType !== 'GENERIC' ? (
-                // --- SPECIALIZED HARBOR (2:1) ---
-                <div className="space-y-5">
-                  <p className="text-sm text-slate-300">
-                    הנמל הנוכחי מאפשר לך להחליף <span className="font-bold text-amber-400">2 יחידות משאב נמל</span> תמורת <span className="font-bold text-emerald-400">יחידה אחת</span> של כל משאב אחר.
-                  </p>
-
-                  <div className="p-4 bg-slate-950/60 rounded-xl border border-slate-800">
-                    <div className="flex items-center justify-between text-xs text-slate-400 mb-2">
-                      <span>אתה נותן (2 יחידות):</span>
-                      <span className="font-mono text-amber-500 font-bold">
-                        יש לך: {activePortTrade?.harborType ? (humanPlayer.resources[activePortTrade.harborType as 'WOOD' | 'BRICK' | 'SHEEP' | 'WHEAT' | 'ORE'] || 0) : 0}
-                      </span>
-                    </div>
-                    <div className="flex items-center gap-3 bg-slate-900 p-2.5 rounded-lg border border-slate-800 font-bold text-sm text-slate-200">
-                      {activePortTrade.harborType === 'WOOD' && <><img src="/wood1.png" className="w-5 h-5 object-contain bg-transparent ml-1 inline-block align-middle" alt="עץ" /> <span>2 עץ</span></>}
-                      {activePortTrade.harborType === 'BRICK' && <><img src="/brick1.png" className="w-5 h-5 object-contain bg-transparent ml-1 inline-block align-middle" alt="לבנה" /> <span>2 לבנה</span></>}
-                      {activePortTrade.harborType === 'SHEEP' && <><img src="/wool1.png" className="w-5 h-5 object-contain bg-transparent ml-1 inline-block align-middle" alt="כבש" /> <span>2 כבש</span></>}
-                      {activePortTrade.harborType === 'WHEAT' && <><img src="/wheat1.png" className="w-5 h-5 object-contain bg-transparent ml-1 inline-block align-middle" alt="חיטה" /> <span>2 חיטה</span></>}
-                      {activePortTrade.harborType === 'ORE' && <><img src="/rock1.png" className="w-5 h-5 object-contain bg-transparent ml-1 inline-block align-middle" alt="ברזל" /> <span>2 ברזל</span></>}
-                    </div>
-                  </div>
-
-                  <div>
-                    <label className="block text-slate-300 text-xs font-bold mb-2">בחר משאב לקבל (Receive):</label>
-                    <div className="grid grid-cols-2 gap-2">
-                      {(['WOOD', 'BRICK', 'SHEEP', 'WHEAT', 'ORE'] as const)
-                        .filter(r => r !== activePortTrade.harborType)
-                        .map(res => {
-                          const labels: Record<string, string> = { WOOD: 'עץ', BRICK: 'לבנה', SHEEP: 'כבש', WHEAT: 'חיטה', ORE: 'ברזל' };
-                          const icons: Record<string, any> = { 
-                            WOOD: <img src="/wood1.png" className="w-4 h-4 object-contain bg-transparent ml-1 inline-block align-middle" alt="עץ" />,
-                            BRICK: <img src="/brick1.png" className="w-4 h-4 object-contain bg-transparent ml-1 inline-block align-middle" alt="לבנה" />,
-                            SHEEP: <img src="/wool1.png" className="w-4 h-4 object-contain bg-transparent ml-1 inline-block align-middle" alt="כבש" />,
-                            WHEAT: <img src="/wheat1.png" className="w-4 h-4 object-contain bg-transparent ml-1 inline-block align-middle" alt="חיטה" />,
-                            ORE: <img src="/rock1.png" className="w-4 h-4 object-contain bg-transparent ml-1 inline-block align-middle" alt="ברזל" />
-                          };
-                          return (
-                            <button
-                              key={res}
-                              onClick={() => executeHarborTrade(activePortTrade.harborType as any, res, 2)}
-                              disabled={!activePortTrade?.harborType || (humanPlayer.resources[activePortTrade.harborType as 'WOOD' | 'BRICK' | 'SHEEP' | 'WHEAT' | 'ORE'] || 0) < 2}
-                              className="flex items-center gap-2 p-2.5 rounded-xl border border-slate-800 bg-slate-950/40 text-slate-200 text-xs font-bold hover:bg-emerald-950/20 hover:border-emerald-500/30 transition-all active:scale-95 disabled:opacity-45 disabled:cursor-not-allowed cursor-pointer"
-                            >
-                              {icons[res]}
-                              <span>{labels[res]}</span>
-                            </button>
-                          );
-                        })}
-                    </div>
-                  </div>
-                </div>
-              ) : (
-                // --- GENERIC HARBOR (3:1) ---
-                <div className="space-y-5">
-                  <p className="text-sm text-slate-300">
-                    הנמל הנוכחי מאפשר לך להחליף <span className="font-bold text-amber-400">3 יחידות מכל משאב מאותו סוג</span> תמורת <span className="font-bold text-emerald-400">יחידה אחת</span> של כל משאב אחר.
-                  </p>
-
-                  <div>
-                    <label className="block text-slate-300 text-xs font-bold mb-3">איזה משאב תרצה לתת (3 יחידות)?</label>
-                    <div className="grid grid-cols-5 gap-2">
-                      {(['WOOD', 'BRICK', 'SHEEP', 'WHEAT', 'ORE'] as const).map(res => {
-                        const labels: Record<string, string> = { WOOD: 'עץ', BRICK: 'לבנה', SHEEP: 'כבש', WHEAT: 'חיטה', ORE: 'ברזל' };
-                        const imgs: Record<string, string> = { WOOD: '/wood1.png', BRICK: '/brick1.png', SHEEP: '/wool1.png', WHEAT: '/wheat1.png', ORE: '/rock1.png' };
-                        const stock = humanPlayer.resources[res] || 0;
-                        const isSelected = harborGiveRes === res;
-                        return (
-                          <button
-                            key={res}
-                            type="button"
-                            onClick={() => setHarborGiveRes(res)}
-                            className={`flex flex-col items-center justify-center p-2 rounded-xl border text-[10px] font-black transition-all cursor-pointer gap-1
-                              ${isSelected ? 'bg-amber-500/10 border-amber-500 text-amber-300' : 'bg-slate-950/40 border-slate-800/80 text-slate-400 hover:bg-slate-950/70'}`}
-                          >
-                            {imgs[res] ? <img src={imgs[res]} className="w-7 h-7 object-contain" alt={labels[res]} /> : null}
-                            <span>{labels[res]}</span>
-                            <span className="text-[8px] opacity-75 font-mono">({stock})</span>
-                          </button>
-                        );
-                      })}
-                    </div>
-                  </div>
-
-                  <div className="mt-4">
-                    <label className="block text-slate-300 text-xs font-bold mb-3">איזה משאב תרצה לקבל (יחידה אחת)?</label>
-                    <div className="grid grid-cols-5 gap-2">
-                      {(['WOOD', 'BRICK', 'SHEEP', 'WHEAT', 'ORE'] as const)
-                        .filter(r => r !== harborGiveRes)
-                        .map(res => {
-                          const labels: Record<string, string> = { WOOD: 'עץ', BRICK: 'לבנה', SHEEP: 'כבש', WHEAT: 'חיטה', ORE: 'ברזל' };
-                          const imgs: Record<string, string> = { WOOD: '/wood1.png', BRICK: '/brick1.png', SHEEP: '/wool1.png', WHEAT: '/wheat1.png', ORE: '/rock1.png' };
-                          const isSelected = harborReceiveRes === res;
-                          return (
-                            <button
-                              key={res}
-                              type="button"
-                              onClick={() => setHarborReceiveRes(res)}
-                              className={`flex flex-col items-center justify-center p-2 rounded-xl border text-[10px] font-black transition-all cursor-pointer gap-1
-                                ${isSelected ? 'bg-emerald-500/10 border-emerald-500 text-emerald-300' : 'bg-slate-950/40 border-slate-800/80 text-slate-400 hover:bg-slate-950/70'}`}
-                            >
-                              {imgs[res] ? <img src={imgs[res]} className="w-7 h-7 object-contain" alt={labels[res]} /> : null}
-                              <span>{labels[res]}</span>
-                            </button>
-                          );
-                        })}
-                    </div>
-                  </div>
-
-                  {/* WARNING */}
-                  {(humanPlayer.resources[harborGiveRes] || 0) < 3 && (
-                    <div className="text-red-400 text-xs font-bold bg-red-500/10 p-2.5 rounded-xl border border-red-500/25 flex items-center gap-2">
-                      <WarningIcon size={16} className="text-red-500 inline-block" />
-                      <span>שים לב: אין לך 3 יחידות מסוג משאב זה!</span>
-                    </div>
-                  )}
-
-                  {/* TRADE ACTION BUTTON */}
-                  <button
-                    onClick={() => executeHarborTrade(harborGiveRes, harborReceiveRes, 3)}
-                    disabled={(humanPlayer.resources[harborGiveRes] || 0) < 3 || harborGiveRes === harborReceiveRes}
-                    className="w-full bg-gradient-to-r from-emerald-500 to-teal-500 text-slate-950 font-extrabold py-3 rounded-xl shadow-lg hover:brightness-110 active:scale-95 disabled:opacity-45 disabled:cursor-not-allowed transition-all text-sm cursor-pointer mt-4"
-                  >
-                    בצע החלפת נמל 3:1
-                  </button>
-                </div>
-              )}
-
-              <div className="flex gap-3 mt-6 border-t border-slate-800 pt-4">
-                {(() => {
-                  const liveVertex = vertices.find(v => v.id === activePortTrade.id);
-                  const canUpgrade = liveVertex && liveVertex.structure === 'SETTLEMENT' && liveVertex.playerId === humanPlayer.id;
-                  if (!canUpgrade) return null;
-
-                  return (
-                    <button
-                      onClick={() => {
-                        const hasResources = humanPlayer.resources.WHEAT >= 2 && humanPlayer.resources.ORE >= 3;
-                        showBuildingCostToast('CITY', hasResources);
-                        if (!hasResources) {
-                          addLog(`אין לך מספיק משאבים לשדרוג לעיר! נדרש: 3 ברזל, 2 חיטה.`);
-                          return;
-                        }
-                        
-                        // Deduct resources & add victory points
-                        setPlayers((prev: any[]) => prev.map(p => p.id === humanPlayer.id 
-                          ? {
-                              ...p,
-                              victoryPoints: p.victoryPoints + 1,
-                              resources: {
-                                ...p.resources,
-                                WHEAT: p.resources.WHEAT - 2,
-                                ORE: p.resources.ORE - 3
-                              }
-                            }
-                          : p
-                        ));
-
-                        // Update the vertex
-                        setVertices((prevVertices: any[]) => prevVertices.map(v => 
-                          v.id === activePortTrade.id 
-                            ? { ...v, structure: 'CITY' } 
-                            : v
-                        ));
-
-                        addLog(`שחקן ${humanPlayer.name} שדרג יישוב נמל לעיר! עלות: 3 ברזל, 2 חיטה.`);
-                        setActivePortTrade(null);
-                      }}
-                      className="w-full bg-gradient-to-r from-amber-500 to-orange-500 text-slate-950 font-extrabold py-2.5 rounded-xl hover:brightness-110 active:scale-[0.97] transition-all text-xs cursor-pointer"
-                    >
-                      👑 שדרג לעיר
-                    </button>
-                  );
-                })()}
-                <button
-                  onClick={() => setActivePortTrade(null)}
-                  className="w-full bg-slate-800 text-slate-300 font-bold py-2.5 rounded-xl hover:bg-slate-700 hover:text-white transition-all text-xs cursor-pointer"
-                >
-                  סגור
-                </button>
-              </div>
-            </div>
-          </div>
-        )}
 
         {/* פאנל בחירת שחקן לגניבת כרטיס (שודד) */}
         {robberyState && (
@@ -890,8 +509,7 @@ const GameContent: React.FC = () => {
                     <button
                       key={target.id}
                       onClick={() => {
-                        const { updatedPlayers, stolenResource } = stealRandomCard(humanPlayer.id, target.id, players);
-                        setPlayers(updatedPlayers);
+                        const { stolenResource } = stealRandomCard(humanPlayer.id, target.id, players);
                         
                         const resourceLabels: Record<string, string> = {
                           WOOD: 'עץ',
@@ -902,13 +520,33 @@ const GameContent: React.FC = () => {
                         };
                         const stolenLabel = stolenResource ? resourceLabels[stolenResource] : 'לא ידוע';
 
-                        addLog(`[שודד] ${humanPlayer.name} שדד קלף משאב אקראי מ-${target.name}.`);
                         if (stolenResource) {
-                          alert(`שדדת בהצלחה 1 קלף מסוג: ${stolenLabel}!`);
+                          dispatchGameAction({
+                            type: 'STEAL_RESOURCE',
+                            playerId: humanPlayer.id,
+                            victimPlayerId: target.id,
+                            stolenResource,
+                          }, {
+                            roomId: roomId || undefined,
+                            isRemote: false,
+                            myPlayerId: roomId ? myPlayerId : humanPlayer.id,
+                            players,
+                            setPlayers,
+                            setRobberyState,
+                            setTurnSubPhase,
+                            addLog,
+                          });
+                          alert(roomId
+                            ? 'הגניבה נשלחה לשרת; סוג המשאב יוגרל ויעודכן ביומן.'
+                            : `שדדת בהצלחה 1 קלף מסוג: ${stolenLabel}!`);
+                        } else {
+                          setRobberyState(null);
+                          const returnSubPhase = humanPlayer.devCardReturnSubPhase || 'TRADE_AND_BUILD';
+                          setPlayers(prev => prev.map(player =>
+                            player.id === humanPlayer.id ? { ...player, devCardReturnSubPhase: undefined } : player
+                          ));
+                          setTurnSubPhase(returnSubPhase);
                         }
-                        
-                        setRobberyState(null);
-                        setTurnSubPhase('TRADE_AND_BUILD');
                       }}
                       className="flex items-center justify-between p-4 rounded-xl border border-slate-800 bg-slate-950/40 text-slate-200 text-sm font-bold transition-all hover:bg-rose-950/10 hover:border-rose-500/30 active:scale-[0.98] cursor-pointer"
                       style={{ borderRight: `4px solid ${target.color}` }}
@@ -993,7 +631,8 @@ const GameContent: React.FC = () => {
         {/* מודל קלפי פיתוח צף גדול במרכז */}
         {isDevCardsOverlayOpen && (() => {
           const devCards = humanPlayer?.developmentCards || { KNIGHT: 0, MONOPOLY: 0, ROAD_BUILDING: 0, YEAR_OF_PLENTY: 0, VICTORY_POINT: 0 };
-          const isOurTurn = activePlayer?.id === humanPlayer?.id && turnSubPhase === 'TRADE_AND_BUILD';
+          const isOurTurn = activePlayer?.id === humanPlayer?.id
+            && (turnSubPhase === 'BEFORE_ROLL' || turnSubPhase === 'TRADE_AND_BUILD');
           
           return (
             <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-md flex items-center justify-center z-50 p-4 animate-fade-in">
@@ -1083,7 +722,10 @@ const GameContent: React.FC = () => {
 
         {/* מודל סיום המשחק */}
         {gamePhase === 'GAME_OVER' && (() => {
-          const winner = players.find(p => getPlayerTotalVP(p, longestRoadPlayerId, largestArmyPlayerId, true, vertices, tiles) >= victoryGoal) || players.reduce((max, p) => getPlayerTotalVP(p, longestRoadPlayerId, largestArmyPlayerId, true, vertices, tiles) > getPlayerTotalVP(max, longestRoadPlayerId, largestArmyPlayerId, true, vertices, tiles) ? p : max, players[0]);
+          const winner = players.find(p =>
+            p.id === currentTurnPlayerId &&
+            getPlayerTotalVP(p, longestRoadPlayerId, largestArmyPlayerId, true, vertices, tiles, selectedScenario) >= victoryGoal
+          ) || players.reduce((max, p) => getPlayerTotalVP(p, longestRoadPlayerId, largestArmyPlayerId, true, vertices, tiles, selectedScenario) > getPlayerTotalVP(max, longestRoadPlayerId, largestArmyPlayerId, true, vertices, tiles, selectedScenario) ? p : max, players[0]);
           return (
             <div className="fixed inset-0 bg-slate-950/90 backdrop-blur-md flex items-center justify-center z-50 p-4 animate-fade-in">
               <div className="bg-slate-900 border-4 border-amber-500 rounded-3xl w-full max-w-2xl p-10 shadow-2xl relative text-center" dir="rtl">
@@ -1104,7 +746,7 @@ const GameContent: React.FC = () => {
                 </h1>
                 
                 <p className="text-xl text-slate-300 mb-8 font-medium">
-                  {winner ? `כל הכבוד! ${winner.name} הגיע/ה ל-${getPlayerTotalVP(winner, longestRoadPlayerId, largestArmyPlayerId, true, vertices, tiles)} נקודות ניצחון והוכתר/ה כשליט/ת קטאן!` : ''}
+                  {winner ? `כל הכבוד! ${winner.name} הגיע/ה ל-${getPlayerTotalVP(winner, longestRoadPlayerId, largestArmyPlayerId, true, vertices, tiles, selectedScenario)} נקודות ניצחון והוכתר/ה כשליט/ת קטאן!` : ''}
                 </p>
 
                 {/* Scoreboard table */}
@@ -1112,7 +754,7 @@ const GameContent: React.FC = () => {
                   <h3 className="text-lg font-bold text-slate-400 mb-4 border-b border-slate-800 pb-2">טבלת הניקוד הסופית:</h3>
                   <div className="space-y-3">
                     {[...players]
-                      .sort((a, b) => getPlayerTotalVP(b, longestRoadPlayerId, largestArmyPlayerId, true, vertices, tiles) - getPlayerTotalVP(a, longestRoadPlayerId, largestArmyPlayerId, true, vertices, tiles))
+                      .sort((a, b) => getPlayerTotalVP(b, longestRoadPlayerId, largestArmyPlayerId, true, vertices, tiles, selectedScenario) - getPlayerTotalVP(a, longestRoadPlayerId, largestArmyPlayerId, true, vertices, tiles, selectedScenario))
                       .map((p, index) => (
                         <div 
                           key={p.id} 
@@ -1125,7 +767,7 @@ const GameContent: React.FC = () => {
                             {p.isBot && <span className="text-[10px] px-1.5 py-0.5 bg-slate-800 text-slate-400 rounded">בוט</span>}
                           </div>
                           <div className="flex items-center gap-1.5">
-                            <span className="text-lg font-black text-amber-400">{getPlayerTotalVP(p, longestRoadPlayerId, largestArmyPlayerId, true, vertices, tiles)}</span>
+                            <span className="text-lg font-black text-amber-400">{getPlayerTotalVP(p, longestRoadPlayerId, largestArmyPlayerId, true, vertices, tiles, selectedScenario)}</span>
                             <span className="text-xs text-slate-500">נק׳</span>
                           </div>
                         </div>

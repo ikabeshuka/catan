@@ -181,52 +181,9 @@ export function handleDevelopmentCardsPlay({
 }
 
 export function handleBuyDevCard(
-  botPlayer: Player,
-  addLog?: (message: string) => void
-): Player {
-  const cardTypes = ['KNIGHT', 'VICTORY_POINT', 'ROAD_BUILDING', 'MONOPOLY', 'YEAR_OF_PLENTY'];
-  const randomCard = cardTypes[Math.floor(Math.random() * cardTypes.length)];
-  
-  const currentBot = {
-    ...botPlayer,
-    resources: {
-      ...botPlayer.resources,
-      SHEEP: (botPlayer.resources.SHEEP || 0) - 1,
-      WHEAT: (botPlayer.resources.WHEAT || 0) - 1,
-      ORE: (botPlayer.resources.ORE || 0) - 1
-    },
-    developmentCards: { ...botPlayer.developmentCards },
-    boughtDevCardsThisTurn: { ...botPlayer.boughtDevCardsThisTurn }
-  };
-
-  if (randomCard === 'VICTORY_POINT') {
-    currentBot.developmentCards = {
-      ...currentBot.developmentCards,
-      VICTORY_POINT: (currentBot.developmentCards.VICTORY_POINT || 0) + 1
-    };
-  } else {
-    const cardKey = randomCard as 'KNIGHT' | 'ROAD_BUILDING' | 'MONOPOLY' | 'YEAR_OF_PLENTY';
-    currentBot.developmentCards = {
-      ...currentBot.developmentCards,
-      [cardKey]: (currentBot.developmentCards[cardKey] || 0) + 1
-    };
-    currentBot.boughtDevCardsThisTurn = {
-      ...currentBot.boughtDevCardsThisTurn,
-      [cardKey]: ((currentBot.boughtDevCardsThisTurn?.[cardKey]) || 0) + 1
-    };
-  }
-
-  const cardLabels: Record<string, string> = {
-    KNIGHT: 'אביר',
-    VICTORY_POINT: 'נקודת ניצחון',
-    ROAD_BUILDING: 'בניית 2 דרכים',
-    MONOPOLY: 'מונופול',
-    YEAR_OF_PLENTY: 'שנת שפע'
-  };
-
-  if (addLog) {
-    addLog(`[קלף פיתוח] הבוט ${botPlayer.name} רכש קלף פיתוח מהקופה וקיבל: ${cardLabels[randomCard] || randomCard}!`);
-  }
-
-  return currentBot;
+  buyDevelopmentCard: (forcedCardType?: string) => void
+): void {
+  // PlayerContext owns the single shared deck, payment, card draw and log.
+  // Bots must use that transaction exactly like human players do.
+  buyDevelopmentCard();
 }

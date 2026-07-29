@@ -1,60 +1,52 @@
 import { HexTile } from '../../types/hex.types';
 import { Player } from '../../types/player.types';
+import { ResourceCards } from '../../types/resources.types';
 import { cubeToPixel } from '../hexMath/cubeToPixel';
 
 const HEX_SIZE = 60;
+type Resource = keyof ResourceCards;
 
-/**
- * מחלקת משאבי פתיחה לשחקן לפי האריחים המשיקים ליישוב השני שהוא בנה
- */
+/** Grants the second setup settlement's adjacent resources from the bank. */
 export function distributeInitialResources(
   vertexId: string,
   tiles: HexTile[],
   players: Player[],
-  playerId: string
-): Player[] {
-  // חילוץ מיקום הפיקסלים של הצומת מה-ID
-  const [, xStr, yStr] = vertexId.split('_');
-  const vX = parseFloat(xStr);
-  const vY = parseFloat(yStr);
+  playerId: string,
+  resourceBank: ResourceCards,
+): { updatedPlayers: Player[]; updatedBank: ResourceCards } {
+  const [, xText, yText] = vertexId.split('_');
+  const targetX = Number(xText);
+  const targetY = Number(yText);
+  const updatedBank = { ...resourceBank };
+  const grants: Partial<ResourceCards> = {};
 
-  return players.map((player) => {
-    if (player.id !== playerId) return player;
-
-    // יצירת עותק של המשאבים הנוכחיים של השחקן
-    const updatedResources = { ...player.resources };
-
-    // סריקת האריחים כדי למצוא מי משיק לצומת
-    tiles.forEach((tile) => {
-      const center = cubeToPixel(tile.coord, HEX_SIZE);
-      
-      for (let i = 0; i < 6; i++) {
-        const angleRad = (Math.PI / 180) * (60 * i - 30);
-        const x = center.x + HEX_SIZE * Math.cos(angleRad);
-        const y = center.y + HEX_SIZE * Math.sin(angleRad);
-        
-        const roundedX = Math.round(x * 10) / 10;
-        const roundedY = Math.round(y * 10) / 10;
-
-        // אם האריח משיק לצומת והוא אינו מדבר או אריחי משימה מיוחדים - השחקן מקבל משאב אחד ממנו
-        if (
-          roundedX === vX &&
-          roundedY === vY &&
-          tile.type !== 'DESERT' &&
-          tile.type !== 'CASTLE' &&
-          tile.type !== 'QUARRY' &&
-          tile.type !== 'GLASSWORKS' &&
-          tile.type !== 'WATER' &&
-          tile.type !== 'GOLD_FIELD'
-        ) {
-          updatedResources[tile.type as keyof typeof updatedResources] += 1;
+  tiles.forEach(tile => {
+    if (!['WOOD', 'BRICK', 'SHEEP', 'WHEAT', 'ORE'].includes(tile.type)) return;
+    const center = cubeToPixel(tile.coord, HEX_SIZE);
+    for (let index = 0; index < 6; index += 1) {
+      const angle = (Math.PI / 180) * (60 * index - 30);
+      const x = Math.round((center.x + HEX_SIZE * Math.cos(angle)) * 10) / 10;
+      const y = Math.round((center.y + HEX_SIZE * Math.sin(angle)) * 10) / 10;
+      if (x === targetX && y === targetY) {
+        const resource = tile.type as Resource;
+        if (updatedBank[resource] > 0) {
+          updatedBank[resource] -= 1;
+          grants[resource] = (grants[resource] || 0) + 1;
         }
+        break;
       }
-    });
-
-    return {
-      ...player,
-      resources: updatedResources,
-    };
+    }
   });
+
+  return {
+    updatedBank,
+    updatedPlayers: players.map(player => {
+      if (player.id !== playerId) return player;
+      const resources = { ...player.resources };
+      (Object.entries(grants) as [Resource, number][]).forEach(([resource, amount]) => {
+        resources[resource] += amount;
+      });
+      return { ...player, resources };
+    }),
+  };
 }

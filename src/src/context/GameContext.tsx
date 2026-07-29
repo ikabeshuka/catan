@@ -1,3 +1,4 @@
+/* oxlint-disable react/only-export-components */
 import React, { ReactNode } from 'react';
 import { BoardProvider, useBoard, RobberyState } from './BoardContext';
 import { PlayerProvider, usePlayer, GamePhase } from './PlayerContext';
@@ -5,7 +6,8 @@ import { GameUIProvider, useGameUI, BuildingToast, ResourceFlow } from './GameUI
 import { Player } from '../types/player.types';
 import { BoardVertex } from '../types/boardElements.types';
 import { HexTile } from '../types/hex.types';
-import { cubeToPixel } from '../utils/hexMath/cubeToPixel';
+import { getVertexIslandIds } from '../utils/gameEngine/getVertexIslandIds';
+import { SeafarersScenario } from '../types/game.types';
 
 // Re-export types for backward compatibility
 export type { RobberyState, GamePhase, BuildingToast, ResourceFlow };
@@ -28,7 +30,8 @@ export const getPlayerTotalVP = (
   largestArmyPlayerId: string | null,
   includeHidden: boolean = false,
   vertices?: BoardVertex[],
-  tiles?: HexTile[]
+  tiles?: HexTile[],
+  selectedScenario?: SeafarersScenario
 ): number => {
   let vp = player.victoryPoints || 0;
   if (longestRoadPlayerId === player.id) {
@@ -41,8 +44,15 @@ export const getPlayerTotalVP = (
     vp += player.developmentCards?.VICTORY_POINT || 0;
   }
 
-  // Calculate victory point bonus for foreign islands
-  if (vertices && tiles) {
+  // A foreign island is relative to the player's own setup island, not a
+  // globally hard-coded island number.
+  const foreignIslandBonusScenarios: SeafarersScenario[] = [
+    'HEADING_FOR_NEW_SHORES', 'FOUR_ISLANDS', 'THROUGH_THE_DESERT',
+  ];
+  const homeIslandIds = player.homeIslandIds?.length
+    ? player.homeIslandIds
+    : player.homeIslandId !== undefined ? [player.homeIslandId] : [];
+  if (vertices && tiles && selectedScenario && foreignIslandBonusScenarios.includes(selectedScenario) && homeIslandIds.length > 0) {
     const foreignIslandsVisited = new Set<number>();
     
     // Find all settlements and cities belonging to this player
@@ -51,34 +61,10 @@ export const getPlayerTotalVP = (
     );
 
     playerStructures.forEach(vertex => {
-      // Find bordering tiles for this vertex
-      const borderingTiles = tiles.filter(tile => {
-        const center = cubeToPixel(tile.coord, 60);
-        for (let i = 0; i < 6; i++) {
-          const angleRad = (Math.PI / 180) * (60 * i - 30);
-          const x = center.x + 60 * Math.cos(angleRad);
-          const y = center.y + 60 * Math.sin(angleRad);
-          const roundedX = Math.round(x * 10) / 10;
-          const roundedY = Math.round(y * 10) / 10;
-          const checkId = `v_${roundedX}_${roundedY}`;
-          if (checkId === vertex.id) {
-            return true;
-          }
-        }
-        return false;
-      });
-
-      // Find unique islandIds > 1 bordering this structure
-      const structureIslandIds = new Set<number>();
-      borderingTiles.forEach(tile => {
-        if (tile.islandId !== undefined && tile.islandId > 1) {
-          structureIslandIds.add(tile.islandId);
-        }
-      });
-
+      const structureIslandIds = getVertexIslandIds(vertex.id, tiles);
       // Add 2 VP for the first structure on each foreign island
       structureIslandIds.forEach(islandId => {
-        if (!foreignIslandsVisited.has(islandId)) {
+        if (!homeIslandIds.includes(islandId) && !foreignIslandsVisited.has(islandId)) {
           foreignIslandsVisited.add(islandId);
           vp += 2;
         }

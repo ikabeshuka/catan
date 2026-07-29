@@ -1,5 +1,6 @@
 import React, { Suspense, useRef } from 'react';
 import { useGame } from '../../context/GameContext';
+import { TransparentImage } from '../common/TransparentImage';
 import { validateRoadPlacement } from '../../utils/validation/validateRoadPlacement';
 import { validateShipPlacement } from '../../utils/validation/validateShipPlacement';
 import { Canvas } from '@react-three/fiber';
@@ -330,7 +331,7 @@ export const GameBoard3D: React.FC = () => {
                 {/* Header with Icon & Name */}
                 <div className="flex items-center justify-between gap-3 border-b border-white/10 pb-2 mb-1.5">
                   <div className="flex items-center gap-2">
-                    {info.img ? <img src={info.img} className="h-5 w-5 object-contain ml-1 inline-block align-middle" alt={info.title} /> : null}
+                    {info.img ? <TransparentImage src={info.img} className="h-5 w-5 object-contain bg-transparent ml-1 inline-block align-middle" style={{ mixBlendMode: 'multiply' }} alt={info.title} /> : null}
                     <span className="text-sm font-black text-white leading-none">{info.title}</span>
                   </div>
                   <div className="bg-slate-950/50 px-2.5 py-1 rounded-lg border border-white/5 shadow flex items-center justify-center font-black text-xs text-amber-400">
@@ -377,7 +378,7 @@ export const GameBoard3D: React.FC = () => {
                 {/* Header with Icon & Name */}
                 <div className="flex items-center justify-between gap-3 border-b border-white/10 pb-2 mb-1.5">
                   <div className="flex items-center gap-2">
-                    {info.img ? <img src={info.img} className="h-5 w-5 object-contain ml-1 inline-block align-middle" alt={info.name} /> : null}
+                    {info.img ? <TransparentImage src={info.img} className="h-5 w-5 object-contain bg-transparent ml-1 inline-block align-middle" style={{ mixBlendMode: 'multiply' }} alt={info.name} /> : null}
                     <span className="text-sm font-black text-white leading-none">{info.name}</span>
                   </div>
                   {/* Small Resource Icon */}
@@ -395,7 +396,7 @@ export const GameBoard3D: React.FC = () => {
                       else if (type === 'DESERT') return <span className="text-xs leading-none">🏜️</span>;
 
                       return iconPath ? (
-                        <img src={iconPath} className="w-3.5 h-3.5 object-contain bg-transparent" alt={type} />
+                        <TransparentImage src={iconPath} className="w-3.5 h-3.5 object-contain bg-transparent" style={{ mixBlendMode: 'multiply' }} alt={type} />
                       ) : null;
                     })()}
                   </div>
@@ -460,31 +461,33 @@ export const GameBoard3D: React.FC = () => {
                 <span>בנה כביש 🛣️</span>
               </button>
               
-              <button
-                onClick={() => {
-                  const currentPlayer = players[currentPlayerIndex];
-                  const isValid = currentPlayer && validateShipPlacement(
-                    coastlinePopupEdge.id,
-                    currentPlayer.id,
-                    vertices,
-                    edges,
-                    tiles || [],
-                    gamePhase
-                  );
-                  if (!isValid) {
-                    const errorMsg = "חוקי המשחק אוסרים על חיבור ספינה ישירות לדרך ללא יישוב/עיר בצומת המקשרת!";
-                    addLog(`❌ ${errorMsg}`);
-                    showBuildingCostToast('SHIP', false, false, errorMsg);
+              {activeExpansion === 'SEAFARERS' && (
+                <button
+                  onClick={() => {
+                    const currentPlayer = players[currentPlayerIndex];
+                    const isValid = currentPlayer && validateShipPlacement(
+                      coastlinePopupEdge.id,
+                      currentPlayer.id,
+                      vertices,
+                      edges,
+                      tiles || [],
+                      gamePhase
+                    );
+                    if (!isValid) {
+                      const errorMsg = "חוקי המשחק אוסרים על חיבור ספינה ישירות לדרך ללא יישוב/עיר בצומת המקשרת!";
+                      addLog(`❌ ${errorMsg}`);
+                      showBuildingCostToast('SHIP', false, false, errorMsg);
+                      setCoastlinePopupEdge(null);
+                      return;
+                    }
+                    buildShipOnEdge(coastlinePopupEdge);
                     setCoastlinePopupEdge(null);
-                    return;
-                  }
-                  buildShipOnEdge(coastlinePopupEdge);
-                  setCoastlinePopupEdge(null);
-                }}
-                className="flex items-center justify-center gap-2 bg-gradient-to-r from-blue-600 to-blue-500 hover:from-blue-500 hover:to-blue-400 text-white font-bold py-3 px-4 rounded-xl shadow-lg shadow-blue-950/50 transition-all active:scale-95 cursor-pointer"
-              >
-                <span>בנה ספינה ⛵</span>
-              </button>
+                  }}
+                  className="flex items-center justify-center gap-2 bg-gradient-to-r from-blue-600 to-blue-500 hover:from-blue-500 hover:to-blue-400 text-white font-bold py-3 px-4 rounded-xl shadow-lg shadow-blue-950/50 transition-all active:scale-95 cursor-pointer"
+                >
+                  <span>בנה ספינה ⛵</span>
+                </button>
+              )}
             </div>
             
             <button

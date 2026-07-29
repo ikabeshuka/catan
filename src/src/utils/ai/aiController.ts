@@ -7,8 +7,8 @@ import { setupPhase } from './phases/setupPhase';
 import { robberPhase } from './phases/robberPhase';
 import { tradeAndBuildPhase } from './phases/tradeAndBuildPhase';
 import { serializeBoardState } from '../../services/gemini/boardSerializer';
-import { getGeminiMove } from '../../services/gemini/geminiService';
-import { LegalActions } from '../../services/gemini/geminiTypes';
+import { getGeminiStrategy, DEFAULT_GEMINI_MODEL } from '../../services/gemini/geminiService';
+import { LegalActions, GeminiStrategyPlan } from '../../services/gemini/geminiTypes';
 
 interface AIControllerParams {
   botPlayer: Player;
@@ -24,6 +24,7 @@ interface AIControllerParams {
   setVertices: React.Dispatch<React.SetStateAction<BoardVertex[]>>;
   setEdges: React.Dispatch<React.SetStateAction<BoardEdge[]>>;
   setPlayers: React.Dispatch<React.SetStateAction<Player[]>>;
+  buyDevelopmentCard: (forcedCardType?: string) => void;
   recordSetupPlacement: (type: 'SETTLEMENT' | 'ROAD', targetId: string) => void;
   setTiles?: React.Dispatch<React.SetStateAction<HexTile[]>>;
   setTurnSubPhase?: React.Dispatch<React.SetStateAction<TurnSubPhase>>;
@@ -40,7 +41,6 @@ export async function runAITurn(params: AIControllerParams): Promise<void> {
     gamePhase, 
     addLog, 
     handleDiceRoll, 
-    endTurn, 
     gameState,
     boardState,
     playerState,
@@ -48,11 +48,9 @@ export async function runAITurn(params: AIControllerParams): Promise<void> {
   } = params;
 
   // Keep params referenced to prevent TS compilation issues
-  const { tiles, vertices, edges, players, setVertices, setEdges, setPlayers, recordSetupPlacement, setTiles, setTurnSubPhase } = params;
-  const _dummy = [tiles, vertices, edges, players, setVertices, setEdges, setPlayers, recordSetupPlacement, setTiles, setTurnSubPhase];
+  const { tiles, vertices, edges, players, setVertices, setEdges, setPlayers, buyDevelopmentCard, recordSetupPlacement, setTiles, setTurnSubPhase } = params;
+  const _dummy = [tiles, vertices, edges, players, setVertices, setEdges, setPlayers, buyDevelopmentCard, recordSetupPlacement, setTiles, setTurnSubPhase];
   if (_dummy.length === 0) { console.log(_dummy); }
-
-
 
   const isSetupPhase = gamePhase === 'SETUP_ROUND_1' || gamePhase === 'SETUP_ROUND_2';
 
@@ -73,62 +71,39 @@ export async function runAITurn(params: AIControllerParams): Promise<void> {
 
   if (turnSubPhase === 'TRADE_AND_BUILD') {
     const geminiApiKey = localStorage.getItem('CATAN_GEMINI_API_KEY');
+    const savedModel = localStorage.getItem('CATAN_GEMINI_MODEL') || DEFAULT_GEMINI_MODEL;
 
     if (botPlayer.playerType === 'GEMINI_AI' && geminiApiKey) {
-      addLog?.(`🤖 ${botPlayer.name} מתייעץ עם Gemini AI...`);
-      try {
-        const boardSnapshot = serializeBoardState(gameState, boardState, playerState, botPlayer.id, legalActions);
-        const geminiResponse = await getGeminiMove(geminiApiKey, boardSnapshot);
-        
-        addLog?.(`🤖 ${botPlayer.name} (Gemini): ${geminiResponse.reasoningInHebrew}`);
+      const activeStrategy: GeminiStrategyPlan | undefined = (botPlayer as any).activeStrategy;
 
-        switch (geminiResponse.action) {
-          case 'BUILD_SETTLEMENT':
-            // Implement build settlement logic here
-            // For now, just log and end turn
-            addLog?.(`🤖 ${botPlayer.name} (Gemini) רוצה לבנות יישוב ב-${geminiResponse.targetId}`);
-            endTurn();
-            break;
-          case 'BUILD_CITY':
-            // Implement build city logic here
-            // For now, just log and end turn
-            addLog?.(`🤖 ${botPlayer.name} (Gemini) רוצה לבנות עיר ב-${geminiResponse.targetId}`);
-            endTurn();
-            break;
-          case 'BUILD_ROAD':
-            // Implement build road logic here
-            // For now, just log and end turn
-            addLog?.(`🤖 ${botPlayer.name} (Gemini) רוצה לבנות כביש ב-${geminiResponse.targetId}`);
-            endTurn();
-            break;
-          case 'BUILD_SHIP':
-            // Implement build ship logic here
-            // For now, just log and end turn
-            addLog?.(`🤖 ${botPlayer.name} (Gemini) רוצה לבנות ספינה ב-${geminiResponse.targetId}`);
-            endTurn();
-            break;
-          case 'BUY_DEV_CARD':
-            // Implement buy dev card logic here
-            // For now, just log and end turn
-            addLog?.(`🤖 ${botPlayer.name} (Gemini) רוצה לקנות קלף פיתוח`);
-            endTurn();
-            break;
-          case 'END_TURN':
-            endTurn();
-            break;
-          default:
-            console.warn('Unknown Gemini action:', geminiResponse.action);
-            endTurn();
+      // בדיקה אם יריב תפס את צומת היעד המתוכנן (Target Stolen Trigger)
+      const targetStolen = activeStrategy?.targetVertexId && 
+        params.vertices.some(v => v.id === activeStrategy.targetVertexId && v.structure && v.playerId !== botPlayer.id);
+
+      // פנייה ל-Gemini מתרחשת רק אם אין אסטרטגיה, אם פג תוקפה (TTL <= 0), או אם היעד נתפס!
+      const needsNewStrategy = !activeStrategy || activeStrategy.ttlTurns <= 0 || targetStolen;
+
+      if (needsNewStrategy) {
+        addLog?.(`🤖 ${botPlayer.name} מנסח תוכנית אסטרטגית חדשה מול Gemini (${savedModel})...`);
+        try {
+          const boardSnapshot = serializeBoardState(gameState, boardState, playerState, botPlayer.id, legalActions);
+          const strategyPlan = await getGeminiStrategy(geminiApiKey, boardSnapshot, savedModel);
+
+          (botPlayer as any).activeStrategy = strategyPlan;
+          addLog?.(`🤖 ${botPlayer.name} (אסטרטגיה): ${strategyPlan.reasoningInHebrew}`);
+        } catch (error) {
+          console.error('Gemini Strategy Request Failed:', error);
+          addLog?.(`❌ ${botPlayer.name}: שגיאה ב-Gemini. מפעיל לוגיקה מקומית.`);
         }
-
-      } catch (error) {
-        console.error('Gemini AI integration failed:', error);
-        addLog?.(`❌ ${botPlayer.name}: שגיאה ב-Gemini AI. מפעיל לוגיקה מקומית.`);
-        tradeAndBuildPhase(params);
+      } else {
+        // ניכוי תור אחד ממכסת התוקף (TTL) של האסטרטגיה הקיימת
+        activeStrategy.ttlTurns -= 1;
+        addLog?.(`🤖 ${botPlayer.name} פועל לפי תוכנית קיימת (${activeStrategy.goal}, נותרו עוד ${activeStrategy.ttlTurns} תורות לרענון).`);
       }
-    } else {
-      tradeAndBuildPhase(params);
     }
+
+    // ביצוע מהלכים טקטיים מקומיים ומהירים ללא קריאות רשת נוספות
+    tradeAndBuildPhase(params);
     return;
   }
 }

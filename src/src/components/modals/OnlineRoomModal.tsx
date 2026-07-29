@@ -34,11 +34,12 @@ export const OnlineRoomModal: React.FC<OnlineRoomModalProps> = ({
     setRoomIdInput(code);
   };
 
-  const handleJoin = () => {
+  const handleJoin = async () => {
     const code = roomIdInput.trim().toUpperCase();
     if (!code) return;
 
-    socketService.joinRoom(code, playerName || 'שחקן');
+    const assignedId = await socketService.joinRoom(code, playerName || 'שחקן');
+    if (!assignedId) return;
     setActiveRoom(code);
     onRoomJoined(code);
   };

@@ -5,7 +5,9 @@ import { validateRoadPlacement } from '../utils/validation/validateRoadPlacement
 import { validateShipPlacement } from '../utils/validation/validateShipPlacement';
 import { getOpenShipsForPlayer } from '../utils/gameEngine/getOpenShipsForPlayer';
 import { getTileEdgeIds } from '../utils/gameEngine/generateEdges';
-import { revealFogAdjacentToEdge } from '../utils/gameEngine/fogHelpers';
+import { getEdgeVertices, getTileVertexIds } from '../utils/hexMath/boardGeometryHelpers';
+import { dispatchGameAction } from '../services/gameDispatcher';
+import { GameAction } from '../types/gameActions.types';
 
 export function useEdgeInteraction() {
   const {
@@ -32,6 +34,11 @@ export function useEdgeInteraction() {
     setHasMovedShipThisTurn,
     currentTurnBuiltShips,
     setGoldSelectionQueue,
+    setRoadBuildingRemaining,
+    roomId,
+    myPlayerId,
+    resourceBank,
+    setResourceBank,
   } = useGame();
 
   const { isSetupPhase, setupState, recordSetupPlacement } = useTurnManager();
@@ -43,17 +50,19 @@ export function useEdgeInteraction() {
     const bordering = tiles.filter(t => getTileEdgeIds(t).includes(edgeId));
     const hasLand = bordering.some(t => t.type !== 'WATER' && t.type !== 'SEA' && t.type !== 'FOG');
     const hasWater = bordering.some(t => t.type === 'WATER' || t.type === 'SEA' || t.type === 'FOG');
-    return hasLand && hasWater;
+    const isLandFrame = bordering.length === 1 && hasLand;
+    return (hasLand && hasWater) || isLandFrame;
   };
 
   const getEdgeConfig = (edge: any) => {
     const currentPlayer = players[currentPlayerIndex];
+    const isLocalPlayersTurn = !roomId || (!!myPlayerId && currentPlayer?.id === myPlayerId);
     const isBlockedBySetup = isSetupPhase && setupState.hasPlacedRoad;
 
     if (currentAction === 'MOVE_SHIP_SELECT') {
       const openShips = getOpenShipsForPlayer(currentPlayer.id, edges, vertices, currentTurnBuiltShips, tiles || []);
       const isOpenShip = openShips.some(s => s.id === edge.id);
-      return { isValidPlacement: isOpenShip, isClickable: isOpenShip };
+      return { isValidPlacement: isOpenShip, isClickable: isOpenShip && isLocalPlayersTurn };
     }
 
     if (currentAction === 'MOVE_SHIP_PLACE') {
@@ -64,7 +73,7 @@ export function useEdgeInteraction() {
         e.id === selectedShipIdToMove ? { ...e, hasShip: false, shipPlayerId: undefined } : e
       );
       const isValidShip = validateShipPlacement(edge.id, currentPlayer.id, vertices, edgesWithoutMovingShip, tiles || [], gamePhase);
-      return { isValidPlacement: isValidShip, isClickable: isValidShip };
+      return { isValidPlacement: isValidShip, isClickable: isValidShip && isLocalPlayersTurn };
     }
 
     const isCoast = checkIsCoastline(edge.id);
@@ -84,11 +93,11 @@ export function useEdgeInteraction() {
 
     if (isAdjacentToSetupSettlement && bordersWater) {
       const isValidRoad = currentPlayer && !isBlockedBySetup && validateRoadPlacement(edge.id, currentPlayer.id, vertices, edges, tiles, gamePhase);
-      const isValidShip = currentPlayer && !isBlockedBySetup && validateShipPlacement(edge.id, currentPlayer.id, vertices, edges, tiles, gamePhase);
+      const isValidShip = activeExpansion === 'SEAFARERS' && currentPlayer && !isBlockedBySetup && validateShipPlacement(edge.id, currentPlayer.id, vertices, edges, tiles, gamePhase);
       isValidPlacement = isValidRoad || isValidShip;
     } else if (isCoast) {
       const isValidRoad = currentPlayer && !isBlockedBySetup && validateRoadPlacement(edge.id, currentPlayer.id, vertices, edges, tiles, gamePhase);
-      const isValidShip = currentPlayer && !isBlockedBySetup && validateShipPlacement(edge.id, currentPlayer.id, vertices, edges, tiles, gamePhase);
+      const isValidShip = activeExpansion === 'SEAFARERS' && currentPlayer && !isBlockedBySetup && validateShipPlacement(edge.id, currentPlayer.id, vertices, edges, tiles, gamePhase);
       isValidPlacement = isValidRoad || isValidShip;
     } else if (activeExpansion === 'SEAFARERS' && bordersWater && !isCoast) {
       isValidPlacement = currentPlayer && !isBlockedBySetup
@@ -113,41 +122,73 @@ export function useEdgeInteraction() {
       }
     }
 
-    const isClickable = isValidPlacement && !currentPlayer?.isBot;
+    const isClickable = isValidPlacement && !currentPlayer?.isBot && isLocalPlayersTurn;
 
     return { isValidPlacement, isClickable };
   };
 
   const handleRevealFog = (edgeId: string) => {
-    revealFogAdjacentToEdge({
-      edgeId,
-      tiles: tiles || [],
+    const currentPlayer = players[currentPlayerIndex];
+    if (!currentPlayer) return;
+    const [firstVertex, secondVertex] = getEdgeVertices(edgeId);
+    (tiles || []).filter(tile => tile.type === 'FOG').forEach(tile => {
+      const tileVertices = getTileVertexIds(tile);
+      if (!tileVertices.includes(firstVertex) && !tileVertices.includes(secondVertex)) return;
+      dispatchGameAction({
+        type: 'DISCOVER_FOG',
+        playerId: currentPlayer.id,
+        tileId: tile.id,
+        revealedTile: {
+          type: tile.originalType || 'WOOD',
+          numberToken: tile.originalNumberToken ?? null,
+          revealed: true,
+        },
+      }, {
+        roomId: roomId || undefined,
+        isRemote: false,
+        myPlayerId: roomId ? myPlayerId : currentPlayer.id,
+        players,
+        tiles,
+        setTiles,
+        setPlayers,
+        resourceBank,
+        setResourceBank,
+        setGoldSelectionQueue,
+        setTurnSubPhase,
+        addLog,
+      });
+    });
+  };
+
+  const dispatchBuildAction = (action: Extract<GameAction, { type: 'BUILD_ROAD' | 'BUILD_SHIP' }>) => {
+    dispatchGameAction(action, {
+      roomId: roomId || undefined,
+      isRemote: false,
+      myPlayerId: roomId ? myPlayerId : players[currentPlayerIndex]?.id,
+      gamePhase,
       players,
-      currentPlayerIndex,
-      setTiles,
+      setEdges,
       setPlayers,
+      showBuildingCostToast,
       addLog,
-      setGoldSelectionQueue,
-      setTurnSubPhase,
+      recordSetupPlacement,
+      roadBuildingRemaining,
+      setRoadBuildingRemaining,
+      activeExpansion,
     });
   };
 
   const buildRoadOnEdge = (edge: any) => {
     const currentPlayer = players[currentPlayerIndex];
+    if (!currentPlayer || currentPlayer.isBot || (roomId && currentPlayer.id !== myPlayerId)) return;
     if (isSetupPhase) {
-      setEdges(prevEdges => prevEdges.map(e => 
-        e.id === edge.id 
-          ? { ...e, hasRoad: true, playerId: currentPlayer.id } 
-          : e
-      ));
-      recordSetupPlacement?.('ROAD', edge.id);
-      showBuildingCostToast('ROAD', true, true);
-      addLog(`שחקן ${currentPlayer.name} בנה כביש בשלב ההקמה (חינם).`);
+      dispatchBuildAction({ type: 'BUILD_ROAD', playerId: currentPlayer.id, edgeId: edge.id });
       handleRevealFog(edge.id);
       return;
     }
 
-    if (turnSubPhase !== 'TRADE_AND_BUILD') return;
+    const canBuildFreeRoadBeforeRoll = turnSubPhase === 'BEFORE_ROLL' && roadBuildingRemaining > 0;
+    if (turnSubPhase !== 'TRADE_AND_BUILD' && !canBuildFreeRoadBeforeRoll) return;
 
     const isFreeRoad = roadBuildingRemaining > 0;
     const hasResources = isFreeRoad || (currentPlayer.resources.WOOD >= 1 && currentPlayer.resources.BRICK >= 1);
@@ -159,46 +200,21 @@ export function useEdgeInteraction() {
       return;
     }
 
-    if (!isFreeRoad) {
-      setPlayers(prev => prev.map(p => p.id === currentPlayer.id 
-        ? {
-            ...p,
-            resources: {
-              ...p.resources,
-              WOOD: p.resources.WOOD - 1,
-              BRICK: p.resources.BRICK - 1
-            }
-          }
-        : p
-      ));
-    }
-
-    setEdges(prevEdges => prevEdges.map(e => 
-      e.id === edge.id 
-        ? { ...e, hasRoad: true, playerId: currentPlayer.id } 
-        : e
-    ));
-
-    addLog(`שחקן ${currentPlayer.name} בנה כביש! ${isFreeRoad ? '(חינם - קלף בניית כבישים)' : 'עלות: 1 עץ, 1 לבנה.'}`);
+    dispatchBuildAction({ type: 'BUILD_ROAD', playerId: currentPlayer.id, edgeId: edge.id });
     handleRevealFog(edge.id);
   };
 
   const buildShipOnEdge = (edge: any) => {
     const currentPlayer = players[currentPlayerIndex];
+    if (!currentPlayer || currentPlayer.isBot || (roomId && currentPlayer.id !== myPlayerId)) return;
     if (isSetupPhase) {
-      setEdges(prevEdges => prevEdges.map(e => 
-        e.id === edge.id 
-          ? { ...e, hasShip: true, shipPlayerId: currentPlayer.id } 
-          : e
-      ));
-      recordSetupPlacement?.('ROAD', edge.id);
-      showBuildingCostToast('SHIP', true, true);
-      addLog(`שחקן ${currentPlayer.name} בנה ספינה בשלב ההקמה (חינם).`);
+      dispatchBuildAction({ type: 'BUILD_SHIP', playerId: currentPlayer.id, edgeId: edge.id });
       handleRevealFog(edge.id);
       return;
     }
 
-    if (turnSubPhase !== 'TRADE_AND_BUILD') return;
+    const canBuildFreeShipBeforeRoll = turnSubPhase === 'BEFORE_ROLL' && roadBuildingRemaining > 0;
+    if (turnSubPhase !== 'TRADE_AND_BUILD' && !canBuildFreeShipBeforeRoll) return;
 
     const isFreeShip = roadBuildingRemaining > 0 && activeExpansion === 'SEAFARERS';
     const hasResources = isFreeShip || (currentPlayer.resources.WOOD >= 1 && currentPlayer.resources.SHEEP >= 1);
@@ -209,25 +225,7 @@ export function useEdgeInteraction() {
       return;
     }
 
-    if (!isFreeShip) {
-      setPlayers(prev => prev.map(p => p.id === currentPlayer.id 
-        ? {
-            ...p,
-            resources: {
-              ...p.resources,
-              WOOD: p.resources.WOOD - 1,
-              SHEEP: p.resources.SHEEP - 1
-            }
-          }
-        : p
-      ));
-    }
-
-    setEdges(prevEdges => prevEdges.map(e => 
-      e.id === edge.id 
-        ? { ...e, hasShip: true, shipPlayerId: currentPlayer.id } 
-        : e
-    ));
+    dispatchBuildAction({ type: 'BUILD_SHIP', playerId: currentPlayer.id, edgeId: edge.id });
 
     setCurrentTurnBuiltShips(prev => [...prev, edge.id]);
 
@@ -235,13 +233,13 @@ export function useEdgeInteraction() {
       setCurrentAction(null);
     }
     
-    addLog(`השחקן ${currentPlayer.name} בנה ספינה! ${isFreeShip ? '(חינם - קלף בניית כבישים)' : 'עלות: 1 עץ, 1 כבש.'}`);
     handleRevealFog(edge.id);
   };
 
   const handleEdgeClick = (edge: any) => {
     const currentPlayer = players[currentPlayerIndex];
-    if (currentPlayer?.isBot) return;
+    const isLocalPlayersTurn = !roomId || (!!myPlayerId && currentPlayer?.id === myPlayerId);
+    if (!currentPlayer || currentPlayer.isBot || !isLocalPlayersTurn) return;
 
     const { isValidPlacement } = getEdgeConfig(edge);
     if (!isValidPlacement) return;
@@ -254,20 +252,23 @@ export function useEdgeInteraction() {
     }
 
     if (currentAction === 'MOVE_SHIP_PLACE') {
-      setEdges(prevEdges => prevEdges.map(e => {
-        if (e.id === selectedShipIdToMove) {
-          return { ...e, hasShip: false, shipPlayerId: undefined };
-        }
-        if (e.id === edge.id) {
-          return { ...e, hasShip: true, shipPlayerId: currentPlayer.id };
-        }
-        return e;
-      }));
-
-      setHasMovedShipThisTurn(true);
+      if (!selectedShipIdToMove) return;
+      dispatchGameAction({
+        type: 'MOVE_SHIP',
+        playerId: currentPlayer.id,
+        fromEdgeId: selectedShipIdToMove,
+        toEdgeId: edge.id,
+      }, {
+        roomId: roomId || undefined,
+        isRemote: false,
+        myPlayerId: roomId ? myPlayerId : currentPlayer.id,
+        players,
+        setEdges,
+        setHasMovedShipThisTurn,
+        addLog,
+      });
       setSelectedShipIdToMove(null);
       setCurrentAction(null);
-      addLog(`השחקן ${currentPlayer.name} הזיז ספינה פתוחה למיקום חדש!`);
       handleRevealFog(edge.id);
       return;
     }
@@ -286,7 +287,11 @@ export function useEdgeInteraction() {
     }
 
     if (isCoast) {
-      setCoastlinePopupEdge(edge);
+      if (activeExpansion === 'SEAFARERS') {
+        setCoastlinePopupEdge(edge);
+      } else {
+        buildRoadOnEdge(edge);
+      }
       return;
     }
 

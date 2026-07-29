@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useTurnManager } from '../../hooks/useTurnManager';
 import { useGame } from '../../context/GameContext';
-import { Player } from '../../types/player.types';
+import { dispatchGameAction } from '../../services/gameDispatcher';
 
 const RESOURCE_IMAGES = {
   WOOD: '/wood1.png',
@@ -13,7 +13,7 @@ const RESOURCE_IMAGES = {
 
 export const GoldTradePanel: React.FC = () => {
   const { currentPlayer, turnSubPhase } = useTurnManager();
-  const { goldCoins, setGoldCoins, setPlayers, addLog } = useGame();
+  const { goldCoins, setGoldCoins, setPlayers, addLog, roomId, myPlayerId, resourceBank, setResourceBank } = useGame();
 
   const [goldTradesThisTurn, setGoldTradesThisTurn] = useState(0);
   const [showResourceSelect, setShowResourceSelect] = useState(false);
@@ -24,6 +24,26 @@ export const GoldTradePanel: React.FC = () => {
   }, [currentPlayer?.id]);
 
   if (!currentPlayer) return null;
+
+  const isWrongOnlinePlayer = !!roomId && (!myPlayerId || currentPlayer.id !== myPlayerId);
+
+  const handleGoldTrade = (requestedResource: keyof typeof RESOURCE_IMAGES) => {
+    dispatchGameAction({ type: 'GOLD_TRADE', playerId: currentPlayer.id, requestedResource }, {
+      roomId: roomId || undefined,
+      isRemote: false,
+      myPlayerId: roomId ? myPlayerId : currentPlayer.id,
+      turnSubPhase,
+      players: [currentPlayer],
+      setPlayers,
+      goldCoins,
+      setGoldCoins,
+      resourceBank,
+      setResourceBank,
+      addLog,
+    });
+    setGoldTradesThisTurn(previous => previous + 1);
+    setShowResourceSelect(false);
+  };
 
   return (
     <div className="relative overflow-hidden bg-slate-900/90 p-3 rounded-2xl border border-amber-500/30 shadow-md flex flex-col gap-2.5">
@@ -38,7 +58,7 @@ export const GoldTradePanel: React.FC = () => {
       </div>
 
       {/* כפתור החלפה */}
-      {!currentPlayer.isBot && turnSubPhase === 'TRADE_AND_BUILD' && (
+      {!currentPlayer.isBot && !isWrongOnlinePlayer && turnSubPhase === 'TRADE_AND_BUILD' && (
         <div className="flex flex-col gap-2 mt-1">
           {!showResourceSelect ? (
             <button
@@ -67,6 +87,9 @@ export const GoldTradePanel: React.FC = () => {
                     <button
                       key={res}
                       onClick={() => {
+                        handleGoldTrade(res);
+                        return;
+                        /* Direct state mutation replaced by dispatchGameAction.
                         // Deduct 2 gold and add 1 resource
                         setGoldCoins((prev: Record<string, number>) => ({
                           ...prev,
@@ -87,6 +110,7 @@ export const GoldTradePanel: React.FC = () => {
                         addLog(`🪙 ${currentPlayer.name} החליף/ה 2 זהב עבור 1 ${labelsHE[res]}.`);
                         setGoldTradesThisTurn(prev => prev + 1);
                         setShowResourceSelect(false);
+                        */
                       }}
                       className="p-1 rounded-lg bg-slate-900 hover:bg-slate-850 border border-slate-800 hover:border-slate-700 transition-all flex flex-col items-center justify-center gap-1 cursor-pointer"
                     >

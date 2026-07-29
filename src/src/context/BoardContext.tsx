@@ -1,3 +1,4 @@
+/* oxlint-disable react/only-export-components */
 import React, { createContext, useContext, useState, ReactNode } from 'react';
 import { HexTile } from '../types/hex.types';
 import { BoardVertex, BoardEdge } from '../types/boardElements.types';

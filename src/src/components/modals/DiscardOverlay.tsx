@@ -28,7 +28,7 @@ const CARD_COLORS: Record<string, string> = {
 };
 
 export const DiscardOverlay: React.FC = () => {
-  const { players, setPlayers, setTurnSubPhase, addLog, turnSubPhase, roomId, myPlayerId } = useGame();
+  const { players, setPlayers, setTurnSubPhase, addLog, turnSubPhase, roomId, myPlayerId, setResourceBank } = useGame();
 
   const [discardCount, setDiscardCount] = useState<Record<string, number>>({
     WOOD: 0,
@@ -37,9 +37,11 @@ export const DiscardOverlay: React.FC = () => {
     WHEAT: 0,
     ORE: 0,
   });
+  const [hasSubmittedDiscard, setHasSubmittedDiscard] = useState(false);
 
   useEffect(() => {
     if (turnSubPhase === 'DISCARD_PHASE') {
+      setHasSubmittedDiscard(false);
       setDiscardCount({
         WOOD: 0,
         BRICK: 0,
@@ -52,13 +54,26 @@ export const DiscardOverlay: React.FC = () => {
 
   if (turnSubPhase !== 'DISCARD_PHASE') return null;
 
-  const humanPlayer = (roomId && myPlayerId)
+  const humanPlayer = roomId
     ? players.find(p => p.id === myPlayerId)
     : players.find(p => !p.isBot);
 
   if (!humanPlayer) return null;
 
+  if (hasSubmittedDiscard) {
+    return (
+      <div className="fixed inset-0 bg-slate-950/90 backdrop-blur-md z-50 flex items-center justify-center p-6 text-white">
+        <div className="max-w-lg w-full rounded-3xl border border-amber-500/25 bg-slate-900/80 p-8 text-center shadow-2xl">
+          <div className="mx-auto mb-5 h-10 w-10 rounded-full border-4 border-amber-500/30 border-t-amber-400 animate-spin" />
+          <h2 className="text-2xl font-black text-amber-400 mb-2">הקלפים הושלכו</h2>
+          <p className="text-slate-300 font-medium">ממתינים לשאר השחקנים שיסיימו להשליך קלפים…</p>
+        </div>
+      </div>
+    );
+  }
+
   const totalCards = Object.values(humanPlayer.resources).reduce((a, b) => a + b, 0);
+  if (totalCards <= 7) return null;
   const toDiscard = Math.floor(totalCards / 2);
 
   if (toDiscard <= 0) return null;
@@ -100,12 +115,14 @@ export const DiscardOverlay: React.FC = () => {
     } as any, {
       roomId: roomId || undefined,
       isRemote: false,
-      myPlayerId,
+      myPlayerId: roomId ? myPlayerId : humanPlayer.id,
       players,
       setPlayers,
+      setResourceBank,
       setTurnSubPhase,
       addLog
     });
+    setHasSubmittedDiscard(true);
   };
 
   const resourceKeys: ('WOOD' | 'BRICK' | 'SHEEP' | 'WHEAT' | 'ORE')[] = ['WOOD', 'BRICK', 'SHEEP', 'WHEAT', 'ORE'];
@@ -149,7 +166,7 @@ export const DiscardOverlay: React.FC = () => {
                     />
                   )}
                   {/* Overlay available count */}
-                  <div className="absolute top-2 right-2 flex items-center justify-center min-w-6 h-6 px-1 rounded-md bg-slate-950/90 border border-slate-700/50 text-slate-300 text-xs font-bold font-mono">
+                  <div className="absolute top-2 right-2 flex items-center justify-center min-w-8 h-8 px-1.5 rounded-md bg-slate-950/95 border border-slate-700 text-lg font-black text-amber-400 font-mono shadow-md">
                     {available}
                   </div>
                 </div>

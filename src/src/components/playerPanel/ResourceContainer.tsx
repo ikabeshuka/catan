@@ -10,6 +10,7 @@ interface ResourceContainerProps {
   isCollapsed: boolean;
   onPositionChange: (position: 'bottom' | 'right') => void;
   onToggleCollapsed: () => void;
+  playerId?: string;
 }
 
 export const ResourceContainer: React.FC<ResourceContainerProps> = ({
@@ -19,6 +20,7 @@ export const ResourceContainer: React.FC<ResourceContainerProps> = ({
   isCollapsed,
   onPositionChange,
   onToggleCollapsed,
+  playerId,
 }) => {
   const resourceTypes = [
     { type: 'WOOD' as const, label: 'עץ', imgPath: '/wood1.png', color: 'text-emerald-800', bg: 'bg-emerald-50 border-emerald-200' },
@@ -30,6 +32,7 @@ export const ResourceContainer: React.FC<ResourceContainerProps> = ({
 
   return (
     <div
+      data-player-id={playerId}
       className={`w-full bg-slate-900/80 backdrop-blur-md border border-slate-800 rounded-2xl shadow-2xl flex flex-col transition-all duration-300 ease-in-out overflow-hidden ${
         isCollapsed && position === 'bottom' ? 'h-16 px-6 py-2' : isCollapsed && position === 'right' ? 'h-auto p-2' : 'h-auto p-4'
       }`}
@@ -94,16 +97,17 @@ export const ResourceContainer: React.FC<ResourceContainerProps> = ({
             <div className="flex flex-col items-center gap-2.5 py-1 w-full animate-fade-in justify-center">
               {resourceTypes.map((res) => {
                 const count = resources[res.type] || 0;
-                return (
-                  <div
-                    key={res.type}
-                    className="relative flex items-center justify-center w-11 h-11 rounded-xl border border-slate-700/30 bg-slate-900/60 p-1 group hover:scale-115 transition-all cursor-pointer"
-                    title={`${res.label}: ${count}`}
-                  >
-                    <span className="filter drop-shadow scale-90">
-                      {res.imgPath ? <img src={res.imgPath} className="w-6 h-6 object-contain bg-transparent" alt={res.label} /> : null}
-                    </span>
-                    <div className="absolute -top-1 -right-1 flex items-center justify-center min-w-[18px] h-4.5 px-1 rounded bg-slate-950 border border-slate-750 text-slate-200 font-mono text-[9px] font-black shadow-md">
+                  return (
+                    <div
+                      key={res.type}
+                      id={`resource-collapsed-${res.type}`}
+                      className="relative flex items-center justify-center w-11 h-11 rounded-xl border border-slate-700/30 bg-slate-900/60 p-1 group hover:scale-115 transition-all cursor-pointer"
+                      title={`${res.label}: ${count}`}
+                    >
+                      <span className="filter drop-shadow scale-90">
+                        {res.imgPath ? <img src={res.imgPath} className="w-6 h-6 object-contain bg-transparent" style={{ mixBlendMode: 'multiply' }} alt={res.label} /> : null}
+                      </span>
+                      <div className="absolute -top-1 -right-1 flex items-center justify-center min-w-[18px] h-4.5 px-1 rounded bg-slate-950 border border-slate-750 text-slate-200 font-mono text-[9px] font-black shadow-md">
                       {count}
                     </div>
                   </div>
@@ -203,7 +207,7 @@ export const ResourceContainer: React.FC<ResourceContainerProps> = ({
                       className="flex items-center gap-3 group px-3 py-1 rounded-lg hover:bg-slate-800/40 transition-all duration-200"
                       title={`${res.label}: ${count}`}
                     >
-                      {res.imgPath ? <img src={res.imgPath} className="w-6 h-6 object-contain bg-transparent" alt={res.label} /> : null}
+                      {res.imgPath ? <img src={res.imgPath} className="w-6 h-6 object-contain bg-transparent" style={{ mixBlendMode: 'multiply' }} alt={res.label} /> : null}
                       <span className="text-slate-100 text-2xl font-black font-mono tracking-tight drop-shadow-sm">
                         {count}
                       </span>

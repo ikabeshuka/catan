@@ -34,8 +34,9 @@ export function evaluateEdges(
   );
 
   // 2. סינון נתיבי כביש חוקיים בלבד עבור הבוט הנוכחי
+  // Passing tiles and gamePhase to ensure water/sea boundaries are respected and roads are not placed on water edges
   const validEdges = edges.filter(edge => 
-    validateRoadPlacement(edge.id, botId, vertices, edges)
+    validateRoadPlacement(edge.id, botId, vertices, edges, tiles, gamePhase)
   );
 
   // 3. חישוב הציון לכל כביש אפשרי

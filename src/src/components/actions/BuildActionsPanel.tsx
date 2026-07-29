@@ -2,6 +2,8 @@ import React from 'react';
 import { useTurnManager } from '../../hooks/useTurnManager';
 import { useGame } from '../../context/GameContext';
 import { getOpenShipsForPlayer } from '../../utils/gameEngine/getOpenShipsForPlayer';
+import { dispatchGameAction } from '../../services/gameDispatcher';
+import type { DevCardType } from '../../types/gameActions.types';
 const RESOURCE_IMAGES = {
   WOOD: '/wood1.png',
   BRICK: '/brick1.png',
@@ -18,7 +20,6 @@ export const BuildActionsPanel: React.FC = () => {
     endTurn,
     isSetupPhase,
     setupState,
-    buyDevelopmentCard,
     undoTurnActions,
   } = useTurnManager();
 
@@ -32,19 +33,48 @@ export const BuildActionsPanel: React.FC = () => {
     currentTurnBuiltShips,
     hasMovedShipThisTurn,
     setSelectedShipIdToMove,
-    tiles
+    tiles,
+    roomId,
+    myPlayerId,
+    devCardDeck,
+    buyDevelopmentCard,
   } = useGame();
 
   if (!currentPlayer) return null;
 
-  const humanPlayer = players.find((p) => !p.isBot) || players[0];
+  const humanPlayer = (roomId
+    ? players.find((p) => p.id === myPlayerId)
+    : players.find((p) => !p.isBot) || players[0])!;
 
   // Helper to check if human player has a specific resource and count
   const checkHumanResource = (type: 'WOOD' | 'BRICK' | 'SHEEP' | 'WHEAT' | 'ORE', amount: number): boolean => {
     return (humanPlayer.resources[type] || 0) >= amount;
   };
 
-  const isActionsDisabled = isCurrentPlayerBot || turnSubPhase !== 'TRADE_AND_BUILD';
+  const isWrongOnlinePlayer = !!roomId && (!myPlayerId || currentPlayer.id !== myPlayerId);
+  const isActionsDisabled = isCurrentPlayerBot || isWrongOnlinePlayer || turnSubPhase !== 'TRADE_AND_BUILD';
+  const canBuyDevelopmentCard = !isActionsDisabled && devCardDeck.length > 0 &&
+    checkHumanResource('ORE', 1) && checkHumanResource('SHEEP', 1) && checkHumanResource('WHEAT', 1);
+
+  const handleEndTurn = () => {
+    dispatchGameAction({ type: 'END_TURN', playerId: currentPlayer.id }, {
+      roomId: roomId || undefined,
+      isRemote: false,
+      myPlayerId: roomId ? myPlayerId : currentPlayer.id,
+      endTurn,
+    });
+  };
+
+  const handleBuyDevelopmentCard = () => {
+    const cardType = devCardDeck[0] as DevCardType | undefined;
+    if (!cardType) return;
+    dispatchGameAction({ type: 'BUY_DEV_CARD', playerId: currentPlayer.id, cardType }, {
+      roomId: roomId || undefined,
+      isRemote: false,
+      myPlayerId: roomId ? myPlayerId : currentPlayer.id,
+      buyDevelopmentCard,
+    });
+  };
 
   const buildItems = [
     {
@@ -160,7 +190,8 @@ export const BuildActionsPanel: React.FC = () => {
             {/* כפתור סיום תור בולט ומעוצב ישירות בכרטיסי הבנייה */}
             {setupState.hasPlacedSettlement && setupState.hasPlacedRoad && (
               <button
-                onClick={endTurn}
+                onClick={handleEndTurn}
+                disabled={isCurrentPlayerBot || isWrongOnlinePlayer}
                 className="col-span-2 w-full mt-1.5 py-3 px-4 rounded-xl font-extrabold text-xs tracking-wide bg-gradient-to-r from-emerald-500 to-teal-500 text-slate-950 hover:brightness-110 active:scale-[0.98] shadow-lg shadow-emerald-500/20 cursor-pointer text-center animate-bounce duration-1000"
               >
                 סיום תור והמשך ➔
@@ -235,11 +266,11 @@ export const BuildActionsPanel: React.FC = () => {
                     <button
                       onClick={() => {
                         console.log('[ActionSidebar] Buy Dev Card Button Clicked!');
-                        buyDevelopmentCard();
+                        handleBuyDevelopmentCard();
                       }}
-                      disabled={isCurrentPlayerBot || turnSubPhase !== 'TRADE_AND_BUILD'}
+                      disabled={!canBuyDevelopmentCard}
                       className={`w-full py-1 px-2 rounded-lg font-extrabold text-[10px] tracking-wider transition-all duration-300 border border-transparent flex items-center justify-center gap-1.5 mt-1
-                        ${(isCurrentPlayerBot || turnSubPhase !== 'TRADE_AND_BUILD')
+                        ${!canBuyDevelopmentCard
                           ? 'bg-slate-900/60 text-slate-500 cursor-not-allowed opacity-50' 
                           : 'bg-gradient-to-r from-amber-500 to-orange-500 text-slate-950 hover:brightness-110 active:scale-[0.97] shadow-lg shadow-amber-500/10 hover:shadow-amber-500/25 cursor-pointer'
                         }`}
@@ -252,9 +283,9 @@ export const BuildActionsPanel: React.FC = () => {
                         const action = item.id === 'ship' ? 'BUILD_SHIP' : 'BUILD_ROAD';
                         setCurrentAction(prev => prev === action ? null : action);
                       }}
-                      disabled={isCurrentPlayerBot || turnSubPhase !== 'TRADE_AND_BUILD'}
+                      disabled={isActionsDisabled}
                       className={`w-full py-1 px-2 rounded-lg font-extrabold text-[10px] tracking-wider transition-all duration-300 border border-transparent flex items-center justify-center gap-1.5 mt-1
-                        ${(isCurrentPlayerBot || turnSubPhase !== 'TRADE_AND_BUILD')
+                        ${isActionsDisabled
                           ? 'bg-slate-900/60 text-slate-500 cursor-not-allowed opacity-50' 
                           : currentAction === (item.id === 'ship' ? 'BUILD_SHIP' : 'BUILD_ROAD')
                             ? 'bg-rose-600 text-white hover:bg-rose-500 active:scale-[0.97] cursor-pointer shadow-md'
@@ -315,9 +346,9 @@ export const BuildActionsPanel: React.FC = () => {
                 console.log('[ActionSidebar] Undo Actions Button Clicked!');
                 undoTurnActions();
               }}
-              disabled={isActionsDisabled}
+              disabled={isActionsDisabled || Boolean(roomId)}
               className={`col-span-2 w-full mt-2 py-3 px-4 rounded-xl font-extrabold text-xs tracking-wider transition-all duration-300 border border-transparent flex items-center justify-center gap-2
-                ${isActionsDisabled 
+                ${isActionsDisabled || roomId
                   ? 'bg-slate-900/40 text-slate-500 cursor-not-allowed opacity-50 border-slate-800/40' 
                   : 'bg-rose-600 hover:bg-rose-500 text-white hover:brightness-110 active:scale-[0.97] shadow-lg shadow-rose-600/10 hover:shadow-rose-600/25 cursor-pointer border-rose-500'
                 }`}

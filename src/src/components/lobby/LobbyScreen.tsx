@@ -44,10 +44,30 @@ export const LobbyScreen: React.FC<LobbyScreenProps> = ({
 
   const [lobbyPlayers, setLobbyPlayers] = useState<LobbyPlayer[]>([
     { id: 'p1', name: 'שחקן 1 (רוס)', color: '#e53935', isBot: false, playerType: 'HUMAN', difficulty: undefined },
-    { id: 'p2', name: 'שחקן 2', color: '#1e88e5', isBot: false, playerType: 'HUMAN', difficulty: undefined },
-    { id: 'p3', name: 'שחקן 3', color: '#fdd835', isBot: false, playerType: 'HUMAN', difficulty: undefined },
-    { id: 'p4', name: 'שחקן 4', color: '#43a047', isBot: false, playerType: 'HUMAN', difficulty: undefined },
+    { id: 'p2', name: 'שחקן 2', color: '#1e88e5', isBot: true, playerType: 'LOCAL_BOT', difficulty: 'בינוני' },
+    { id: 'p3', name: 'שחקן 3', color: '#fdd835', isBot: true, playerType: 'LOCAL_BOT', difficulty: 'בינוני' },
+    { id: 'p4', name: 'שחקן 4', color: '#43a047', isBot: true, playerType: 'LOCAL_BOT', difficulty: 'בינוני' },
   ]);
+
+  const isOnlineMode = !!roomId || isOnlineCreationMode;
+
+  useEffect(() => {
+    if (isOnlineMode) {
+      setLobbyPlayers(prev => prev.map((p, idx) => ({
+        ...p,
+        playerType: 'HUMAN',
+        isBot: false,
+        name: p.name.startsWith('שחקן') || p.name === '' ? `שחקן ${idx + 1}` : p.name
+      })));
+    } else {
+      setLobbyPlayers(prev => prev.map((p, idx) => ({
+        ...p,
+        playerType: idx === 0 ? 'HUMAN' : 'LOCAL_BOT',
+        isBot: idx !== 0,
+        name: idx === 0 ? p.name : `שחקן ${idx + 1}`
+      })));
+    }
+  }, [isOnlineMode]);
 
   const togglePlayerType = (id: string, playerType: PlayerType) => {
     setLobbyPlayers(prev => prev.map((item, idx) => {
@@ -122,8 +142,11 @@ export const LobbyScreen: React.FC<LobbyScreenProps> = ({
   // Host listen for incoming player joins
   useEffect(() => {
     if (roomId && isHost) {
-      socketService.onPlayerJoined(({ playerName }) => {
+      socketService.onPlayerJoined(({ playerName, assignedPlayerId }: { playerName: string; assignedPlayerId?: string }) => {
         setLobbyPlayers(prev => {
+          if (assignedPlayerId) {
+            return prev.map(p => p.id === assignedPlayerId ? { ...p, name: playerName } : p);
+          }
           // Find first open HUMAN slot that doesn't belong to the host (idx > 0)
           const openSlot = prev.find((p, idx) => idx > 0 && p.playerType === 'HUMAN' && !p.isBot && (p.name.startsWith('שחקן') || p.name === ''));
           if (openSlot) {
@@ -131,6 +154,14 @@ export const LobbyScreen: React.FC<LobbyScreenProps> = ({
           }
           return prev;
         });
+      });
+
+      socketService.onPlayerLeft(({ playerId }) => {
+        setLobbyPlayers(prev => prev.map((player, index) =>
+          player.id === playerId
+            ? { ...player, name: `שחקן ${index + 1}` }
+            : player
+        ));
       });
     }
   }, [roomId, isHost]);
@@ -150,12 +181,17 @@ export const LobbyScreen: React.FC<LobbyScreenProps> = ({
       });
 
       socketService.joinRoom(newRoomId, lobbyPlayers.find(p => !p.isBot)?.name || 'שחקן').then((assignedId) => {
+        if (!assignedId) {
+          setRoomId(null);
+          setIsHost(false);
+          return;
+        }
         setMyPlayerId(assignedId);
       });
       setRoomId(newRoomId);
       setIsOnlineCreationMode(false);
     }
-  }, [currentStep, isOnlineCreationMode, roomId, isHost, activeExpansion, selectedScenario, boardType, playerCount, lobbyPlayers, setRoomId, setMyPlayerId]);
+  }, [currentStep, isOnlineCreationMode, roomId, isHost, activeExpansion, selectedScenario, boardType, playerCount, lobbyPlayers, setRoomId, setIsHost, setMyPlayerId]);
 
   const handleNextStep = () => {
     if (currentStep === 1) {

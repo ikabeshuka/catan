@@ -95,12 +95,12 @@ export function validateSettlementPlacement(
     if (gamePhase === 'SETUP_ROUND_1' || gamePhase === 'SETUP_ROUND_2') {
       const borderingLandTiles = borderingTiles.filter(tile => tile.type !== 'WATER');
       
-      if (selectedScenario === 'THROUGH_THE_DESERT') {
+      if (selectedScenario === 'THROUGH_THE_DESERT' || selectedScenario === 'HEADING_FOR_NEW_SHORES') {
         const notMainIsland = borderingLandTiles.some(tile => tile.islandId !== 1);
         if (notMainIsland || borderingLandTiles.length === 0) {
           return false;
         }
-      } else {
+      } else if (selectedScenario !== 'FOUR_ISLANDS') {
         const touchesSecondaryIsland = borderingLandTiles.some(tile => tile.islandId !== undefined && tile.islandId > 1);
         if (touchesSecondaryIsland) {
           return false;

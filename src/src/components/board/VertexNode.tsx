@@ -53,7 +53,7 @@ export const VertexNode: React.FC<VertexNodeProps> = ({
   const recordSetupPlacement = propRecordSetupPlacement !== undefined ? propRecordSetupPlacement : turnManager.recordSetupPlacement;
   const turnSubPhase = propTurnSubPhase !== undefined ? propTurnSubPhase : turnManager.turnSubPhase;
 
-  const { tiles } = useGame();
+  const { tiles, setIsTradeModalOpen } = useGame();
   const { selectedScenario } = useBoard();
   const [isHovered, setIsHovered] = useState(false);
   
@@ -81,6 +81,7 @@ export const VertexNode: React.FC<VertexNodeProps> = ({
     const isOwnedHarbor = vertex.isHarbor && vertex.playerId === currentPlayer?.id;
     if (isOwnedHarbor && !isSetupPhase && turnSubPhase === 'TRADE_AND_BUILD') {
       setActivePortTrade(vertex);
+      setIsTradeModalOpen(true);
       return;
     }
 
@@ -303,7 +304,7 @@ export const VertexNode: React.FC<VertexNodeProps> = ({
                 y="-11"
                 width="14"
                 height="14"
-                style={{ pointerEvents: 'none' }}
+                style={{ pointerEvents: 'none', mixBlendMode: 'multiply' }}
               />
               <text
                 y="10"
@@ -334,7 +335,7 @@ export const VertexNode: React.FC<VertexNodeProps> = ({
                 y="-11"
                 width="14"
                 height="14"
-                style={{ pointerEvents: 'none' }}
+                style={{ pointerEvents: 'none', mixBlendMode: 'multiply' }}
               />
               <text
                 y="10"
@@ -448,6 +449,7 @@ export const VertexNode: React.FC<VertexNodeProps> = ({
               y="-35"
               width="12"
               height="12"
+              style={{ mixBlendMode: 'multiply' }}
             />
           )}
           {/* טקסט בתוך הבועה */}

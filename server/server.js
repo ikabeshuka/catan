@@ -1,197 +1,401 @@
 const express = require('express');
 const http = require('http');
+const crypto = require('crypto');
 const { Server } = require('socket.io');
+const { validateActionShape, validateGameAction, applyReservedAction, DEV_CARD_TYPES, RESOURCE_TYPES } = require('./gameRules');
 
-const app = express();
-const server = http.createServer(app);
+const DEFAULT_PORT = 3001;
+const RECONNECT_GRACE_MS = Number(process.env.RECONNECT_GRACE_MS || 15000);
+const MAX_PAYLOAD_BYTES = 512 * 1024;
+const ROOM_ID_PATTERN = /^CATAN-[A-Z0-9]{4,12}$/;
+const SLOT_STATUSES = new Set(['OPEN', 'LOCKED_BOT']);
+const ALLOWED_ORIGINS = (process.env.ALLOWED_ORIGINS || 'https://catan-32o1.onrender.com,http://localhost:5173,http://127.0.0.1:5173')
+  .split(',').map(value => value.trim()).filter(Boolean);
 
-// הגדרת Socket.io עם הרשאות CORS פתוחות
-const io = new Server(server, {
-  cors: {
-    origin: '*',
-    methods: ['GET', 'POST']
+const isPlainObject = value => Boolean(value) && typeof value === 'object' && !Array.isArray(value);
+const isShortString = (value, max = 80) => typeof value === 'string' && value.trim().length > 0 && value.length <= max;
+const clone = value => JSON.parse(JSON.stringify(value));
+const createSessionToken = () => crypto.randomBytes(24).toString('hex');
+const payloadFits = value => {
+  try { return Buffer.byteLength(JSON.stringify(value), 'utf8') <= MAX_PAYLOAD_BYTES; } catch { return false; }
+};
+const STANDARD_DEV_COUNTS = { KNIGHT: 14, VICTORY_POINT: 5, ROAD_BUILDING: 2, YEAR_OF_PLENTY: 2, MONOPOLY: 2 };
+const validateRuntimeGameState = (state, room) => {
+  if (!isPlainObject(state) || !Array.isArray(state.players) || state.players.length < 2 || state.players.length > room.maxPlayers ||
+      !Array.isArray(state.tiles) || !Array.isArray(state.vertices) || !Array.isArray(state.edges) ||
+      !Number.isInteger(state.currentPlayerIndex) || state.currentPlayerIndex < 0 || state.currentPlayerIndex >= state.players.length ||
+      !['SETUP_ROUND_1', 'SETUP_ROUND_2', 'MAIN_GAME', 'GAME_OVER'].includes(state.gamePhase) ||
+      !isPlainObject(state.resourceBank) || !Array.isArray(state.devCardDeck)) return false;
+  const playerIds = state.players.map(player => player?.id);
+  if (new Set(playerIds).size !== playerIds.length || playerIds.some((id, index) => id !== `p${index + 1}`)) return false;
+  if (state.players.some(player => !isPlainObject(player.resources) || RESOURCE_TYPES.some(resource =>
+    !Number.isInteger(player.resources[resource]) || player.resources[resource] < 0))) return false;
+  if (RESOURCE_TYPES.some(resource => !Number.isInteger(state.resourceBank[resource]) || state.resourceBank[resource] < 0 ||
+      state.resourceBank[resource] + state.players.reduce((sum, player) => sum + player.resources[resource], 0) !== 19)) return false;
+  return state.devCardDeck.every(card => DEV_CARD_TYPES.includes(card));
+};
+const validateInitialGameState = (state, room) => {
+  if (!validateRuntimeGameState(state, room) || !['SETUP_ROUND_1', 'SETUP_ROUND_2'].includes(state.gamePhase) || state.devCardDeck.length !== 25) return false;
+  const playerIds = state.players.map(player => player?.id);
+  if (new Set(playerIds).size !== playerIds.length || playerIds.some((id, index) => id !== `p${index + 1}`)) return false;
+  if (state.players.some(player => !isPlainObject(player.resources) || RESOURCE_TYPES.some(resource =>
+    !Number.isInteger(player.resources[resource]) || player.resources[resource] < 0))) return false;
+  if (RESOURCE_TYPES.some(resource => !Number.isInteger(state.resourceBank[resource]) || state.resourceBank[resource] < 0)) return false;
+  const deckCounts = Object.fromEntries(DEV_CARD_TYPES.map(type => [type, 0]));
+  for (const card of state.devCardDeck) {
+    if (!DEV_CARD_TYPES.includes(card)) return false;
+    deckCounts[card] += 1;
   }
-});
+  return DEV_CARD_TYPES.every(type => deckCounts[type] === STANDARD_DEV_COUNTS[type]);
+};
 
-// זיכרון מקומי בשרת לניהול רשימת החדרים הפתוחים ברשת
-const activeRooms = new Map();
-
-console.log('🚀 שרת Catan Relay מתאתחל...');
-
-io.on('connection', (socket) => {
-  console.log(`🔌 שחקן התחבר: ${socket.id}`);
-
-  // helper to get public rooms list with dynamically adjusted max players based on locked slots
-  const getPublicRoomsList = () => {
-    return Array.from(activeRooms.values())
-      .filter(r => r.status === 'WAITING')
-      .map(r => {
-        const lockedCount = r.slots ? r.slots.filter(s => s.status === 'LOCKED_BOT').length : 0;
-        return {
-          ...r,
-          maxPlayers: Math.max(1, r.maxPlayers - lockedCount)
-        };
-      });
-  };
-
-  // 1. בקשת רשימת חדרים פתוחים מכלל הלקוחות
-  socket.on('get_public_rooms', () => {
-    socket.emit('public_rooms_list', getPublicRoomsList());
+function createCatanServer() {
+  const app = express();
+  const httpServer = http.createServer(app);
+  const io = new Server(httpServer, {
+    cors: {
+      origin(origin, callback) {
+        if (!origin || ALLOWED_ORIGINS.includes(origin)) return callback(null, true);
+        return callback(new Error('Origin is not allowed'));
+      },
+      methods: ['GET', 'POST'],
+    },
+    maxHttpBufferSize: MAX_PAYLOAD_BYTES,
   });
+  const activeRooms = new Map();
 
-  // 2. יצירת חדר חדש עם מטא-דתה מלאה (Host)
-  socket.on('create_room', (roomData) => {
-    const { roomId, hostName, expansion, scenario, boardType, maxPlayers } = roomData;
-    
-    activeRooms.set(roomId, {
-      roomId,
-      hostName,
-      expansion: expansion || 'BASE',
-      scenario: scenario || 'HEADING_FOR_NEW_SHORES',
-      boardType: boardType || 'RANDOM',
-      currentPlayers: 1,
-      maxPlayers: maxPlayers || 4,
-      status: 'WAITING',
-      slots: [
-        { id: 'p1', status: 'OPEN' },
-        { id: 'p2', status: 'OPEN' },
-        { id: 'p3', status: 'OPEN' },
-        { id: 'p4', status: 'OPEN' }
-      ]
+  app.get('/health', (_request, response) => response.json({ ok: true, rooms: activeRooms.size }));
+
+  const getConnectedRoomPlayers = room => (room.slots || [])
+    .filter(slot => Boolean(slot.socketId))
+    .map(slot => ({ playerId: slot.id, playerName: slot.playerName || 'שחקן' }));
+
+  const getPublicRoomsList = () => Array.from(activeRooms.values())
+    .filter(room => room.status === 'WAITING')
+    .map(room => {
+      const lockedCount = room.slots.filter(slot => slot.status === 'LOCKED_BOT').length;
+      return {
+        roomId: room.roomId,
+        hostName: room.hostName,
+        expansion: room.expansion,
+        scenario: room.scenario,
+        boardType: room.boardType,
+        currentPlayers: room.currentPlayers,
+        maxPlayers: Math.max(1, room.maxPlayers - lockedCount),
+        status: room.status,
+      };
     });
 
-    console.log(`🏠 נוצר חדר חדש: ${roomId} ע"י ${hostName}`);
-    // עדכון כל הלקוחות המחוברים ברשימת החדרים החדשה
+  const emitError = (socket, event, message, details = {}) => socket.emit(event, { message, ...details });
+
+  const clearDisconnectTimer = slot => {
+    if (slot?.disconnectTimer) clearTimeout(slot.disconnectTimer);
+    if (slot) delete slot.disconnectTimer;
+  };
+
+  const broadcastRoomState = room => {
+    room.currentPlayers = getConnectedRoomPlayers(room).length;
+    io.to(room.roomId).emit('room_players_updated', getConnectedRoomPlayers(room));
     io.emit('public_rooms_list', getPublicRoomsList());
-  });
+  };
 
-  // 3. הצטרפות לחדר משחק דינמי
-  socket.on('join_room', ({ roomId, playerName }, callback) => {
-    if (activeRooms.has(roomId)) {
-      const room = activeRooms.get(roomId);
-      const totalSlots = room.maxPlayers || 4;
-      const lockedSlotsCount = room.slots ? room.slots.filter(s => s.status === 'LOCKED_BOT').length : 0;
-      const maxHumanPlayers = totalSlots - lockedSlotsCount;
-      
-      const roomSockets = io.sockets.adapter.rooms.get(roomId);
-      const currentHumanPlayers = roomSockets ? roomSockets.size : 0;
+  const migrateHost = room => {
+    const nextHostSlot = room.slots.find(slot => slot.socketId && io.sockets.sockets.has(slot.socketId));
+    if (!nextHostSlot) return;
+    room.hostSocketId = nextHostSlot.socketId;
+    room.hostName = nextHostSlot.playerName || room.hostName;
+    const update = { roomId: room.roomId, hostPlayerId: nextHostSlot.id, hostName: room.hostName };
+    io.to(room.roomId).emit('host_changed', update);
+    io.to(room.roomId).emit('room_updated', {
+      ...update,
+      currentPlayers: room.currentPlayers,
+      players: getConnectedRoomPlayers(room),
+      status: room.status,
+    });
+  };
 
-      if (currentHumanPlayers >= maxHumanPlayers) {
-        console.log(`⚠️ הצטרפות נדחתה: חדר ${roomId} מלא בשל סלוטים נעולים לבוטים (${currentHumanPlayers}/${maxHumanPlayers} אנושיים)`);
-        socket.emit('join_failed', { message: 'החדר מלא או נעול על ידי בוטים' });
-        if (callback) {
-          callback({ success: false, message: 'החדר מלא או נעול על ידי בוטים' });
-        }
+  const releaseSocketFromRoom = (socket, roomId, immediate = false) => {
+    const room = activeRooms.get(roomId);
+    if (!room) return;
+    const slot = room.slots.find(candidate => candidate.socketId === socket.id);
+    if (!slot) return;
+    slot.socketId = null;
+    slot.disconnectedAt = Date.now();
+    room.currentPlayers = getConnectedRoomPlayers(room).length;
+    if (room.hostSocketId === socket.id && room.currentPlayers > 0) migrateHost(room);
+    activeRooms.set(roomId, room);
+    broadcastRoomState(room);
+
+    const finalize = () => {
+      clearDisconnectTimer(slot);
+      if (slot.socketId) return;
+      const wasHost = room.hostSocketId === socket.id;
+      slot.playerName = null;
+      slot.sessionToken = null;
+      delete slot.disconnectedAt;
+      room.currentPlayers = getConnectedRoomPlayers(room).length;
+      if (room.currentPlayers === 0) {
+        activeRooms.delete(roomId);
+        io.emit('public_rooms_list', getPublicRoomsList());
         return;
       }
+      if (wasHost) migrateHost(room);
+      activeRooms.set(roomId, room);
+      io.to(roomId).emit('player_left', {
+        playerId: slot.id,
+        playerName: socket.data.playerName || 'שחקן',
+        currentPlayers: room.currentPlayers,
+        players: getConnectedRoomPlayers(room),
+      });
+      broadcastRoomState(room);
+    };
+
+    if (immediate) finalize();
+    else {
+      slot.disconnectTimer = setTimeout(finalize, RECONNECT_GRACE_MS);
+      slot.disconnectTimer.unref?.();
     }
+  };
 
-    socket.join(roomId);
-    console.log(`👤 ${playerName} (${socket.id}) הצטרף לחדר: ${roomId}`);
+  io.on('connection', socket => {
+    socket.on('get_public_rooms', () => socket.emit('public_rooms_list', getPublicRoomsList()));
 
-    let assignedPlayerId = 'p2';
+    socket.on('create_room', (roomData = {}, callback) => {
+      if (!isPlainObject(roomData) || !ROOM_ID_PATTERN.test(roomData.roomId || '') ||
+          !isShortString(roomData.hostName, 40) || !Number.isInteger(roomData.maxPlayers) ||
+          roomData.maxPlayers < 2 || roomData.maxPlayers > 4) {
+        const error = { success: false, code: 'INVALID_REQUEST', message: 'נתוני החדר אינם תקינים' };
+        callback?.(error); emitError(socket, 'invalid_request', error.message); return;
+      }
+      if (activeRooms.has(roomData.roomId)) {
+        const error = { success: false, code: 'ROOM_EXISTS', message: 'מזהה החדר כבר קיים; נסו שוב' };
+        callback?.(error); emitError(socket, 'room_exists', error.message, { roomId: roomData.roomId }); return;
+      }
+      const slots = Array.from({ length: 4 }, (_, index) => ({ id: `p${index + 1}`, status: 'OPEN' }));
+      activeRooms.set(roomData.roomId, {
+        roomId: roomData.roomId,
+        hostName: roomData.hostName.trim(),
+        hostSocketId: socket.id,
+        expansion: isShortString(roomData.expansion) ? roomData.expansion : 'BASE',
+        scenario: isShortString(roomData.scenario) ? roomData.scenario : 'HEADING_FOR_NEW_SHORES',
+        boardType: isShortString(roomData.boardType) ? roomData.boardType : 'RANDOM',
+        currentPlayers: 0,
+        maxPlayers: roomData.maxPlayers,
+        status: 'WAITING',
+        slots,
+        actionSequence: 0,
+        gameState: null,
+      });
+      callback?.({ success: true });
+      io.emit('public_rooms_list', getPublicRoomsList());
+    });
 
-    if (activeRooms.has(roomId)) {
+    socket.on('join_room', (payload = {}, callback) => {
+      if (!isPlainObject(payload) || !ROOM_ID_PATTERN.test(payload.roomId || '') || !isShortString(payload.playerName, 40)) {
+        callback?.({ success: false, code: 'INVALID_REQUEST', message: 'בקשת ההצטרפות אינה תקינה' }); return;
+      }
+      const { roomId, playerName, sessionToken, requestedPlayerId } = payload;
       const room = activeRooms.get(roomId);
-      
-      const hostSlot = room.slots.find(s => s.id === 'p1');
-      if (hostSlot && (!hostSlot.socketId || hostSlot.socketId === socket.id)) {
-        hostSlot.socketId = socket.id;
-        assignedPlayerId = 'p1';
-      } else {
-        const availableSlot = room.slots.find(s => s.status === 'OPEN' && !s.socketId);
-        if (availableSlot) {
-          availableSlot.socketId = socket.id;
-          assignedPlayerId = availableSlot.id;
-        } else {
-          const firstOpenSlot = room.slots.find(s => s.status === 'OPEN');
-          if (firstOpenSlot) {
-            firstOpenSlot.socketId = socket.id;
-            assignedPlayerId = firstOpenSlot.id;
-          }
+      if (!room) {
+        const error = { roomId, message: 'החדר המבוקש לא נמצא' };
+        socket.emit('room_not_found', error); callback?.({ success: false, code: 'ROOM_NOT_FOUND', ...error }); return;
+      }
+
+      if (socket.data.roomId && socket.data.roomId !== roomId) {
+        releaseSocketFromRoom(socket, socket.data.roomId, true);
+        socket.leave(socket.data.roomId);
+      }
+
+      const eligibleSlots = room.slots.slice(0, room.maxPlayers);
+      let assignedSlot = eligibleSlots.find(slot => slot.socketId === socket.id);
+      const resumedSlot = isShortString(sessionToken, 100) && isShortString(requestedPlayerId, 10)
+        ? eligibleSlots.find(slot => slot.id === requestedPlayerId && slot.sessionToken === sessionToken)
+        : null;
+      if (!assignedSlot && resumedSlot) assignedSlot = resumedSlot;
+      if (!assignedSlot && room.status === 'IN_GAME') {
+        callback?.({ success: false, code: 'GAME_IN_PROGRESS', message: 'לא ניתן להצטרף למשחק שכבר התחיל' }); return;
+      }
+      if (!assignedSlot && socket.id === room.hostSocketId) assignedSlot = eligibleSlots[0];
+      if (!assignedSlot) assignedSlot = eligibleSlots.find(slot => slot.status === 'OPEN' && !slot.socketId && !slot.sessionToken);
+      if (!assignedSlot) {
+        callback?.({ success: false, code: 'ROOM_FULL', message: 'החדר מלא או נעול' }); return;
+      }
+
+      clearDisconnectTimer(assignedSlot);
+      assignedSlot.socketId = socket.id;
+      assignedSlot.playerName = playerName.trim();
+      assignedSlot.sessionToken ||= createSessionToken();
+      delete assignedSlot.disconnectedAt;
+      socket.join(roomId);
+      socket.data.roomId = roomId;
+      socket.data.assignedPlayerId = assignedSlot.id;
+      socket.data.playerName = assignedSlot.playerName;
+      socket.data.sessionToken = assignedSlot.sessionToken;
+      if (resumedSlot && room.hostSocketId && !io.sockets.sockets.has(room.hostSocketId) && assignedSlot.id === 'p1') {
+        room.hostSocketId = socket.id;
+      }
+      activeRooms.set(roomId, room);
+      broadcastRoomState(room);
+      socket.to(roomId).emit('player_joined', { playerId: assignedSlot.id, playerName: assignedSlot.playerName });
+      callback?.({
+        success: true,
+        assignedPlayerId: assignedSlot.id,
+        sessionToken: assignedSlot.sessionToken,
+        resumed: Boolean(resumedSlot),
+        isHost: room.hostSocketId === socket.id,
+        gameState: resumedSlot ? room.gameState : null,
+        actionSequence: room.actionSequence,
+      });
+    });
+
+    socket.on('send_game_action', (payload = {}, callback) => {
+      if (!isPlainObject(payload) || !isShortString(payload.roomId, 32) || !payloadFits(payload)) {
+        callback?.({ success: false, code: 'INVALID_REQUEST', message: 'בקשת הפעולה אינה תקינה' }); return;
+      }
+      const room = activeRooms.get(payload.roomId);
+      if (!room) { callback?.({ success: false, code: 'ROOM_NOT_FOUND', message: 'החדר לא נמצא' }); return; }
+      const slot = room.slots.find(candidate => candidate.socketId === socket.id);
+      if (!slot || !socket.rooms.has(payload.roomId) || socket.data.roomId !== payload.roomId || payload.action?.playerId !== slot.id) {
+        callback?.({ success: false, code: 'UNAUTHORIZED', message: 'אין הרשאה לבצע פעולה זו' }); return;
+      }
+      const shape = validateActionShape(payload.action);
+      if (!shape.ok) { callback?.({ success: false, code: 'INVALID_ACTION', message: shape.message }); return; }
+      const approvedAction = clone(payload.action);
+      if (approvedAction.type === 'ROLL_DICE') {
+        approvedAction.diceValues = [crypto.randomInt(1, 7), crypto.randomInt(1, 7)];
+      } else if (approvedAction.type === 'STEAL_RESOURCE') {
+        const victim = room.gameState?.players?.find(candidate => candidate.id === approvedAction.victimPlayerId);
+        const availableCards = [];
+        RESOURCE_TYPES.forEach(resource => {
+          for (let count = 0; count < (victim?.resources?.[resource] || 0); count += 1) availableCards.push(resource);
+        });
+        if (availableCards.length === 0) {
+          callback?.({ success: false, code: 'ILLEGAL_ACTION', message: 'The victim has no resource cards' }); return;
         }
+        approvedAction.stolenResource = availableCards[crypto.randomInt(availableCards.length)];
       }
+      const legality = validateGameAction(room.gameState, approvedAction);
+      if (!legality.ok) { callback?.({ success: false, code: 'ILLEGAL_ACTION', message: legality.message }); return; }
 
-      const roomSockets = io.sockets.adapter.rooms.get(roomId);
-      room.currentPlayers = roomSockets ? roomSockets.size : room.currentPlayers;
-      activeRooms.set(roomId, room);
-      io.emit('public_rooms_list', getPublicRoomsList());
-    }
+      applyReservedAction(room.gameState, approvedAction);
+      room.actionSequence += 1;
+      activeRooms.set(payload.roomId, room);
+      io.to(payload.roomId).emit('receive_game_action', { action: approvedAction, sequence: room.actionSequence });
+      callback?.({ success: true, sequence: room.actionSequence });
+    });
 
-    // דיווח לשאר השחקנים בחדר
-    socket.to(roomId).emit('player_joined', { playerId: socket.id, playerName, assignedPlayerId });
-
-    if (callback) {
-      callback({ success: true, assignedPlayerId });
-    }
-  });
-
-  // 4. קבלת GameAction משחקן אחד ושידורו בלעדית לשאר השחקנים בחדר
-  socket.on('send_game_action', ({ roomId, action }) => {
-    console.log(`🎲 פעולה התקבלה בחדר ${roomId}:`, action.type);
-    socket.to(roomId).emit('receive_game_action', action);
-  });
-
-  // 5. קבלת עדכון הגדרות לובי ושידור לכל שאר השחקנים בחדר
-  socket.on('game_settings_update', ({ roomId, settings }) => {
-    console.log(`⚙️ עדכון הגדרות התקבל עבור חדר ${roomId}`);
-    if (activeRooms.has(roomId) && settings.lobbyPlayers) {
-      const room = activeRooms.get(roomId);
-      room.slots = settings.lobbyPlayers.map(p => ({
-        id: p.id,
-        status: (p.playerType === 'LOCAL_BOT' || p.playerType === 'GEMINI_AI') ? 'LOCKED_BOT' : 'OPEN'
-      }));
-      activeRooms.set(roomId, room);
-      io.emit('public_rooms_list', getPublicRoomsList());
-    }
-    socket.to(roomId).emit('game_settings_updated', settings);
-  });
-
-  // עדכון סטטוס סלוט שחקן בודד
-  socket.on('update_slot_status', ({ roomId, slotId, status }) => {
-    console.log(`⚙️ עדכון סטטוס סלוט התקבל עבור חדר ${roomId}: ${slotId} -> ${status}`);
-    if (activeRooms.has(roomId)) {
-      const room = activeRooms.get(roomId);
-      if (!room.slots) {
-        room.slots = [];
+    socket.on('sync_game_state', (payload = {}, callback) => {
+      if (!isPlainObject(payload) || !isShortString(payload.roomId, 32) || !isPlainObject(payload.snapshot) || !payloadFits(payload)) {
+        callback?.({ success: false, code: 'INVALID_REQUEST' }); return;
       }
-      const existingSlot = room.slots.find(s => s.id === slotId);
-      if (existingSlot) {
-        existingSlot.status = status;
-      } else {
-        room.slots.push({ id: slotId, status });
+      const room = activeRooms.get(payload.roomId);
+      if (!room || room.hostSocketId !== socket.id || socket.data.roomId !== payload.roomId) {
+        callback?.({ success: false, code: 'UNAUTHORIZED' }); return;
       }
-      activeRooms.set(roomId, room);
-      io.emit('public_rooms_list', getPublicRoomsList());
-    }
-  });
+      if (!validateRuntimeGameState(payload.snapshot, room)) {
+        callback?.({ success: false, code: 'INVALID_STATE' }); return;
+      }
+      room.gameState = clone(payload.snapshot);
+      activeRooms.set(payload.roomId, room);
+      socket.to(payload.roomId).emit('game_state_snapshot', { snapshot: room.gameState, sequence: room.actionSequence });
+      callback?.({ success: true, sequence: room.actionSequence });
+    });
 
-  // 6. קבלת אירוע התחלת משחק והפצת הלוח ההתחלתי לכל השחקנים בחדר
-  socket.on('start_game', ({ roomId, gameStartData }) => {
-    console.log(`🎮 אירוע התחלת משחק התקבל עבור חדר ${roomId}`);
-    
-    if (activeRooms.has(roomId)) {
-      const room = activeRooms.get(roomId);
+    socket.on('request_game_state', (payload = {}, callback) => {
+      const room = activeRooms.get(payload.roomId);
+      const slot = room?.slots.find(candidate => candidate.socketId === socket.id);
+      if (!room || !slot || socket.data.roomId !== payload.roomId) { callback?.({ success: false }); return; }
+      callback?.({ success: true, snapshot: room.gameState, sequence: room.actionSequence });
+    });
+
+    socket.on('game_settings_update', (payload = {}) => {
+      const room = activeRooms.get(payload.roomId);
+      if (!room) { emitError(socket, 'room_not_found', 'החדר לא נמצא', { roomId: payload.roomId }); return; }
+      if (room.hostSocketId !== socket.id || room.status !== 'WAITING') { emitError(socket, 'authorization_error', 'רק המארח רשאי לעדכן הגדרות'); return; }
+      if (!isPlainObject(payload.settings) || !payloadFits(payload.settings)) { emitError(socket, 'invalid_request', 'הגדרות לא תקינות'); return; }
+      if (Array.isArray(payload.settings.lobbyPlayers)) {
+        const previous = room.slots;
+        room.slots = payload.settings.lobbyPlayers.slice(0, room.maxPlayers).map((player, index) => {
+          const oldSlot = previous.find(slot => slot.id === player.id) || previous[index] || {};
+          return {
+            id: `p${index + 1}`,
+            status: player.playerType === 'LOCAL_BOT' || player.playerType === 'GEMINI_AI' ? 'LOCKED_BOT' : 'OPEN',
+            socketId: oldSlot.socketId,
+            sessionToken: oldSlot.sessionToken,
+            playerName: oldSlot.playerName,
+          };
+        });
+      }
+      activeRooms.set(payload.roomId, room);
+      socket.to(payload.roomId).emit('game_settings_updated', payload.settings);
+      broadcastRoomState(room);
+    });
+
+    socket.on('update_slot_status', (payload = {}) => {
+      const room = activeRooms.get(payload.roomId);
+      if (!room || room.hostSocketId !== socket.id || room.status !== 'WAITING') { emitError(socket, 'authorization_error', 'רק המארח רשאי לשנות סלוטים'); return; }
+      if (!isShortString(payload.slotId, 10) || !SLOT_STATUSES.has(payload.status)) { emitError(socket, 'invalid_request', 'סטטוס סלוט אינו תקין'); return; }
+      const slot = room.slots.find(candidate => candidate.id === payload.slotId);
+      if (!slot || slot.socketId || slot.id === 'p1') { emitError(socket, 'invalid_request', 'לא ניתן לשנות סלוט זה'); return; }
+      slot.status = payload.status;
+      activeRooms.set(payload.roomId, room);
+      broadcastRoomState(room);
+    });
+
+    socket.on('start_game', (payload = {}) => {
+      const room = activeRooms.get(payload.roomId);
+      if (!room) { emitError(socket, 'room_not_found', 'החדר לא נמצא'); return; }
+      if (room.hostSocketId !== socket.id || room.status !== 'WAITING') { emitError(socket, 'authorization_error', 'רק המארח רשאי להתחיל את המשחק'); return; }
+      if (!isPlainObject(payload.gameStartData) || !isPlainObject(payload.gameStartData.initialState) || !payloadFits(payload.gameStartData)) {
+        emitError(socket, 'invalid_request', 'נתוני פתיחת המשחק אינם תקינים'); return;
+      }
+      if (!validateInitialGameState(payload.gameStartData.initialState, room)) {
+        emitError(socket, 'invalid_request', 'מצב המשחק ההתחלתי אינו חוקי'); return;
+      }
       room.status = 'IN_GAME';
-      activeRooms.set(roomId, room);
-      io.emit('public_rooms_list', Array.from(activeRooms.values()).filter(r => r.status === 'WAITING'));
-    }
+      room.gameState = clone(payload.gameStartData.initialState);
+      room.actionSequence = 0;
+      activeRooms.set(payload.roomId, room);
+      io.emit('public_rooms_list', getPublicRoomsList());
+      socket.to(payload.roomId).emit('game_started', payload.gameStartData);
+    });
 
-    socket.to(roomId).emit('game_started', gameStartData);
+    socket.on('send_chat_message', (payload = {}) => {
+      const room = activeRooms.get(payload.roomId);
+      const slot = room?.slots.find(candidate => candidate.socketId === socket.id);
+      if (!room || !slot || socket.data.roomId !== payload.roomId || !isPlainObject(payload.message) || !isShortString(payload.message.text, 500)) {
+        emitError(socket, 'invalid_request', 'הודעת הצ׳אט אינה תקינה'); return;
+      }
+      const safeMessage = {
+        text: payload.message.text.trim(),
+        sender: slot.playerName || 'שחקן',
+        color: typeof payload.message.color === 'string' ? payload.message.color.slice(0, 32) : undefined,
+        time: new Date().toISOString(),
+      };
+      io.to(payload.roomId).emit('receive_chat_message', safeMessage);
+    });
+
+    socket.on('leave_room', (payload = {}) => {
+      if (isShortString(payload.roomId, 32)) {
+        releaseSocketFromRoom(socket, payload.roomId, true);
+        socket.leave(payload.roomId);
+      }
+      socket.data.roomId = null;
+      socket.data.assignedPlayerId = null;
+    });
+
+    socket.on('disconnect', () => {
+      if (socket.data.roomId) releaseSocketFromRoom(socket, socket.data.roomId, false);
+    });
   });
 
-  // 7. מערכת צ'אט בזמן אמת
-  socket.on('send_chat_message', ({ roomId, message }) => {
-    console.log(`💬 הודעת צ'אט בחדר ${roomId} מאת ${message.sender}: ${message.text}`);
-    socket.to(roomId).emit('receive_chat_message', message);
-  });
+  return { app, httpServer, io, activeRooms };
+}
 
-  socket.on('disconnect', () => {
-    console.log(`❌ שחקן התנתק: ${socket.id}`);
-  });
-});
+if (require.main === module) {
+  const { httpServer } = createCatanServer();
+  const port = Number(process.env.PORT || DEFAULT_PORT);
+  httpServer.listen(port, () => console.log(`Catan server listening on port ${port}`));
+}
 
-const PORT = process.env.PORT || 3001;
-server.listen(PORT, () => {
-  console.log(`✅ שרת Catan מורץ בהצלחה על פורט ${PORT}`);
-});
+module.exports = { createCatanServer };

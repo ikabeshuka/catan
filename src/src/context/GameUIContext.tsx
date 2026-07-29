@@ -1,3 +1,4 @@
+/* oxlint-disable react/only-export-components */
 import React, { createContext, useContext, useState, useRef, ReactNode } from 'react';
 import { BoardVertex } from '../types/boardElements.types';
 
@@ -15,6 +16,9 @@ export interface ResourceFlow {
   playerName: string;
   isHuman: boolean;
   amount: number;
+  playerId: string;
+  tileCoord?: { q: number; r: number; s: number };
+  tileId?: string;
 }
 
 interface GameUIContextType {
@@ -31,6 +35,7 @@ interface GameUIContextType {
   barbarianPositions: any[];
   merchantConvoys: any[];
   isMovingWagon: boolean;
+  isTradeModalOpen: boolean;
 
   setIs3DMode: React.Dispatch<React.SetStateAction<boolean>>;
   setBuildingToast: React.Dispatch<React.SetStateAction<BuildingToast | null>>;
@@ -45,7 +50,10 @@ interface GameUIContextType {
   setBarbarianPositions: React.Dispatch<React.SetStateAction<any[]>>;
   setMerchantConvoys: React.Dispatch<React.SetStateAction<any[]>>;
   setIsMovingWagon: React.Dispatch<React.SetStateAction<boolean>>;
+  setIsTradeModalOpen: React.Dispatch<React.SetStateAction<boolean>>;
   showBuildingCostToast: (type: 'ROAD' | 'SETTLEMENT' | 'CITY' | 'SHIP', success: boolean, isFree?: boolean, errorMessage?: string) => void;
+  triggerResourceFlow: (flows: ResourceFlow[]) => void;
+  addResourceFlow: (flow: ResourceFlow) => void;
 }
 
 const GameUIContext = createContext<GameUIContextType | undefined>(undefined);
@@ -64,6 +72,7 @@ export const GameUIProvider: React.FC<{ children: ReactNode }> = ({ children }) 
   const [barbarianPositions, setBarbarianPositions] = useState<any[]>([]);
   const [merchantConvoys, setMerchantConvoys] = useState<any[]>([]);
   const [isMovingWagon, setIsMovingWagon] = useState<boolean>(false);
+  const [isTradeModalOpen, setIsTradeModalOpen] = useState<boolean>(false);
   const toastTimeoutRef = useRef<any>(null);
 
   const showBuildingCostToast = (type: 'ROAD' | 'SETTLEMENT' | 'CITY' | 'SHIP', success: boolean, isFree?: boolean, errorMessage?: string) => {
@@ -74,6 +83,14 @@ export const GameUIProvider: React.FC<{ children: ReactNode }> = ({ children }) 
     toastTimeoutRef.current = setTimeout(() => {
       setBuildingToast(null);
     }, 4500);
+  };
+
+  const triggerResourceFlow = (flows: ResourceFlow[]) => {
+    setResourceFlows(flows);
+  };
+
+  const addResourceFlow = (flow: ResourceFlow) => {
+    setResourceFlows(prev => [...prev, flow]);
   };
 
   return (
@@ -92,6 +109,7 @@ export const GameUIProvider: React.FC<{ children: ReactNode }> = ({ children }) 
         barbarianPositions,
         merchantConvoys,
         isMovingWagon,
+        isTradeModalOpen,
         setIs3DMode,
         setBuildingToast,
         setResourceFlows,
@@ -105,7 +123,10 @@ export const GameUIProvider: React.FC<{ children: ReactNode }> = ({ children }) 
         setBarbarianPositions,
         setMerchantConvoys,
         setIsMovingWagon,
+        setIsTradeModalOpen,
         showBuildingCostToast,
+        triggerResourceFlow,
+        addResourceFlow,
       }}
     >
       {children}

@@ -1,3 +1,4 @@
+/* oxlint-disable react/only-export-components */
 import React, { createContext, useContext, useState, useRef, useMemo, useEffect, ReactNode } from 'react';
 import { Player } from '../types/player.types';
 import { TurnSubPhase, SetupTurnState } from '../types/game.types';
@@ -6,8 +7,10 @@ import { generateBoard } from '../utils/gameEngine/generateBoard';
 import { generateVertices } from '../utils/gameEngine/generateVertices';
 import { generateEdges } from '../utils/gameEngine/generateEdges';
 import { standardCatanConfig } from '../config/standardVersion';
+import { createStandardDevelopmentDeck } from '../config/gameRules';
 import { createSnapshot, restoreFromSnapshot, TurnSnapshot } from '../utils/gameEngine/turnSnapshots';
 import { calculateLongestRoadForPlayer } from '../utils/gameEngine/checkLongestRoad';
+import { ResourceCards } from '../types/resources.types';
 
 export type GamePhase = 'LOBBY' | 'SETUP_ROUND_1' | 'SETUP_ROUND_2' | 'MAIN_GAME' | 'GAME_OVER';
 
@@ -26,6 +29,7 @@ interface PlayerContextType {
   logs: string[];
   devCardDeck: string[];
   goldCoins: Record<string, number>;
+  resourceBank: ResourceCards;
   roadBuildingRemaining: number;
   longestRoadPlayerId: string | null;
   largestArmyPlayerId: string | null;
@@ -45,6 +49,7 @@ interface PlayerContextType {
   setSetupState: React.Dispatch<React.SetStateAction<SetupTurnState>>;
   setDevCardDeck: React.Dispatch<React.SetStateAction<string[]>>;
   setGoldCoins: React.Dispatch<React.SetStateAction<Record<string, number>>>;
+  setResourceBank: React.Dispatch<React.SetStateAction<ResourceCards>>;
   setRoadBuildingRemaining: React.Dispatch<React.SetStateAction<number>>;
   setGoldSelectionQueue: React.Dispatch<React.SetStateAction<GoldSelectionPending[]>>;
   setCurrentTurnBuiltShips: React.Dispatch<React.SetStateAction<string[]>>;
@@ -58,12 +63,13 @@ interface PlayerContextType {
     playerCount?: number,
     presetTiles?: any[],
     presetVertices?: any[],
-    presetEdges?: any[]
-  ) => void;
+    presetEdges?: any[],
+    presetDeck?: string[]
+  ) => string[];
   createTurnSnapshot: () => void;
   undoTurnActions: () => void;
   resolveGoldSelection: (chosenResources: ('WOOD' | 'BRICK' | 'SHEEP' | 'WHEAT' | 'ORE')[]) => void;
-  buyDevelopmentCard: (forcedCardType?: string) => void;
+  buyDevelopmentCard: (forcedCardType?: string, targetPlayerId?: string) => boolean;
 }
 
 const PlayerContext = createContext<PlayerContextType | undefined>(undefined);
@@ -91,6 +97,7 @@ export const PlayerProvider: React.FC<{ children: ReactNode }> = ({ children }) 
   const [logs, setLogs] = useState<string[]>(['ברוכים הבאים לקטאן! המשחק ממתין לאתחול.']);
   const [devCardDeck, setDevCardDeck] = useState<string[]>([]);
   const [goldCoins, setGoldCoins] = useState<Record<string, number>>({});
+  const [resourceBank, setResourceBank] = useState<ResourceCards>({ WOOD: 19, BRICK: 19, SHEEP: 19, WHEAT: 19, ORE: 19 });
   const [roadBuildingRemaining, setRoadBuildingRemaining] = useState<number>(0);
   const [turnStartSnapshot, setTurnStartSnapshot] = useState<TurnSnapshot | null>(null);
   const [goldSelectionQueue, setGoldSelectionQueue] = useState<GoldSelectionPending[]>([]);
@@ -105,35 +112,38 @@ export const PlayerProvider: React.FC<{ children: ReactNode }> = ({ children }) 
   const prevLongestRoadRef = useRef<string | null>(null);
   const prevLargestArmyRef = useRef<string | null>(null);
 
+  // Resource cards only ever move between players and the 19-card bank.
+  // Reconciliation also covers host-controlled bot moves that update players
+  // in a single AI transaction.
+  useEffect(() => {
+    const reconciled = (['WOOD', 'BRICK', 'SHEEP', 'WHEAT', 'ORE'] as (keyof ResourceCards)[])
+      .reduce((bank, resource) => {
+        bank[resource] = Math.max(0, 19 - players.reduce((sum, player) => sum + (player.resources[resource] || 0), 0));
+        return bank;
+      }, {} as ResourceCards);
+    setResourceBank(previous => (Object.keys(reconciled) as (keyof ResourceCards)[])
+      .every(resource => previous[resource] === reconciled[resource]) ? previous : reconciled);
+  }, [players]);
+
   const longestRoadPlayerId = useMemo(() => {
-    let prevLeader = prevLongestRoadRef.current;
-    let currentMax = prevLeader ? calculateLongestRoadForPlayer(prevLeader, edges, vertices) : 4;
-    if (currentMax < 4) currentMax = 4;
+    const prevLeader = prevLongestRoadRef.current;
+    const roadLengths = players.map(player => ({
+      playerId: player.id,
+      length: calculateLongestRoadForPlayer(player.id, edges, vertices),
+    }));
+    const longestLength = Math.max(0, ...roadLengths.map(result => result.length));
+    const tiedLeaders = longestLength >= 5
+      ? roadLengths.filter(result => result.length === longestLength)
+      : [];
 
-    let leaderId = prevLeader;
-    players.forEach(p => {
-      if (p.id === prevLeader) return;
-      const roadLen = calculateLongestRoadForPlayer(p.id, edges, vertices);
-      if (roadLen > currentMax) {
-        currentMax = roadLen;
-        leaderId = p.id;
-      }
-    });
-
-    if (leaderId) {
-      const leaderRoadLen = calculateLongestRoadForPlayer(leaderId, edges, vertices);
-      if (leaderRoadLen < 5) {
-        let absoluteMax = 4;
-        let absoluteLeader: string | null = null;
-        players.forEach(p => {
-          const roadLen = calculateLongestRoadForPlayer(p.id, edges, vertices);
-          if (roadLen > absoluteMax) {
-            absoluteMax = roadLen;
-            absoluteLeader = p.id;
-          }
-        });
-        leaderId = absoluteLeader;
-      }
+    // The incumbent keeps the card when tied for the longest eligible road.
+    // If the incumbent is no longer among the leaders, a tie leaves the card
+    // unowned until one player has a strictly longer road.
+    let leaderId: string | null = null;
+    if (prevLeader && tiedLeaders.some(result => result.playerId === prevLeader)) {
+      leaderId = prevLeader;
+    } else if (tiedLeaders.length === 1) {
+      leaderId = tiedLeaders[0].playerId;
     }
 
     prevLongestRoadRef.current = leaderId;
@@ -177,8 +187,14 @@ export const PlayerProvider: React.FC<{ children: ReactNode }> = ({ children }) 
 
   const undoTurnActions = () => {
     if (!turnStartSnapshot) return;
+    if (roomId) {
+      addLog('ביטול פעולות אינו זמין במשחק מקוון.');
+      return;
+    }
 
-    const { restoredPlayers, restoredVertices, restoredEdges } = restoreFromSnapshot(turnStartSnapshot, players);
+    const activePlayerId = players[currentPlayerIndex]?.id;
+    if (!activePlayerId) return;
+    const { restoredPlayers, restoredVertices, restoredEdges } = restoreFromSnapshot(turnStartSnapshot, players, activePlayerId);
 
     setPlayers(restoredPlayers);
     setVertices(restoredVertices);
@@ -187,21 +203,21 @@ export const PlayerProvider: React.FC<{ children: ReactNode }> = ({ children }) 
     addLog('🔄 פעולות התור בוטלו בהצלחה! הלוח והמשאבים שוחזרו (פרט לקלפי פיתוח שנרכשו).');
   };
 
-  const buyDevelopmentCard = (forcedCardType?: string) => {
+  const buyDevelopmentCard = (forcedCardType?: string, targetPlayerId?: string): boolean => {
     if (devCardDeck.length === 0) {
       addLog('⚠️ חבילת קלפי הפיתוח ריקה!');
-      return;
+      return false;
     }
 
-    const currentPlayer = players[currentPlayerIndex];
-    if (!currentPlayer) return;
+    const currentPlayer = targetPlayerId
+      ? players.find(player => player.id === targetPlayerId)
+      : players[currentPlayerIndex];
+    if (!currentPlayer) return false;
 
-    if (!forcedCardType) {
-      const res = currentPlayer.resources;
-      if ((res.WHEAT || 0) < 1 || (res.ORE || 0) < 1 || (res.SHEEP || 0) < 1) {
-        addLog('❌ אין מספיק משאבים לקניית קלף פיתוח (נדרש: 1 חיטה, 1 ברזל, 1 כבש).');
-        return;
-      }
+    const res = currentPlayer.resources;
+    if ((res.WHEAT || 0) < 1 || (res.ORE || 0) < 1 || (res.SHEEP || 0) < 1) {
+      addLog('❌ אין מספיק משאבים לקניית קלף פיתוח (נדרש: 1 חיטה, 1 ברזל, 1 כבש).');
+      return false;
     }
 
     let cardDrawn = forcedCardType;
@@ -210,13 +226,14 @@ export const PlayerProvider: React.FC<{ children: ReactNode }> = ({ children }) 
     if (!cardDrawn) {
       cardDrawn = newDeck.shift();
     } else {
-      const cardIdx = newDeck.indexOf(cardDrawn);
-      if (cardIdx !== -1) {
-        newDeck.splice(cardIdx, 1);
+      if (newDeck[0] !== cardDrawn) {
+        addLog('❌ הקלף שנשלח אינו הקלף הבא בחבילה.');
+        return false;
       }
+      newDeck.shift();
     }
 
-    if (!cardDrawn) return;
+    if (!cardDrawn) return false;
 
     setDevCardDeck(newDeck);
 
@@ -224,8 +241,14 @@ export const PlayerProvider: React.FC<{ children: ReactNode }> = ({ children }) 
       ? 'VICTORY_POINT' 
       : cardDrawn;
 
-    setPlayers(prev => prev.map((p, idx) => {
-      if (idx === currentPlayerIndex) {
+    setPlayers(prev => prev.map((p) => {
+      if (p.id === currentPlayer.id) {
+        const boughtDevCardsThisTurn = normalizedType === 'VICTORY_POINT'
+          ? p.boughtDevCardsThisTurn
+          : {
+              ...p.boughtDevCardsThisTurn,
+              [normalizedType]: ((p.boughtDevCardsThisTurn as any)?.[normalizedType] || 0) + 1,
+            };
         return {
           ...p,
           resources: {
@@ -237,11 +260,13 @@ export const PlayerProvider: React.FC<{ children: ReactNode }> = ({ children }) 
           developmentCards: {
             ...p.developmentCards,
             [normalizedType]: ((p.developmentCards as any)?.[normalizedType] || 0) + 1,
-          }
+          },
+          boughtDevCardsThisTurn,
         };
       }
       return p;
     }));
+    setResourceBank(prev => ({ ...prev, WHEAT: prev.WHEAT + 1, ORE: prev.ORE + 1, SHEEP: prev.SHEEP + 1 }));
 
     const cardNames: Record<string, string> = {
       KNIGHT: 'אביר',
@@ -252,6 +277,7 @@ export const PlayerProvider: React.FC<{ children: ReactNode }> = ({ children }) 
     };
 
     addLog(`🎴 ${currentPlayer.name} קנה קלף פיתוח (${cardNames[normalizedType] || normalizedType})!`);
+    return true;
   };
 
   const resolveGoldSelection = (chosenResources: ('WOOD' | 'BRICK' | 'SHEEP' | 'WHEAT' | 'ORE')[]) => {
@@ -259,6 +285,11 @@ export const PlayerProvider: React.FC<{ children: ReactNode }> = ({ children }) 
     const currentSelection = goldSelectionQueue[0];
     const player = players.find(p => p.id === currentSelection.playerId);
     if (!player) return;
+    const requested = chosenResources.reduce<Record<string, number>>((counts, resource) => {
+      counts[resource] = (counts[resource] || 0) + 1;
+      return counts;
+    }, {});
+    if (Object.entries(requested).some(([resource, count]) => resourceBank[resource as keyof ResourceCards] < count)) return;
 
     setPlayers(prevPlayers => prevPlayers.map(p => {
       if (p.id === player.id) {
@@ -270,6 +301,11 @@ export const PlayerProvider: React.FC<{ children: ReactNode }> = ({ children }) 
       }
       return p;
     }));
+    setResourceBank(previous => {
+      const next = { ...previous };
+      chosenResources.forEach(resource => { next[resource] -= 1; });
+      return next;
+    });
 
     const labels: Record<string, string> = { WOOD: 'עץ', BRICK: 'לבנה', SHEEP: 'כבש', WHEAT: 'חיטה', ORE: 'ברזל' };
     const chosenLabels = chosenResources.map(r => labels[r]);
@@ -283,6 +319,7 @@ export const PlayerProvider: React.FC<{ children: ReactNode }> = ({ children }) 
   };
 
   useEffect(() => {
+    if (roomId && !isHost) return;
     if (turnSubPhase === 'GOLD_RESOURCE_SELECTION' && goldSelectionQueue.length > 0) {
       const currentSelection = goldSelectionQueue[0];
       const player = players.find(p => p.id === currentSelection.playerId);
@@ -293,7 +330,11 @@ export const PlayerProvider: React.FC<{ children: ReactNode }> = ({ children }) 
         const labels: Record<string, string> = { WOOD: 'עץ', BRICK: 'לבנה', SHEEP: 'כבש', WHEAT: 'חיטה', ORE: 'ברזל' };
 
         for (let i = 0; i < currentSelection.amount; i++) {
-          const randRes = resourcesList[Math.floor(Math.random() * resourcesList.length)];
+          const availableResources = resourcesList.filter(resource =>
+            resourceBank[resource] > chosenKeys.filter(chosen => chosen === resource).length
+          );
+          if (availableResources.length === 0) break;
+          const randRes = availableResources[Math.floor(Math.random() * availableResources.length)];
           chosenKeys.push(randRes);
           chosenLabels.push(labels[randRes]);
         }
@@ -308,6 +349,11 @@ export const PlayerProvider: React.FC<{ children: ReactNode }> = ({ children }) 
           }
           return p;
         }));
+        setResourceBank(previous => {
+          const next = { ...previous };
+          chosenKeys.forEach(resource => { next[resource] -= 1; });
+          return next;
+        });
 
         addLog(`🤖 הבוט ${player.name} בחר לקבל ${chosenLabels.join(' ו-')} מאריח הזהב.`);
 
@@ -318,37 +364,26 @@ export const PlayerProvider: React.FC<{ children: ReactNode }> = ({ children }) 
         }
       }
     }
-  }, [turnSubPhase, goldSelectionQueue, players, setTurnSubPhase, setGoldSelectionQueue, setPlayers]);
+  }, [turnSubPhase, goldSelectionQueue, players, resourceBank, roomId, isHost, setTurnSubPhase, setGoldSelectionQueue, setPlayers]);
 
   const initNewGame = (
     playerCount?: number,
     presetTiles?: any[],
     presetVertices?: any[],
-    presetEdges?: any[]
+    presetEdges?: any[],
+    presetDeck?: string[]
   ) => {
     const newTiles = presetTiles || generateBoard(standardCatanConfig, boardType, activeExpansion, selectedScenario, playerCount);
     const newVertices = presetVertices || generateVertices(newTiles, activeExpansion);
     const newEdges = presetEdges || generateEdges(newTiles, activeExpansion);
 
-    const deck: string[] = [
-      ...Array(14).fill('KNIGHT'),
-      'ROAD_BUILDING',
-      'ROAD_BUILDING',
-      'YEAR_OF_PLENTY',
-      'YEAR_OF_PLENTY',
-      'MONOPOLY',
-      'MONOPOLY',
-      'win1',
-      'win2',
-      'win3',
-      'wun4',
-      'win5',
-      'win6',
-    ];
+    const deck: string[] = presetDeck ? [...presetDeck] : createStandardDevelopmentDeck();
 
-    for (let i = deck.length - 1; i > 0; i--) {
-      const j = Math.floor(Math.random() * (i + 1));
-      [deck[i], deck[j]] = [deck[j], deck[i]];
+    if (!presetDeck) {
+      for (let i = deck.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [deck[i], deck[j]] = [deck[j], deck[i]];
+      }
     }
 
     const initialPlayers: Player[] = [
@@ -410,6 +445,7 @@ export const PlayerProvider: React.FC<{ children: ReactNode }> = ({ children }) 
       p3: 0,
       p4: 0,
     });
+    setResourceBank({ WOOD: 19, BRICK: 19, SHEEP: 19, WHEAT: 19, ORE: 19 });
     setPlayers(initialPlayers);
     setGamePhase('SETUP_ROUND_1');
     setTurnSubPhase('BEFORE_ROLL');
@@ -421,6 +457,7 @@ export const PlayerProvider: React.FC<{ children: ReactNode }> = ({ children }) 
     setSetupState({ hasPlacedSettlement: false, hasPlacedRoad: false });
     setLogs(['המשחק התחיל! שלב ההקמה החל.']);
     setDevCardDeck(deck);
+    return deck;
   };
 
   return (
@@ -434,6 +471,7 @@ export const PlayerProvider: React.FC<{ children: ReactNode }> = ({ children }) 
         logs,
         devCardDeck,
         goldCoins,
+        resourceBank,
         roadBuildingRemaining,
         longestRoadPlayerId,
         largestArmyPlayerId,
@@ -452,6 +490,7 @@ export const PlayerProvider: React.FC<{ children: ReactNode }> = ({ children }) 
         setSetupState,
         setDevCardDeck,
         setGoldCoins,
+        setResourceBank,
         setRoadBuildingRemaining,
         setGoldSelectionQueue,
         setCurrentTurnBuiltShips,

@@ -1,5 +1,7 @@
 import React from 'react';
 import { CrossIcon, MonopolyIcon } from '../common/Icons';
+import { useGame } from '../../context/GameContext';
+import { dispatchGameAction } from '../../services/gameDispatcher';
 
 interface MonopolyModalProps {
   isOpen: boolean;
@@ -18,6 +20,8 @@ export const MonopolyModal: React.FC<MonopolyModalProps> = ({
   setPlayers,
   addLog,
 }) => {
+  const { roomId, myPlayerId, setTurnSubPhase } = useGame();
+
   if (!isOpen) return null;
 
   return (
@@ -50,39 +54,20 @@ export const MonopolyModal: React.FC<MonopolyModalProps> = ({
             <button
               key={res.type}
               onClick={() => {
-                let stolen = 0;
-                players.forEach(p => {
-                  if (p.id !== humanPlayer.id) {
-                    stolen += p.resources[res.type] || 0;
-                  }
+                dispatchGameAction({
+                  type: 'PLAY_DEV_CARD',
+                  playerId: humanPlayer.id,
+                  cardType: 'MONOPOLY',
+                  data: { resource: res.type },
+                }, {
+                  roomId: roomId || undefined,
+                  isRemote: false,
+                  myPlayerId: roomId ? myPlayerId : humanPlayer.id,
+                  players,
+                  setPlayers,
+                  setTurnSubPhase,
+                  addLog,
                 });
-
-                setPlayers((prevPlayers: any[]) => prevPlayers.map(p => {
-                  if (p.id === humanPlayer.id) {
-                    return {
-                      ...p,
-                      resources: {
-                        ...p.resources,
-                        [res.type]: (p.resources[res.type] || 0) + stolen
-                      },
-                      playedDevCardThisTurn: true,
-                      developmentCards: {
-                        ...p.developmentCards,
-                        MONOPOLY: Math.max(0, (p.developmentCards.MONOPOLY || 0) - 1)
-                      }
-                    };
-                  } else {
-                    return {
-                      ...p,
-                      resources: {
-                        ...p.resources,
-                        [res.type]: 0
-                      }
-                    };
-                  }
-                }));
-
-                addLog(`[קלף פיתוח] ${humanPlayer.name} הפעיל קלף מונופול ומקבל את כל קלפי ה-${res.label}! נגזלו ${stolen} קלפים משאר השחקנים.`);
                 onClose();
               }}
               className={`flex flex-col items-center justify-center p-3 rounded-xl border bg-slate-950/40 text-slate-200 text-xs font-bold transition-all ${res.border} ${res.hover} active:scale-[0.95] cursor-pointer gap-1.5`}

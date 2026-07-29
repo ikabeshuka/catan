@@ -146,7 +146,7 @@ export const LobbyStep4_PlayersSetup: React.FC<LobbyStep4PlayersSetupProps> = ({
                     type="button"
                     onClick={() => togglePlayerType(p.id, 'HUMAN')}
                     disabled={isGuest}
-                    className={`flex-1 py-1.5 px-1 rounded-lg text-[11px] font-bold transition-all duration-200 relative z-10 flex items-center justify-center gap-0.5 ${
+                    className={`flex-1 py-1 px-0.5 rounded-lg text-[10px] font-bold transition-all duration-200 relative z-10 flex flex-col items-center justify-center gap-1 ${
                       isGuest ? 'cursor-not-allowed opacity-50' : 'cursor-pointer'
                     } ${
                       p.playerType === 'HUMAN' 
@@ -155,14 +155,14 @@ export const LobbyStep4_PlayersSetup: React.FC<LobbyStep4PlayersSetupProps> = ({
                     }`}
                     title="שחקן אנושי"
                   >
-                    <UserIcon size={11} />
+                    <UserIcon size={12} />
                     <span>אדם</span>
                   </button>
                   <button
                     type="button"
                     onClick={() => togglePlayerType(p.id, 'LOCAL_BOT')}
                     disabled={isGuest}
-                    className={`flex-1 py-1.5 px-1 rounded-lg text-[11px] font-bold transition-all duration-200 relative z-10 flex items-center justify-center gap-0.5 ${
+                    className={`flex-1 py-1 px-0.5 rounded-lg text-[10px] font-bold transition-all duration-200 relative z-10 flex flex-col items-center justify-center gap-1 ${
                       isGuest ? 'cursor-not-allowed opacity-50' : 'cursor-pointer'
                     } ${
                       p.playerType === 'LOCAL_BOT' 
@@ -171,14 +171,14 @@ export const LobbyStep4_PlayersSetup: React.FC<LobbyStep4PlayersSetupProps> = ({
                     }`}
                     title="מחשב מקומי"
                   >
-                    <BotIcon size={11} />
+                    <BotIcon size={12} />
                     <span>מחשב</span>
                   </button>
                   <button
                     type="button"
                     onClick={() => togglePlayerType(p.id, 'GEMINI_AI')}
                     disabled={isGuest}
-                    className={`flex-1 py-1.5 px-1 rounded-lg text-[11px] font-bold transition-all duration-200 relative z-10 flex items-center justify-center gap-0.5 ${
+                    className={`flex-1 py-1 px-0.5 rounded-lg text-[10px] font-bold transition-all duration-200 relative z-10 flex flex-col items-center justify-center gap-1 ${
                       isGuest ? 'cursor-not-allowed opacity-50' : 'cursor-pointer'
                     } ${
                       p.playerType === 'GEMINI_AI' 
@@ -187,7 +187,7 @@ export const LobbyStep4_PlayersSetup: React.FC<LobbyStep4PlayersSetupProps> = ({
                     }`}
                     title="שחקן Gemini AI"
                   >
-                    <span className="text-[11px]">🧠</span>
+                    <span className="text-[12px] leading-none">🧠</span>
                     <span>Gemini</span>
                   </button>
                   {/* Sliding gold slider backdrop */}
@@ -200,34 +200,6 @@ export const LobbyStep4_PlayersSetup: React.FC<LobbyStep4PlayersSetupProps> = ({
                   />
                 </div>
               </div>
-
-              {/* Individual Difficulty for Local Bot inside the card */}
-              {p.playerType === 'LOCAL_BOT' && (
-                <div className="w-full flex flex-col gap-1 text-center mt-1 animate-fade-in">
-                  <span className="text-[10px] text-slate-400 font-bold">רמת קושי:</span>
-                  <div className="flex bg-slate-900 p-0.5 rounded-lg border border-slate-800/80 justify-between">
-                    {(['קל', 'בינוני', 'קשה'] as const).map(diff => {
-                      const isSelected = p.difficulty === diff || (!p.difficulty && diff === 'בינוני');
-                      return (
-                        <button
-                          key={diff}
-                          type="button"
-                          onClick={() => {
-                            setLobbyPlayers(prev => prev.map(item => item.id === p.id ? { ...item, difficulty: diff } : item));
-                          }}
-                          className={`py-1 px-1 rounded text-[9px] font-bold transition-all duration-150 cursor-pointer flex-1 ${
-                            isSelected 
-                              ? 'bg-amber-500 text-slate-950 font-extrabold shadow' 
-                              : 'text-slate-400 hover:text-slate-200'
-                          }`}
-                        >
-                          {diff}
-                        </button>
-                      );
-                    })}
-                  </div>
-                </div>
-              )}
 
               {/* API Key Reminder for Gemini AI inside the card */}
               {p.playerType === 'GEMINI_AI' && (

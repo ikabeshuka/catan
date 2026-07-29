@@ -28,14 +28,15 @@ export const createSnapshot = (
  */
 export const restoreFromSnapshot = (
   snapshot: TurnSnapshot,
-  currentPlayers: Player[]
+  currentPlayers: Player[],
+  activePlayerId: string
 ): {
   restoredPlayers: Player[];
   restoredVertices: BoardVertex[];
   restoredEdges: BoardEdge[];
 } => {
-  const currentHuman = currentPlayers.find(p => !p.isBot);
-  const snapshotHuman = snapshot.players.find(p => !p.isBot);
+  const currentHuman = currentPlayers.find(p => p.id === activePlayerId);
+  const snapshotHuman = snapshot.players.find(p => p.id === activePlayerId);
 
   if (!currentHuman || !snapshotHuman) {
     return {
@@ -56,17 +57,15 @@ export const restoreFromSnapshot = (
     ORE: Math.max(0, snapshotHuman.resources.ORE - N),
   };
 
-  const diffVP = (currentHuman.developmentCards.VICTORY_POINT || 0) - (snapshotHuman.developmentCards.VICTORY_POINT || 0);
-
   const updatedHuman: Player = {
     ...snapshotHuman,
     resources: updatedResources,
     developmentCards: { ...currentHuman.developmentCards },
-    victoryPoints: snapshotHuman.victoryPoints + Math.max(0, diffVP),
+    victoryPoints: snapshotHuman.victoryPoints,
   };
 
   const restoredPlayers = snapshot.players.map(p => {
-    if (!p.isBot) {
+    if (p.id === activePlayerId) {
       return updatedHuman;
     }
     return p;

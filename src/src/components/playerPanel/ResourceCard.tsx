@@ -37,6 +37,7 @@ export const ResourceCard: React.FC<ResourceCardProps> = ({ type, count, classNa
 
   return (
     <div
+      id={`resource-card-${type}`}
       style={style}
       className={`relative flex flex-col items-center justify-between w-28 h-44 rounded-2xl border border-slate-700/50 bg-slate-900 shadow-2xl transition-all duration-300 hover:shadow-amber-500/20 group cursor-pointer overflow-hidden ${hoverClass} ${className}`}
     >

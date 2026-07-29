@@ -1,5 +1,7 @@
 import React, { useState } from 'react';
 import { CrossIcon } from '../common/Icons';
+import { useGame } from '../../context/GameContext';
+import { dispatchGameAction } from '../../services/gameDispatcher';
 
 type ResourceType = 'WOOD' | 'BRICK' | 'SHEEP' | 'WHEAT' | 'ORE';
 
@@ -18,40 +20,27 @@ export const YearOfPlentyModal: React.FC<YearOfPlentyModalProps> = ({
   setPlayers,
   addLog,
 }) => {
+  const { players, roomId, myPlayerId, setTurnSubPhase } = useGame();
   const [yopRes1, setYopRes1] = useState<ResourceType>('WOOD');
   const [yopRes2, setYopRes2] = useState<ResourceType>('BRICK');
 
   if (!isOpen) return null;
 
   const handleExecuteYearOfPlenty = () => {
-    setPlayers((prevPlayers: any[]) => prevPlayers.map(p => {
-      if (p.id === humanPlayer.id) {
-        return {
-          ...p,
-          resources: {
-            ...p.resources,
-            [yopRes1]: (p.resources[yopRes1] || 0) + 1,
-            [yopRes2]: (p.resources[yopRes2] || 0) + 1
-          },
-          playedDevCardThisTurn: true,
-          developmentCards: {
-            ...p.developmentCards,
-            YEAR_OF_PLENTY: Math.max(0, (p.developmentCards.YEAR_OF_PLENTY || 0) - 1)
-          }
-        };
-      }
-      return p;
-    }));
-
-    const resourceLabels: Record<string, string> = {
-      WOOD: 'עץ',
-      BRICK: 'לבנה',
-      SHEEP: 'כבש',
-      WHEAT: 'חיטה',
-      ORE: 'ברזל'
-    };
-
-    addLog(`[קלף פיתוח] ${humanPlayer.name} הפעיל קלף שנת שפע וקיבל 1 ${resourceLabels[yopRes1]} ו-1 ${resourceLabels[yopRes2]} מהקופה!`);
+    dispatchGameAction({
+      type: 'PLAY_DEV_CARD',
+      playerId: humanPlayer.id,
+      cardType: 'YEAR_OF_PLENTY',
+      data: { resources: [yopRes1, yopRes2] },
+    }, {
+      roomId: roomId || undefined,
+      isRemote: false,
+      myPlayerId: roomId ? myPlayerId : humanPlayer.id,
+      players,
+      setPlayers,
+      setTurnSubPhase,
+      addLog,
+    });
     onClose();
   };
 

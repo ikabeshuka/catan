@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useGame } from '../context/GameContext';
 import { useTurnManager } from './useTurnManager';
 
@@ -22,7 +22,7 @@ export const useBotTimer = () => {
   const activePlayer = players[currentPlayerIndex];
 
   // מעבר בטוח לתור הבא במקרה של עצירה ידנית או אוטומטית (זמן תם)
-  const forceNextTurn = () => {
+  const forceNextTurn = useCallback(() => {
     if (gamePhase !== 'LOBBY' && activePlayer && activePlayer.isBot) {
       addLog(`[מערכת] תור הבוט ${activePlayer.name} הופסק ידנית או עקב חריגה מזמן התגובה (${botTimeLimit} שניות).`);
       
@@ -34,7 +34,7 @@ export const useBotTimer = () => {
         setTurnSubPhase('BEFORE_ROLL');
       }
     }
-  };
+  }, [gamePhase, activePlayer, addLog, botTimeLimit, endTurn, currentPlayerIndex, players, setCurrentPlayerIndex, setTurnSubPhase]);
 
   // איפוס זמן התגובה בכל תחילת תור או החלפת שלב
   useEffect(() => {
@@ -87,7 +87,7 @@ export const useBotTimer = () => {
     return () => {
       clearInterval(intervalId);
     };
-  }, [currentPlayerIndex, turnSubPhase, gamePhase, activePlayer?.id, isWaitingForPlayerAction, botTimeLimit]);
+  }, [currentPlayerIndex, turnSubPhase, gamePhase, activePlayer, isWaitingForPlayerAction, botTimeLimit, forceNextTurn, goldSelectionQueue, players]);
 
   return {
     botTimeLimit,

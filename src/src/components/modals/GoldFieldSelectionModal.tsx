@@ -1,10 +1,15 @@
 import React, { useState } from 'react';
 import { useGame } from '../../context/GameContext';
+import { dispatchGameAction } from '../../services/gameDispatcher';
 
 type ResourceType = 'WOOD' | 'BRICK' | 'SHEEP' | 'WHEAT' | 'ORE';
 
 export const GoldFieldSelectionModal: React.FC = () => {
-  const { turnSubPhase, goldSelectionQueue, resolveGoldSelection, players } = useGame();
+  const {
+    turnSubPhase, goldSelectionQueue, players, roomId, myPlayerId,
+    resourceBank, setResourceBank, setPlayers, setGoldSelectionQueue,
+    setTurnSubPhase, addLog,
+  } = useGame();
 
   const [res1, setRes1] = useState<ResourceType>('WOOD');
   const [res2, setRes2] = useState<ResourceType>('WOOD');
@@ -15,13 +20,38 @@ export const GoldFieldSelectionModal: React.FC = () => {
   const activePlayer = players.find(p => p.id === currentSelection.playerId);
   
   // Only display for human players
-  if (!activePlayer || activePlayer.isBot) return null;
+  if (!activePlayer || activePlayer.isBot || (roomId && activePlayer.id !== myPlayerId)) return null;
 
   const amount = currentSelection.amount;
 
   const handleConfirm = () => {
     const chosen: ResourceType[] = amount === 1 ? [res1] : [res1, res2];
-    resolveGoldSelection(chosen);
+    const requested = chosen.reduce<Record<ResourceType, number>>((counts, resource) => {
+      counts[resource] += 1;
+      return counts;
+    }, { WOOD: 0, BRICK: 0, SHEEP: 0, WHEAT: 0, ORE: 0 });
+    if (Object.entries(requested).some(([resource, count]) => resourceBank[resource as ResourceType] < count)) {
+      alert('אין מספיק קלפים מהמשאב שנבחר בבנק.');
+      return;
+    }
+    chosen.forEach(resource => dispatchGameAction({
+      type: 'SELECT_GOLD_RESOURCE',
+      playerId: activePlayer.id,
+      resource,
+    }, {
+      roomId: roomId || undefined,
+      isRemote: false,
+      myPlayerId: roomId ? myPlayerId : activePlayer.id,
+      turnSubPhase,
+      players,
+      setPlayers,
+      resourceBank,
+      setResourceBank,
+      goldSelectionQueue,
+      setGoldSelectionQueue,
+      setTurnSubPhase,
+      addLog,
+    }));
   };
 
   const resourcesList = [
@@ -53,14 +83,18 @@ export const GoldFieldSelectionModal: React.FC = () => {
             <div className="grid grid-cols-5 gap-2">
               {resourcesList.map((res) => {
                 const isActive = res1 === res.type;
+                const stock = resourceBank[res.type] || 0;
                 return (
                   <button
                     key={`gold-res1-${res.type}`}
                     type="button"
                     onClick={() => setRes1(res.type)}
-                    className={`flex flex-col items-center justify-center p-2.5 rounded-xl border text-[10px] font-black transition-all cursor-pointer gap-1
+                    className={`relative flex flex-col items-center justify-center p-2.5 rounded-xl border text-[10px] font-black transition-all cursor-pointer gap-1
                       ${isActive ? res.activeBg + ' ring-1 ring-amber-500/40 text-white' : 'bg-slate-950/40 border-slate-800/80 hover:bg-slate-950/70 text-slate-400'}`}
                   >
+                    <div className="absolute -top-1.5 -right-1.5 bg-slate-950 border border-slate-750 text-amber-400 text-[10px] font-black rounded-md px-1 min-w-[18px] h-4.5 flex items-center justify-center shadow-md">
+                      {stock}
+                    </div>
                     <img src={res.img} className="w-8 h-8 object-contain" alt={res.label} />
                     <span>{res.label}</span>
                   </button>
@@ -75,14 +109,18 @@ export const GoldFieldSelectionModal: React.FC = () => {
               <div className="grid grid-cols-5 gap-2">
                 {resourcesList.map((res) => {
                   const isActive = res2 === res.type;
+                  const stock = resourceBank[res.type] || 0;
                   return (
                     <button
                       key={`gold-res2-${res.type}`}
                       type="button"
                       onClick={() => setRes2(res.type)}
-                      className={`flex flex-col items-center justify-center p-2.5 rounded-xl border text-[10px] font-black transition-all cursor-pointer gap-1
+                      className={`relative flex flex-col items-center justify-center p-2.5 rounded-xl border text-[10px] font-black transition-all cursor-pointer gap-1
                         ${isActive ? res.activeBg + ' ring-1 ring-amber-500/40 text-white' : 'bg-slate-950/40 border-slate-800/80 hover:bg-slate-950/70 text-slate-400'}`}
                     >
+                      <div className="absolute -top-1.5 -right-1.5 bg-slate-950 border border-slate-750 text-amber-400 text-[10px] font-black rounded-md px-1 min-w-[18px] h-4.5 flex items-center justify-center shadow-md">
+                        {stock}
+                      </div>
                       <img src={res.img} className="w-8 h-8 object-contain" alt={res.label} />
                       <span>{res.label}</span>
                     </button>

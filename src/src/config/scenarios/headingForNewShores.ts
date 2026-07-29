@@ -57,7 +57,7 @@ const rawSeafarers3PlayersNewShores: HexTile[] = [
   { id: 'hex_3p_22', coord: { q: 3, r: 0, s: -3 }, type: 'WATER', numberToken: null, hasRobber: false, hasPirate: true },
 
   // Row r = 1 (6 tiles): q from -3 to 2
-  { id: 'hex_3p_23', coord: { q: -3, r: 1, s: 2 }, type: 'BRICK', numberToken: 8, hasRobber: false, harbors: [{ type: 'ORE', toTileId: 'hex_3p_16' }, { type: 'GENERIC', toTileId: 'hex_3p_29' }] },
+  { id: 'hex_3p_23', coord: { q: -3, r: 1, s: 2 }, type: 'BRICK', numberToken: 8, hasRobber: false, harbors: [{ type: 'ORE', toTileId: 'hex_3p_16' }, { type: 'GENERIC', edgeIndex: 2 }] },
   { id: 'hex_3p_24', coord: { q: -2, r: 1, s: 1 }, type: 'SHEEP', numberToken: 10, hasRobber: false },
   { id: 'hex_3p_25', coord: { q: -1, r: 1, s: 0 }, type: 'SHEEP', numberToken: 9, hasRobber: false },
   { id: 'hex_3p_26', coord: { q: 0, r: 1, s: -1 }, type: 'WOOD', numberToken: 8, hasRobber: false, harbors: [{ type: 'SHEEP', toTileId: 'hex_3p_20' }] },
@@ -72,8 +72,8 @@ const rawSeafarers3PlayersNewShores: HexTile[] = [
   { id: 'hex_3p_33', coord: { q: 1, r: 2, s: -3 }, type: 'ORE', numberToken: 8, hasRobber: false },
 
   // Row r = 3 (4 tiles): q from -3 to 0
-  { id: 'hex_3p_34', coord: { q: -3, r: 3, s: 0 }, type: 'WHEAT', numberToken: 6, hasRobber: false, harbors: [{ type: 'BRICK', toTileId: 'hex_3p_29' }] },
-  { id: 'hex_3p_35', coord: { q: -2, r: 3, s: -1 }, type: 'WOOD', numberToken: 5, hasRobber: false, harbors: [{ type: 'WOOD', toTileId: 'hex_3p_34' }, { type: 'GENERIC', toTileId: 'hex_3p_36' }] },
+  { id: 'hex_3p_34', coord: { q: -3, r: 3, s: 0 }, type: 'WHEAT', numberToken: 6, hasRobber: false, harbors: [{ type: 'BRICK', edgeIndex: 3 }] },
+  { id: 'hex_3p_35', coord: { q: -2, r: 3, s: -1 }, type: 'WOOD', numberToken: 5, hasRobber: false, harbors: [{ type: 'WOOD', edgeIndex: 2 }, { type: 'GENERIC', toTileId: 'hex_3p_36' }] },
   { id: 'hex_3p_36', coord: { q: -1, r: 3, s: -2 }, type: 'WATER', numberToken: null, hasRobber: false },
   { id: 'hex_3p_37', coord: { q: 0, r: 3, s: -3 }, type: 'BRICK', numberToken: 10, hasRobber: false },
 ];

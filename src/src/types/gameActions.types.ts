@@ -16,16 +16,22 @@ export type GameAction =
 
   // --- קלפי פיתוח ---
   | { type: 'BUY_DEV_CARD'; playerId: string; cardType: DevCardType }
-  | { type: 'PLAY_DEV_CARD'; playerId: string; cardType: DevCardType; data?: any }
+  | {
+      type: 'PLAY_DEV_CARD';
+      playerId: string;
+      cardType: DevCardType;
+      data?: { resource?: ResourceType; resources?: [ResourceType, ResourceType] };
+    }
 
   // --- שודד / שודד ים ---
   | {
       type: 'MOVE_ROBBER';
       playerId: string;
       tileId: string;
-      victimPlayerId?: string;
-      stolenResource?: ResourceType | null;
+      robberType?: 'ROBBER' | 'PIRATE';
+      hasEligibleVictims?: boolean;
     }
+  | { type: 'STEAL_RESOURCE'; playerId: string; victimPlayerId: string; stolenResource: ResourceType }
 
   // --- מסחר ---
   | {
@@ -45,6 +51,14 @@ export type GameAction =
       requestedResource: ResourceType;
       ratio: number;
     }
+  | {
+      type: 'EXECUTE_PLAYER_TRADE';
+      playerId: string;
+      targetPlayerId: string;
+      offer: Partial<Record<ResourceType, number>>;
+      request: Partial<Record<ResourceType, number>>;
+    }
+  | { type: 'GOLD_TRADE'; playerId: string; requestedResource: ResourceType }
 
   // --- הרחבת יורדי הים (Seafarers) ---
   | { type: 'MOVE_SHIP'; playerId: string; fromEdgeId: string; toEdgeId: string }
@@ -53,4 +67,4 @@ export type GameAction =
 
   // --- הרחבת סוחרים וברברים (Merchants & Barbarians) ---
   | { type: 'MOVE_WAGON'; playerId: string; targetVertexId: string; movementCost: number }
-  | { type: 'UPGRADE_WAGON'; playerId: string; newLevel: number };
+  | { type: 'UPGRADE_WAGON'; playerId: string; newLevel: 2 | 3; payment: 'RESOURCES' | 'GOLD' };

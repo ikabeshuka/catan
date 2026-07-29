@@ -7,6 +7,8 @@ import { WagonUpgradePanel } from './WagonUpgradePanel';
 import { BuildActionsPanel } from './BuildActionsPanel';
 import { SettlementIcon, RoadIcon } from '../common/Icons';
 import { socketService } from '../../services/network/socketService';
+import { dispatchGameAction } from '../../services/gameDispatcher';
+import { GameRulesModal } from '../modals/GameRulesModal';
 
 interface ChatMessage {
   text: string;
@@ -26,21 +28,26 @@ export const ActionSidebar: React.FC = () => {
   } = useTurnManager();
 
   const { 
-    activeExpansion, 
+    activeExpansion,
+    selectedScenario,
     longestRoadPlayerId, 
     largestArmyPlayerId,
     vertices,
     tiles,
     roomId,
+    myPlayerId,
     players,
   } = useGame();
 
   const [isChatOpen, setIsChatOpen] = useState(false);
+  const [isRulesModalOpen, setIsRulesModalOpen] = useState(false);
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
   const [chatInput, setChatInput] = useState('');
   const chatEndRef = useRef<HTMLDivElement>(null);
 
-  const humanPlayer = players?.find(p => !p.isBot) || currentPlayer;
+  const humanPlayer = roomId
+    ? players?.find(p => p.id === myPlayerId)
+    : players?.find(p => !p.isBot) || currentPlayer;
 
   // האזנה להודעות צ'אט נכנסות ברשת
   useEffect(() => {
@@ -74,6 +81,17 @@ export const ActionSidebar: React.FC = () => {
   };
 
   if (!currentPlayer) return null;
+
+  const handleEndTurn = () => {
+    dispatchGameAction({ type: 'END_TURN', playerId: currentPlayer.id }, {
+      roomId: roomId || undefined,
+      isRemote: false,
+      myPlayerId: roomId ? myPlayerId : currentPlayer.id,
+      endTurn,
+    });
+  };
+
+  const isWrongOnlinePlayer = !!roomId && (!myPlayerId || currentPlayer.id !== myPlayerId);
 
   const showEndTurnButton =
     turnSubPhase === 'TRADE_AND_BUILD' ||
@@ -120,13 +138,13 @@ export const ActionSidebar: React.FC = () => {
     }
   };
 
-  const activePlayerVP = getPlayerTotalVP(currentPlayer, longestRoadPlayerId, largestArmyPlayerId, true, vertices, tiles);
+  const activePlayerVP = getPlayerTotalVP(currentPlayer, longestRoadPlayerId, largestArmyPlayerId, true, vertices, tiles, selectedScenario);
 
   return (
     <div className="h-full flex flex-col gap-2.5 bg-slate-950 p-1 text-white text-right" dir="rtl">
       
       {/* א. שם השחקן הנוכחי וב. תצוגת נקודות הניצחון */}
-      <div className="relative overflow-hidden bg-slate-900/90 p-4 rounded-2xl border border-slate-800/80 shadow-[inset_0_1px_1px_rgba(255,255,255,0.08)] flex flex-col gap-3">
+      <div data-player-id={currentPlayer.id} className="relative overflow-hidden bg-slate-900/90 p-4 rounded-2xl border border-slate-800/80 shadow-[inset_0_1px_1px_rgba(255,255,255,0.08)] flex flex-col gap-3">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
             <span 
@@ -139,14 +157,23 @@ export const ActionSidebar: React.FC = () => {
           </div>
 
           {/* כפתור צ'אט במידה והמשחק מנוהל בחדר אונליין */}
-          {roomId && (
+          <div className="flex items-center gap-1.5">
             <button
-              onClick={() => setIsChatOpen(prev => !prev)}
-              className="px-2.5 py-1 bg-amber-500/20 hover:bg-amber-500/30 text-amber-400 border border-amber-500/40 rounded-lg text-xs font-bold transition flex items-center gap-1 cursor-pointer"
+              type="button"
+              onClick={() => setIsRulesModalOpen(true)}
+              className="cursor-pointer rounded-lg border border-sky-500/35 bg-sky-500/10 px-2.5 py-1 text-[11px] font-bold text-sky-300 transition hover:bg-sky-500/20"
             >
-              💬 צ'אט {chatMessages.length > 0 && `(${chatMessages.length})`}
+              📜 הוראות משחק
             </button>
-          )}
+            {roomId && (
+              <button
+                onClick={() => setIsChatOpen(prev => !prev)}
+                className="px-2.5 py-1 bg-amber-500/20 hover:bg-amber-500/30 text-amber-400 border border-amber-500/40 rounded-lg text-xs font-bold transition flex items-center gap-1 cursor-pointer"
+              >
+                💬 צ'אט {chatMessages.length > 0 && `(${chatMessages.length})`}
+              </button>
+            )}
+          </div>
         </div>
 
         {/* תצוגת נקודות הניצחון (Victory Points) */}
@@ -159,6 +186,8 @@ export const ActionSidebar: React.FC = () => {
           {getGuideText()}
         </p>
       </div>
+
+      <GameRulesModal isOpen={isRulesModalOpen} onClose={() => setIsRulesModalOpen(false)} />
 
       {/* חלון צ'אט נפתח תוך-כדי משחק (In-Game Chat Overlay Panel) */}
       {roomId && isChatOpen && (
@@ -211,10 +240,10 @@ export const ActionSidebar: React.FC = () => {
       {/* כפתור סיום תור */}
       <div className="w-full">
         <button
-          onClick={endTurn}
-          disabled={!showEndTurnButton || isCurrentPlayerBot}
+          onClick={handleEndTurn}
+          disabled={!showEndTurnButton || isCurrentPlayerBot || isWrongOnlinePlayer}
           className={`w-full py-3 px-4 rounded-xl font-extrabold text-xs tracking-wide shadow-lg transition-all duration-300 border
-            ${(showEndTurnButton && !isCurrentPlayerBot)
+            ${(showEndTurnButton && !isCurrentPlayerBot && !isWrongOnlinePlayer)
               ? 'bg-emerald-700 text-white hover:bg-emerald-600 border-emerald-600 shadow-emerald-700/20 cursor-pointer animate-gentle-pulse'
               : 'bg-slate-800/40 text-slate-500 border-slate-800/50 cursor-not-allowed opacity-50'
             }`}

@@ -44,7 +44,7 @@ export const calculateLongestRoadForPlayer = (
         adj[v1].push({ edgeId: edge.id, type: edgeType, targetVertex: v2 });
         adj[v2].push({ edgeId: edge.id, type: edgeType, targetVertex: v1 });
       }
-    } catch (err) {
+    } catch {
       // גיבוי בטוח למקרה של כשל בפרסור המזהה
     }
   });

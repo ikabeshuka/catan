@@ -5,6 +5,9 @@ import { MonopolyModal } from './MonopolyModal';
 import { YearOfPlentyModal } from './YearOfPlentyModal';
 import { GoldFieldSelectionModal } from './GoldFieldSelectionModal';
 import { TrophyDetailModal } from './TrophyModal';
+import { GameOverRatingModal } from './GameOverRatingModal';
+import { PlayerStatsModal } from './PlayerStatsModal';
+import { useUser } from '../../context/UserContext';
 
 interface GameModalsManagerProps {
   isMonopolyModalOpen: boolean;
@@ -35,6 +38,8 @@ export const GameModalsManager: React.FC<GameModalsManagerProps> = ({
   longestRoadPlayerId,
   largestArmyPlayerId,
 }) => {
+const { lastRatingResult, setLastRatingResult, isStatsModalOpen, setIsStatsModalOpen } = useUser();
+
   return (
     <>
       {/* מודל מונופול לקבלת משאבים */}
@@ -62,7 +67,7 @@ export const GameModalsManager: React.FC<GameModalsManagerProps> = ({
       {/* קומפוננטת Overlay במסך מלא עבור זריקת משאבים כשהשודד מופעל */}
       <DiscardOverlay />
 
-      {/* מודל תארים צף גדול במרכז */}
+{/* מודל תארים צף גדול במרכז */}
       <TrophyDetailModal
         isOpen={!!activeTrophyModal}
         type={activeTrophyModal!}
@@ -70,6 +75,20 @@ export const GameModalsManager: React.FC<GameModalsManagerProps> = ({
         largestArmyPlayerId={largestArmyPlayerId}
         players={players}
         onClose={() => setActiveTrophyModal(null)}
+      />
+
+      {/* מודל סיכום דירוג בסיום משחק */}
+      {lastRatingResult && (
+        <GameOverRatingModal
+          result={lastRatingResult}
+          onClose={() => setLastRatingResult(null)}
+        />
+      )}
+
+      {/* מודל סטטיסטיקות שחקן ומטריצת ניקוד */}
+      <PlayerStatsModal
+        isOpen={isStatsModalOpen}
+        onClose={() => setIsStatsModalOpen(false)}
       />
     </>
   );

@@ -34,6 +34,7 @@ interface TradeAndBuildPhaseParams {
   setVertices: React.Dispatch<React.SetStateAction<BoardVertex[]>>;
   setEdges: React.Dispatch<React.SetStateAction<BoardEdge[]>>;
   setPlayers: React.Dispatch<React.SetStateAction<Player[]>>;
+  buyDevelopmentCard: (forcedCardType?: string) => void;
   setTurnSubPhase?: React.Dispatch<React.SetStateAction<TurnSubPhase>>;
 }
 
@@ -49,6 +50,7 @@ export function tradeAndBuildPhase({
   setVertices,
   setEdges,
   setPlayers,
+  buyDevelopmentCard,
   setTurnSubPhase
 }: TradeAndBuildPhaseParams): void {
   setTimeout(() => {
@@ -474,8 +476,16 @@ export function tradeAndBuildPhase({
         }
         buildHappened = true;
       } else if (action.type === 'BUY_DEV_CARD') {
-        currentBot = handleBuyDevCard(currentBot, addLog);
-        buildHappened = true;
+        // Commit all decisions made so far before the shared deck transaction.
+        // Returning prevents the local bot snapshot from overwriting the card
+        // drawn by PlayerContext's buyDevelopmentCard state update.
+        setVertices(currentVertices);
+        setEdges(currentEdges);
+        playersCopy = playersCopy.map(p => p.id === currentBot.id ? currentBot : p);
+        setPlayers(playersCopy);
+        handleBuyDevCard(buyDevelopmentCard);
+        endTurn();
+        return;
       }
     }
 

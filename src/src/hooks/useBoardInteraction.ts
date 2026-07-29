@@ -5,12 +5,15 @@ import { parseEdgeId } from '../utils/hexMath/parseEdgeId';
 import { cubeToPixel } from '../utils/hexMath/cubeToPixel';
 import { useVertexInteraction } from './useVertexInteraction';
 import { useEdgeInteraction } from './useEdgeInteraction';
+import { dispatchGameAction } from '../services/gameDispatcher';
 
 export function useBoardInteraction() {
   const { 
+    tiles,
     vertices, 
     edges, 
     setTiles, 
+    setPlayers,
     setTurnSubPhase, 
     addLog, 
     setRobberyState,
@@ -20,6 +23,8 @@ export function useBoardInteraction() {
     activeExpansion,
     activeRobberType,
     setActiveRobberType,
+    roomId,
+    myPlayerId,
   } = useGame();
 
   const [hoveredTile, setHoveredTile] = useState<{
@@ -51,6 +56,7 @@ export function useBoardInteraction() {
   const isSelectableForRobber = (tile: any) => {
     if (turnSubPhase !== 'ROBBER_PLACEMENT') return false;
     if (players[currentPlayerIndex]?.isBot) return false;
+    if (roomId && players[currentPlayerIndex]?.id !== myPlayerId) return false;
 
     if (activeExpansion === 'SEAFARERS') {
       if (activeRobberType === 'ROBBER') {
@@ -67,25 +73,7 @@ export function useBoardInteraction() {
   const handleTileClick = (tile: any) => {
     if (!isSelectableForRobber(tile)) return;
     
-    const currentPlayerName = players[currentPlayerIndex]?.name || 'השחקן';
     const isPirate = activeExpansion === 'SEAFARERS' && activeRobberType === 'PIRATE';
-    
-    // Move robber/pirate
-    if (isPirate) {
-      setTiles(prevTiles => prevTiles.map(t => {
-        if (t.id === tile.id) return { ...t, hasPirate: true };
-        if (t.hasPirate) return { ...t, hasPirate: false };
-        return t;
-      }));
-      addLog(`${currentPlayerName} הזיז את שודד הים לאריח מים.`);
-    } else {
-      setTiles(prevTiles => prevTiles.map(t => {
-        if (t.id === tile.id) return { ...t, hasRobber: true };
-        if (t.hasRobber) return { ...t, hasRobber: false };
-        return t;
-      }));
-      addLog(`${currentPlayerName} הזיז את השודד לאריח מסוג ${tile.type}.`);
-    }
 
     const currentPlayingPlayer = players[currentPlayerIndex];
     let eligibleTargets: any[] = [];
@@ -134,14 +122,27 @@ export function useBoardInteraction() {
       eligibleTargets = getEligibleRobberyTargets(tile, vertices, players, currentPlayingPlayer.id);
     }
 
-    // Reset activeRobberType to null since selection/placement action is finished
-    setActiveRobberType?.(null);
+    dispatchGameAction({
+      type: 'MOVE_ROBBER',
+      playerId: currentPlayingPlayer.id,
+      tileId: tile.id,
+      robberType: isPirate ? 'PIRATE' : 'ROBBER',
+      hasEligibleVictims: eligibleTargets.length > 0,
+    }, {
+      roomId: roomId || undefined,
+      isRemote: false,
+      myPlayerId: roomId ? myPlayerId : currentPlayingPlayer.id,
+      players,
+      tiles,
+      setTiles,
+      setPlayers,
+      setTurnSubPhase,
+      setActiveRobberType,
+      addLog,
+    });
 
     if (eligibleTargets.length > 0) {
       setRobberyState({ tile, targets: eligibleTargets });
-    } else {
-      addLog(`[שודד] אין שחקנים יריבים עם קלפים באריח זה.`);
-      setTurnSubPhase('TRADE_AND_BUILD');
     }
   };
 

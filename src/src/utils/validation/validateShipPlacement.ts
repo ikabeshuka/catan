@@ -33,12 +33,21 @@ export function validateShipPlacement(
     }
   }
 
-  // 2. בדיקה שהצלע גובלת בלפחות אריח מים אחד ('WATER', 'SEA', 'FOG') (כדי למנוע בניית ספינות בלב יבשה)
+  // 2. Allow ships on coastal edges (Land-Sea) and aquatic edges (Sea-Sea or Sea-Frame).
+  // Ensure ship placement is valid if the edge touches at least one Water/Sea/Fog tile OR if it lies on a coastal perimeter connected to the player's network.
   const borderingTiles = tiles.filter(tile => getTileEdgeIds(tile).includes(edgeId));
   const borderingWaterOrFogTiles = borderingTiles.filter(
     tile => tile.type === 'WATER' || tile.type === 'SEA' || tile.type === 'FOG'
   );
-  if (borderingWaterOrFogTiles.length === 0) {
+  const borderingLandTiles = borderingTiles.filter(
+    tile => tile.type !== 'WATER' && tile.type !== 'SEA' && tile.type !== 'FOG'
+  );
+
+  const touchesWater = borderingWaterOrFogTiles.length >= 1;
+  const isCoastline = borderingLandTiles.length >= 1 && borderingWaterOrFogTiles.length >= 1;
+  const isLandFrame = borderingTiles.length === 1 && borderingLandTiles.length === 1; // Land-Frame perimeter boundary
+
+  if (!touchesWater && !isCoastline && !isLandFrame) {
     return false;
   }
 

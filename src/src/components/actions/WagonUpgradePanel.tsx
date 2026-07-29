@@ -1,7 +1,7 @@
 import React from 'react';
 import { useTurnManager } from '../../hooks/useTurnManager';
 import { useGame } from '../../context/GameContext';
-import { Player } from '../../types/player.types';
+import { dispatchGameAction } from '../../services/gameDispatcher';
 
 export const WagonUpgradePanel: React.FC = () => {
   const { currentPlayer, turnSubPhase } = useTurnManager();
@@ -12,12 +12,19 @@ export const WagonUpgradePanel: React.FC = () => {
     setPlayers, 
     addLog, 
     isMovingWagon, 
-    setIsMovingWagon 
+    setIsMovingWagon,
+    roomId,
+    myPlayerId,
+    resourceBank,
+    setResourceBank,
   } = useGame();
 
   if (!currentPlayer) return null;
 
-  const humanPlayer = players.find((p) => !p.isBot) || players[0];
+  const humanPlayer = (roomId
+    ? players.find((p) => p.id === myPlayerId)
+    : players.find((p) => !p.isBot) || players[0])!;
+  const isWrongOnlinePlayer = !!roomId && (!myPlayerId || currentPlayer.id !== myPlayerId);
 
   // Helper to check if human player has a specific resource and count
   const checkHumanResource = (type: 'WOOD' | 'BRICK' | 'SHEEP' | 'WHEAT' | 'ORE', amount: number): boolean => {
@@ -36,11 +43,32 @@ export const WagonUpgradePanel: React.FC = () => {
     }
   };
 
-  const canUpgradeWithResources = checkHumanResource('WOOD', 1) && checkHumanResource('ORE', 1) && wagonLevel < 3;
-  const canUpgradeWithGold = (goldCoins[currentPlayer.id] || 0) >= 3 && wagonLevel < 3;
+  const canUpgradeWithResources = !isWrongOnlinePlayer && checkHumanResource('WOOD', 1) && checkHumanResource('ORE', 1) && wagonLevel < 3;
+  const canUpgradeWithGold = !isWrongOnlinePlayer && (goldCoins[currentPlayer.id] || 0) >= 3 && wagonLevel < 3;
+
+  const dispatchUpgrade = (payment: 'RESOURCES' | 'GOLD') => dispatchGameAction({
+    type: 'UPGRADE_WAGON',
+    playerId: currentPlayer.id,
+    newLevel: (wagonLevel + 1) as 2 | 3,
+    payment,
+  }, {
+    roomId: roomId || undefined,
+    isRemote: false,
+    myPlayerId: roomId ? myPlayerId : currentPlayer.id,
+    players,
+    setPlayers,
+    goldCoins,
+    setGoldCoins,
+    resourceBank,
+    setResourceBank,
+    addLog,
+  });
 
   const upgradeWagonWithResources = () => {
     if (!canUpgradeWithResources) return;
+    dispatchUpgrade('RESOURCES');
+    /* Legacy direct mutation replaced by dispatchUpgrade.
+    return;
     setPlayers((prevPlayers: Player[]) => prevPlayers.map(p => {
       if (p.id === currentPlayer.id) {
         const nextLevel = (p.wagonLevel || 1) + 1;
@@ -59,10 +87,14 @@ export const WagonUpgradePanel: React.FC = () => {
       return p;
     }));
     addLog(`🚚 ${currentPlayer.name} שדרג/ה את עגלת המסחר לרמה ${wagonLevel + 1} באמצעות משאבים (1 עץ + 1 ברזל)!`);
+    */
   };
 
   const upgradeWagonWithGold = () => {
     if (!canUpgradeWithGold) return;
+    dispatchUpgrade('GOLD');
+    /* Legacy direct mutation replaced by dispatchUpgrade.
+    return;
     setGoldCoins((prev: Record<string, number>) => ({
       ...prev,
       [currentPlayer.id]: (prev[currentPlayer.id] || 0) - 3
@@ -80,6 +112,7 @@ export const WagonUpgradePanel: React.FC = () => {
       return p;
     }));
     addLog(`🚚 ${currentPlayer.name} שדרג/ה את עגלת המסחר לרמה ${wagonLevel + 1} באמצעות 3 מטבעות זהב!`);
+    */
   };
 
   return (
@@ -109,7 +142,7 @@ export const WagonUpgradePanel: React.FC = () => {
         </div>
       </div>
 
-      {!currentPlayer.isBot && turnSubPhase === 'TRADE_AND_BUILD' && (
+      {!currentPlayer.isBot && !isWrongOnlinePlayer && turnSubPhase === 'TRADE_AND_BUILD' && (
         <div className="flex flex-col gap-2">
           {/* כפתור הנעת עגלה */}
           <button

@@ -12,6 +12,9 @@ export interface Player {
   archetype?: 'BUILDER' | 'DEVELOPER';
   turnsPlayed?: number;
   botStrategy?: 'LONG_ROAD_EXPANSION' | 'CITY_DEV_BURST' | 'BALANCED_PORT_TRADE';
+  homeIslandId?: number;
+  homeIslandIds?: number[];
+  goldTradesThisTurn?: number;
   resources: ResourceCards; // כמות הכרטיסים שיש לו ביד מכל משאב
   victoryPoints: number; // נקודות הניצחון הנוכחיות שלו
   developmentCards: {
@@ -22,6 +25,7 @@ export interface Player {
     VICTORY_POINT?: number;
   };
   playedDevCardThisTurn?: boolean;
+  devCardReturnSubPhase?: 'BEFORE_ROLL' | 'TRADE_AND_BUILD';
   boughtDevCardsThisTurn?: {
     KNIGHT?: number;
     MONOPOLY?: number;

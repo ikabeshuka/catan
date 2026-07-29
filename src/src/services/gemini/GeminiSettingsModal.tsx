@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { DEFAULT_GEMINI_MODEL } from '../../services/gemini/geminiService';
 
 interface GeminiSettingsModalProps {
   isOpen: boolean;
@@ -7,19 +8,23 @@ interface GeminiSettingsModalProps {
 
 export const GeminiSettingsModal: React.FC<GeminiSettingsModalProps> = ({ isOpen, onClose }) => {
   const [apiKey, setApiKey] = useState('');
+  const [modelName, setModelName] = useState(DEFAULT_GEMINI_MODEL);
   const [statusMessage, setStatusMessage] = useState('');
   const [isTesting, setIsTesting] = useState(false);
 
   useEffect(() => {
     const savedKey = localStorage.getItem('CATAN_GEMINI_API_KEY') || '';
+    const savedModel = localStorage.getItem('CATAN_GEMINI_MODEL') || DEFAULT_GEMINI_MODEL;
     setApiKey(savedKey);
-  }, []);
+    setModelName(savedModel);
+  }, [isOpen]);
 
   if (!isOpen) return null;
 
   const handleSave = () => {
     localStorage.setItem('CATAN_GEMINI_API_KEY', apiKey.trim());
-    setStatusMessage('✅ המפתח נשמר בהצלחה בבלוק המקומי!');
+    localStorage.setItem('CATAN_GEMINI_MODEL', modelName.trim());
+    setStatusMessage('✅ ההגדרות נשמרו בהצלחה!');
     setTimeout(() => {
       setStatusMessage('');
       onClose();
@@ -33,11 +38,12 @@ export const GeminiSettingsModal: React.FC<GeminiSettingsModalProps> = ({ isOpen
     }
 
     setIsTesting(true);
-    setStatusMessage('מתחבר ל-Google AI Studio...');
+    setStatusMessage(`מתחבר ל-Google AI Studio מול המודל ${modelName}...`);
 
     try {
+      const activeModel = modelName.trim() || DEFAULT_GEMINI_MODEL;
       const res = await fetch(
-        `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey.trim()}`,
+        `https://generativelanguage.googleapis.com/v1beta/models/${activeModel}:generateContent?key=${apiKey.trim()}`,
         {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -48,11 +54,13 @@ export const GeminiSettingsModal: React.FC<GeminiSettingsModalProps> = ({ isOpen
       );
 
       if (res.ok) {
-        setStatusMessage('🎉 החיבור הצליח! Gemini AI מוכן לשימוש!');
+        setStatusMessage(`🎉 החיבור הצליח! המודל ${activeModel} פעיל ומוכן!`);
+      } else if (res.status === 404) {
+        setStatusMessage(`❌ מודל '${activeModel}' לא נמצא (404). שנו את שם המודל.`);
       } else {
-        setStatusMessage('❌ המפתח אינו תקין או שאין הרשאת גישה.');
+        setStatusMessage(`❌ שגיאה (${res.status}): המפתח אינו תקין או שאין הרשאת גישה.`);
       }
-    } catch (err) {
+    } catch {
       setStatusMessage('❌ שגיאת רשת בבדיקת המפתח.');
     } finally {
       setIsTesting(false);
@@ -66,7 +74,7 @@ export const GeminiSettingsModal: React.FC<GeminiSettingsModalProps> = ({ isOpen
           <span>🤖</span> הגדרות Google AI Studio (Gemini API)
         </h3>
         <p className="text-xs text-slate-300 mb-4 leading-relaxed">
-          הכנס את מפתח ה-API שלך מ-Google AI Studio כדי לאפשר לבוטים לפעול באמצעות מודל שפה מתקדם בזמן אמת.
+          הכנס את מפתח ה-API ושם המודל מ-Google AI Studio כדי להפעיל תכנון אסטרטגי חכם לבוטים.
         </p>
 
         <div className="mb-4">
@@ -78,6 +86,20 @@ export const GeminiSettingsModal: React.FC<GeminiSettingsModalProps> = ({ isOpen
             placeholder="AIzaSy..."
             className="w-full bg-slate-800 border border-slate-700 rounded px-3 py-2 text-sm text-amber-200 focus:outline-none focus:border-amber-500"
           />
+        </div>
+
+        <div className="mb-4">
+          <label className="block text-xs font-semibold mb-1 text-slate-200">מזהה מודל (Model ID):</label>
+          <input
+            type="text"
+            value={modelName}
+            onChange={(e) => setModelName(e.target.value)}
+            placeholder="gemini-3.5-flash"
+            className="w-full bg-slate-800 border border-slate-700 rounded px-3 py-2 text-sm text-amber-200 focus:outline-none focus:border-amber-500 font-mono"
+          />
+          <span className="text-[10px] text-slate-400 mt-1 block">
+            ברירת מחדל: <code className="text-amber-400">gemini-3.5-flash</code>. במידת הצורך ניתן לעדכן לכל דגם זמין.
+          </span>
         </div>
 
         {statusMessage && (

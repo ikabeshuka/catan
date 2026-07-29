@@ -1,0 +1,81 @@
+const test = require('node:test');
+const assert = require('node:assert/strict');
+const { io: createClient } = require('socket.io-client');
+const { createCatanServer } = require('./server');
+
+const emitAck = (socket, event, payload) => new Promise(resolve => socket.emit(event, payload, resolve));
+const once = (socket, event, timeout = 1500) => new Promise((resolve, reject) => {
+  const timer = setTimeout(() => reject(new Error(`Timed out waiting for ${event}`)), timeout);
+  socket.once(event, value => { clearTimeout(timer); resolve(value); });
+});
+
+test('room lifecycle rejects phantoms, authorizes actions and migrates host', async t => {
+  const server = createCatanServer();
+  await new Promise(resolve => server.httpServer.listen(0, '127.0.0.1', resolve));
+  const { port } = server.httpServer.address();
+  const url = `http://127.0.0.1:${port}`;
+  const host = createClient(url, { transports: ['websocket'], forceNew: true });
+  const guest = createClient(url, { transports: ['websocket'], forceNew: true });
+  t.after(async () => {
+    host.disconnect();
+    guest.disconnect();
+    await new Promise(resolve => server.io.close(() => server.httpServer.close(resolve)));
+  });
+  await Promise.all([once(host, 'connect'), once(guest, 'connect')]);
+
+  const missing = await emitAck(guest, 'join_room', { roomId: 'CATAN-NONE', playerName: 'Guest' });
+  assert.equal(missing.success, false);
+  assert.equal(missing.code, 'ROOM_NOT_FOUND');
+  assert.equal(server.activeRooms.size, 0);
+
+  const roomId = 'CATAN-TEST1';
+  const created = await emitAck(host, 'create_room', {
+    roomId, hostName: 'Host', expansion: 'BASE', scenario: 'HEADING_FOR_NEW_SHORES', boardType: 'RANDOM', maxPlayers: 2,
+  });
+  assert.equal(created.success, true);
+  const hostJoin = await emitAck(host, 'join_room', { roomId, playerName: 'Host' });
+  const guestJoin = await emitAck(guest, 'join_room', { roomId, playerName: 'Guest' });
+  assert.equal(hostJoin.assignedPlayerId, 'p1');
+  assert.equal(guestJoin.assignedPlayerId, 'p2');
+
+  host.emit('start_game', { roomId, gameStartData: {
+    players: [{ id: 'p1' }, { id: 'p2' }], boardData: { tiles: [], vertices: [], edges: [] },
+    initialState: {
+      gamePhase: 'SETUP_ROUND_1', turnSubPhase: 'BEFORE_ROLL', currentPlayerIndex: 0,
+      players: [
+        { id: 'p1', resources: { WOOD: 0, BRICK: 0, SHEEP: 0, WHEAT: 0, ORE: 0 }, developmentCards: {} },
+        { id: 'p2', resources: { WOOD: 0, BRICK: 0, SHEEP: 0, WHEAT: 0, ORE: 0 }, developmentCards: {} },
+      ],
+      vertices: [], edges: [], tiles: [], resourceBank: { WOOD: 19, BRICK: 19, SHEEP: 19, WHEAT: 19, ORE: 19 },
+      devCardDeck: [
+        ...Array(14).fill('KNIGHT'), ...Array(5).fill('VICTORY_POINT'),
+        ...Array(2).fill('ROAD_BUILDING'), ...Array(2).fill('YEAR_OF_PLENTY'), ...Array(2).fill('MONOPOLY'),
+      ], goldCoins: {}, goldSelectionQueue: [],
+    },
+  }});
+  await once(guest, 'game_started');
+  const liveState = server.activeRooms.get(roomId).gameState;
+  const synced = await emitAck(host, 'sync_game_state', {
+    roomId, snapshot: { ...liveState, gamePhase: 'MAIN_GAME', turnSubPhase: 'BEFORE_ROLL' },
+  });
+  assert.equal(synced.success, true);
+
+  const unauthorized = await emitAck(guest, 'send_game_action', {
+    roomId, action: { type: 'ROLL_DICE', playerId: 'p1', diceValues: [3, 4] },
+  });
+  assert.equal(unauthorized.success, false);
+  assert.equal(unauthorized.code, 'UNAUTHORIZED');
+
+  const approvedEvent = once(guest, 'receive_game_action');
+  const approved = await emitAck(host, 'send_game_action', {
+    roomId, action: { type: 'ROLL_DICE', playerId: 'p1', diceValues: [3, 4] },
+  });
+  assert.equal(approved.success, true);
+  assert.equal((await approvedEvent).sequence, 1);
+
+  const hostChanged = once(guest, 'host_changed');
+  host.disconnect();
+  const migration = await hostChanged;
+  assert.equal(migration.hostPlayerId, 'p2');
+  assert.equal(server.activeRooms.get(roomId).hostSocketId, guest.id);
+});

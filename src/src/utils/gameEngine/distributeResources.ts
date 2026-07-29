@@ -1,110 +1,102 @@
 import { HexTile } from '../../types/hex.types';
 import { BoardVertex } from '../../types/boardElements.types';
 import { Player } from '../../types/player.types';
+import { ResourceCards } from '../../types/resources.types';
 import { cubeToPixel } from '../hexMath/cubeToPixel';
 import { GoldSelectionPending } from '../../context/PlayerContext';
 
 const HEX_SIZE = 60;
+type Resource = keyof ResourceCards;
 
 export interface ResourceFlow {
   id: string;
-  resourceType: 'WOOD' | 'BRICK' | 'SHEEP' | 'WHEAT' | 'ORE';
+  resourceType: Resource;
   from: { x: number; y: number };
   playerName: string;
   isHuman: boolean;
   amount: number;
+  playerId: string;
+  tileCoord?: { q: number; r: number; s: number };
+  tileId?: string;
 }
 
-/**
- * מחשבת ומחלקת משאבים לשחקנים בהתאם לתוצאת הקוביות שהוטלו.
- * מחזירה מערך שחקנים חדש ומעודכן ואת פירוט המשאבים ה'עפים'.
- */
+interface Claim {
+  playerId: string;
+  resource: Resource;
+  amount: number;
+  tile: HexTile;
+  vertex: BoardVertex;
+  center: { x: number; y: number };
+}
+
+/** Distributes a roll while enforcing Catan's finite 19-card resource bank. */
 export function distributeResources(
   diceRoll: number,
   tiles: HexTile[],
   vertices: BoardVertex[],
-  players: Player[]
-): { updatedPlayers: Player[]; flows: ResourceFlow[]; goldSelections: GoldSelectionPending[] } {
-  // אם יצא 7, אף שחקן לא מקבל משאבים (השודד מופעל - נטפל בזה בהמשך בנפרד)
-  if (diceRoll === 7) return { updatedPlayers: players, flows: [], goldSelections: [] };
+  players: Player[],
+  resourceBank: ResourceCards,
+): {
+  updatedPlayers: Player[];
+  updatedBank: ResourceCards;
+  flows: ResourceFlow[];
+  goldSelections: GoldSelectionPending[];
+} {
+  const updatedPlayers = players.map(player => ({ ...player, resources: { ...player.resources } }));
+  const updatedBank = { ...resourceBank };
+  if (diceRoll === 7) return { updatedPlayers, updatedBank, flows: [], goldSelections: [] };
 
-  // 1. יצירת עותק עמוק של השחקנים כדי לשמור על עקרון האימוטביליות ב-React
-  const updatedPlayers = players.map(player => ({
-    ...player,
-    resources: { ...player.resources }
-  }));
-
-  const flows: ResourceFlow[] = [];
+  const vertexMap = new Map(vertices.map(vertex => [vertex.id, vertex]));
+  const claims: Claim[] = [];
   const goldSelections: GoldSelectionPending[] = [];
 
-  // יצירת מפה (Map) של הצמתים לפי ה-ID שלהם לגישה מהירה ב-O(1)
-  const vertexMap = new Map<string, BoardVertex>(vertices.map(v => [v.id, v]));
-
-  // 2. סינון האריחים שמתאימים למספר שהוטל בקוביות ושאין עליהם שודד
-  const activeTiles = tiles.filter(tile => tile.numberToken === diceRoll && !tile.hasRobber);
-
-  // 3. ריצה על כל האריחים הפעילים וחלוקת המשאבים
-  activeTiles.forEach((tile) => {
-    // מציאת מרכז האריח בפיקסלים
+  tiles.filter(tile => tile.numberToken === diceRoll && !tile.hasRobber).forEach(tile => {
     const center = cubeToPixel(tile.coord, HEX_SIZE);
-
-    // בדיקת 6 הצמתים שמקיפים את האריח הנוכחי
-    for (let i = 0; i < 6; i++) {
-      const angleRad = (Math.PI / 180) * (60 * i - 30);
-      const x = center.x + HEX_SIZE * Math.cos(angleRad);
-      const y = center.y + HEX_SIZE * Math.sin(angleRad);
-
-      const roundedX = Math.round(x * 10) / 10;
-      const roundedY = Math.round(y * 10) / 10;
-      const vertexId = `v_${roundedX}_${roundedY}`;
-
-      // שליפת הנתונים הסטטיים של הצומת הזה מהמפה
+    for (let index = 0; index < 6; index += 1) {
+      const angle = (Math.PI / 180) * (60 * index - 30);
+      const vertexId = `v_${Math.round((center.x + HEX_SIZE * Math.cos(angle)) * 10) / 10}_${Math.round((center.y + HEX_SIZE * Math.sin(angle)) * 10) / 10}`;
       const vertex = vertexMap.get(vertexId);
-
-      // אם יש מבנה על הצומת ויש לו שחקן משויך
-      if (vertex && vertex.playerId && vertex.structure !== 'NONE') {
-        // מציאת השחקן במערך המעודכן שלנו
-        const playerToReward = updatedPlayers.find(p => p.id === vertex.playerId);
-
-        if (playerToReward) {
-          // קביעת כמות המשאבים: יישוב נותן 1, עיר נותנת 2
-          const amountToGive = vertex.structure === 'SETTLEMENT' ? 1 : 2;
-          
-          if (tile.type === 'GOLD_FIELD') {
-            goldSelections.push({
-              playerId: playerToReward.id,
-              amount: amountToGive,
-              tileId: tile.id
-            });
-          } else {
-            // הוספת המשאב לארנק של השחקן (רק עבור משאבים חוקיים שמיוצרים)
-            const resourceType = tile.type;
-            if (
-              resourceType === 'WOOD' ||
-              resourceType === 'BRICK' ||
-              resourceType === 'SHEEP' ||
-              resourceType === 'WHEAT' ||
-              resourceType === 'ORE'
-            ) {
-              playerToReward.resources[resourceType] += amountToGive;
-
-              // יצירת פריטי תנועה ("עופים") של המשאב לשחקן
-              for (let j = 0; j < amountToGive; j++) {
-                flows.push({
-                  id: `flow_${tile.id}_${vertex.id}_${j}_${Date.now()}_${Math.random()}`,
-                  resourceType: resourceType,
-                  from: { x: center.x, y: center.y },
-                  playerName: playerToReward.name,
-                  isHuman: !playerToReward.isBot,
-                  amount: 1
-                });
-              }
-            }
-          }
-        }
+      if (!vertex?.playerId || vertex.structure === 'NONE') continue;
+      const amount = vertex.structure === 'CITY' ? 2 : 1;
+      if (tile.type === 'GOLD_FIELD') {
+        goldSelections.push({ playerId: vertex.playerId, amount, tileId: tile.id });
+      } else if (['WOOD', 'BRICK', 'SHEEP', 'WHEAT', 'ORE'].includes(tile.type)) {
+        claims.push({ playerId: vertex.playerId, resource: tile.type as Resource, amount, tile, vertex, center });
       }
     }
   });
 
-  return { updatedPlayers, flows, goldSelections };
+  const flows: ResourceFlow[] = [];
+  (['WOOD', 'BRICK', 'SHEEP', 'WHEAT', 'ORE'] as Resource[]).forEach(resource => {
+    const resourceClaims = claims.filter(claim => claim.resource === resource);
+    const totalDemand = resourceClaims.reduce((sum, claim) => sum + claim.amount, 0);
+    const claimants = new Set(resourceClaims.map(claim => claim.playerId));
+    if (totalDemand === 0 || (totalDemand > updatedBank[resource] && claimants.size > 1)) return;
+
+    let available = updatedBank[resource];
+    resourceClaims.forEach(claim => {
+      const granted = Math.min(claim.amount, available);
+      if (granted <= 0) return;
+      const player = updatedPlayers.find(candidate => candidate.id === claim.playerId);
+      if (!player) return;
+      player.resources[resource] += granted;
+      available -= granted;
+      for (let index = 0; index < granted; index += 1) {
+        flows.push({
+          id: `flow_${claim.tile.id}_${claim.vertex.id}_${index}_${Date.now()}_${Math.random()}`,
+          resourceType: resource,
+          from: claim.center,
+          playerName: player.name,
+          isHuman: !player.isBot,
+          amount: 1,
+          playerId: player.id,
+          tileCoord: claim.tile.coord,
+          tileId: claim.tile.id,
+        });
+      }
+    });
+    updatedBank[resource] = available;
+  });
+
+  return { updatedPlayers, updatedBank, flows, goldSelections };
 }

@@ -1,10 +1,16 @@
 import { useGame, getPlayerTotalVP } from '../context/GameContext';
+import { useUser } from '../context/UserContext';
+import { RoomParticipant } from '../types/rating.types';
 import { rollDice } from '../utils/gameEngine/rollDice';
 import { distributeResources } from '../utils/gameEngine/distributeResources';
 import { distributeInitialResources } from '../utils/gameEngine/distributeInitialResources';
 import { GamePhase } from '../context/GameContext';
 import { Player } from '../types/player.types';
 import { ResourceType, ResourceCards } from '../types/resources.types';
+import { getVictoryPointTarget } from '../config/gameRules';
+import { getVertexIslandIds } from '../utils/gameEngine/getVertexIslandIds';
+import { dispatchGameAction } from '../services/gameDispatcher';
+import { useRef } from 'react';
 
 export function useTurnManager() {
   const {
@@ -23,6 +29,7 @@ export function useTurnManager() {
     setupState,
     setSetupState,
     setResourceFlows,
+    triggerResourceFlow,
     isRolling,
     setIsRolling,
     setRollValues,
@@ -34,10 +41,18 @@ export function useTurnManager() {
     setGoldCoins,
     setGoldSelectionQueue,
     setCurrentTurnBuiltShips,
-    setHasMovedShipThisTurn
+    setHasMovedShipThisTurn,
+    setActiveRobberType,
+    roomId,
+    myPlayerId,
+    resourceBank,
+    setResourceBank,
   } = useGame();
 
   const { devCardDeck, setDevCardDeck, createTurnSnapshot, undoTurnActions } = useGame();
+  const { updateRatingAfterGame } = useUser();
+  const ratedWinnerRef = useRef<string | null>(null);
+  if (gamePhase === 'LOBBY') ratedWinnerRef.current = null;
   const currentPlayer = players[currentPlayerIndex];
   const isSetupPhase = gamePhase === 'SETUP_ROUND_1' || gamePhase === 'SETUP_ROUND_2';
 
@@ -102,7 +117,7 @@ export function useTurnManager() {
   /**
    * הטלת קוביות: אם יוצא 7, עוברים למצב שודד
    */
-  const handleDiceRoll = () => {
+  const handleDiceRoll = (fixedValues?: [number, number]) => {
     if (isSetupPhase || turnSubPhase !== 'BEFORE_ROLL' || isRolling) return null;
 
     setIsRolling(true);
@@ -116,7 +131,9 @@ export function useTurnManager() {
 
     setTimeout(() => {
       clearInterval(interval);
-      const diceResult = rollDice();
+      const diceResult = fixedValues
+        ? { dice1: fixedValues[0], dice2: fixedValues[1], total: fixedValues[0] + fixedValues[1] }
+        : rollDice();
       
       setLastRoll({ d1: diceResult.dice1, d2: diceResult.dice2 });
       setRollValues({ d1: diceResult.dice1, d2: diceResult.dice2 });
@@ -135,9 +152,27 @@ export function useTurnManager() {
         } else {
           addLog(`השודד הופעל. יש למקם את השודד באריח חדש.`);
           setTurnSubPhase('ROBBER_PLACEMENT');
+          setActiveRobberType?.(null);
         }
         
         // חוק חצי הקלפים: שחקנים עם יותר מ-7 קלפים מאבדים חצי (לוגיקה פשוטה)
+        const returnedByBots: ResourceCards = { WOOD: 0, BRICK: 0, SHEEP: 0, WHEAT: 0, ORE: 0 };
+        players.filter(p => p.isBot).forEach(bot => {
+          const totalCards = Object.values(bot.resources).reduce((sum, amount) => sum + amount, 0);
+          let remainingToDiscard = totalCards > 7 ? Math.floor(totalCards / 2) : 0;
+          (Object.keys(bot.resources) as (keyof ResourceCards)[]).forEach(resource => {
+            const amount = Math.min(bot.resources[resource], remainingToDiscard);
+            returnedByBots[resource] += amount;
+            remainingToDiscard -= amount;
+          });
+        });
+        setResourceBank(previous => ({
+          WOOD: previous.WOOD + returnedByBots.WOOD,
+          BRICK: previous.BRICK + returnedByBots.BRICK,
+          SHEEP: previous.SHEEP + returnedByBots.SHEEP,
+          WHEAT: previous.WHEAT + returnedByBots.WHEAT,
+          ORE: previous.ORE + returnedByBots.ORE,
+        }));
         setPlayers((prevPlayers: Player[]) => prevPlayers.map(p => {
           const totalCards = Object.values(p.resources).reduce((a, b) => a + b, 0);
           if (!p.isBot && totalCards > 7) {
@@ -161,8 +196,15 @@ export function useTurnManager() {
           return p;
         }));
       } else {
-        const { updatedPlayers, flows, goldSelections } = distributeResources(diceResult.total, tiles, vertices, players);
-        setResourceFlows(flows);
+        const { updatedPlayers, updatedBank, flows, goldSelections } = distributeResources(
+          diceResult.total, tiles, vertices, players, resourceBank
+        );
+        setResourceBank(updatedBank);
+        if (triggerResourceFlow) {
+          triggerResourceFlow(flows);
+        } else {
+          setResourceFlows(flows);
+        }
         
         // Compare resources before and after distribution to log who received what
         players.forEach((oldPlayer) => {
@@ -234,7 +276,7 @@ export function useTurnManager() {
   /**
    * מסחר מול הבנק (יחס ברירת מחדל של 4 ל-1, או משופר באמצעות נמלים)
    */
-  const tradeWithBank = (giveResource: ResourceType, receiveResource: ResourceType) => {
+  const tradeWithBank = (giveResource: ResourceType, receiveResource: ResourceType, giveAmt?: number, receiveAmt?: number) => {
     if (turnSubPhase !== 'TRADE_AND_BUILD') return false;
     if (giveResource === 'DESERT' || receiveResource === 'DESERT') return false;
     
@@ -251,34 +293,53 @@ export function useTurnManager() {
     const hasSpecializedHarbor = ownedHarbors.some(h => h.harborType === giveResource);
     const hasGenericHarbor = ownedHarbors.some(h => h.harborType === 'GENERIC');
 
-    let requiredCount = 4;
+    let defaultRatio = 4;
     let usedHarborType: string | null = null;
 
     if (hasSpecializedHarbor) {
-      requiredCount = 2;
+      defaultRatio = 2;
       usedHarborType = giveResource;
     } else if (hasGenericHarbor) {
-      requiredCount = 3;
+      defaultRatio = 3;
       usedHarborType = 'GENERIC';
     }
+
+    const giveCount = giveAmt !== undefined ? giveAmt : defaultRatio;
+    const receiveCount = receiveAmt !== undefined ? receiveAmt : 1;
+    const ratio = giveCount / receiveCount;
+    if (!Number.isInteger(ratio) || ![2, 3, 4].includes(ratio)) return false;
     
-    if (currentPlayer.resources[giveKey] < requiredCount) {
+    if (currentPlayer.resources[giveKey] < giveCount) {
       if (!currentPlayer.isBot) {
-        addLog(`אין לך מספיק משאבים מסוג ${giveResource} בשביל מסחר של ${requiredCount}:1.`);
+        addLog(`אין לך מספיק משאבים מסוג ${giveResource} בשביל מסחר של ${giveCount}:${receiveCount}.`);
       }
       return false;
     }
 
-    setPlayers((prev: Player[]) => prev.map(p => 
-      p.id === currentPlayer.id ? {
-        ...p,
-        resources: {
-          ...p.resources,
-          [giveKey]: p.resources[giveKey] - requiredCount,
-          [receiveKey]: p.resources[receiveKey] + 1
-        }
-      } : p
-    ));
+    if ((resourceBank[receiveKey] || 0) < receiveCount) {
+      addLog('אין בבנק מספיק קלפים מהמשאב המבוקש.');
+      return false;
+    }
+
+    for (let index = 0; index < receiveCount; index += 1) {
+      dispatchGameAction({
+        type: 'BANK_TRADE',
+        playerId: currentPlayer.id,
+        offeredResource: giveKey,
+        requestedResource: receiveKey,
+        ratio: ratio as 2 | 3 | 4,
+      }, {
+        roomId: roomId || undefined,
+        isRemote: false,
+        myPlayerId: roomId ? myPlayerId : currentPlayer.id,
+        turnSubPhase,
+        players,
+        setPlayers,
+        resourceBank,
+        setResourceBank,
+        addLog,
+      });
+    }
 
     const resourceLabels: Record<string, string> = {
       WOOD: 'עץ',
@@ -296,7 +357,7 @@ export function useTurnManager() {
       addLog(`[נמל] ${currentPlayer.name} ניצל נמל ${harborLabel} והחליף משאבים ביחס משופר!`);
     }
 
-    addLog(`${currentPlayer.name} ביצע מסחר מול הבנק: החליף ${requiredCount} ${giveLabel} תמורת 1 ${receiveLabel}.`);
+    addLog(`${currentPlayer.name} ביצע מסחר מול הבנק: החליף ${giveCount} ${giveLabel} תמורת ${receiveCount} ${receiveLabel}.`);
     return true;
   };
 
@@ -335,7 +396,7 @@ export function useTurnManager() {
           }
         };
         // If it's a victory point card (win1, win2, win3, wun4, win5, win6)
-        if (drawnCard.startsWith('win') || drawnCard.startsWith('wun')) {
+        if (drawnCard === 'VICTORY_POINT' || drawnCard.startsWith('win') || drawnCard.startsWith('wun')) {
           updatedPlayer.developmentCards = {
             ...updatedPlayer.developmentCards,
             VICTORY_POINT: (updatedPlayer.developmentCards.VICTORY_POINT || 0) + 1
@@ -372,9 +433,24 @@ export function useTurnManager() {
     if (!isSetupPhase) return;
     if (type === 'SETTLEMENT') {
       setSetupState(prev => ({ ...prev, hasPlacedSettlement: true, lastSettlementVertexId: targetId }));
+      const setupIslandId = getVertexIslandIds(targetId, tiles)[0];
+      const assignHomeIsland = (playerList: Player[]) => playerList.map(player => {
+        if (player.id !== currentPlayer.id || setupIslandId === undefined) return player;
+        const homeIslandIds = Array.from(new Set([...(player.homeIslandIds || []), setupIslandId]));
+        return {
+          ...player,
+          homeIslandId: player.homeIslandId ?? setupIslandId,
+          homeIslandIds,
+        };
+      });
+
       if (gamePhase === 'SETUP_ROUND_2') {
         const oldPlayer = players.find(p => p.id === currentPlayer.id);
-        const updatedPlayers = distributeInitialResources(targetId, tiles, players, currentPlayer.id);
+        const initialDistribution = distributeInitialResources(
+          targetId, tiles, players, currentPlayer.id, resourceBank
+        );
+        const updatedPlayers = assignHomeIsland(initialDistribution.updatedPlayers);
+        setResourceBank(initialDistribution.updatedBank);
         
         if (oldPlayer) {
           const newPlayer = updatedPlayers.find(p => p.id === currentPlayer.id);
@@ -394,6 +470,8 @@ export function useTurnManager() {
         }
         
         setPlayers(updatedPlayers);
+      } else {
+        setPlayers(assignHomeIsland);
       }
     } else {
       setSetupState(prev => ({ ...prev, hasPlacedRoad: true }));
@@ -442,7 +520,8 @@ export function useTurnManager() {
         return {
           ...p,
           playedDevCardThisTurn: false,
-          boughtDevCardsThisTurn: {}
+          boughtDevCardsThisTurn: {},
+          goldTradesThisTurn: 0
         };
       }
       return p;
@@ -452,22 +531,31 @@ export function useTurnManager() {
   };
 
   const checkIfGameEnds = (player: Player) => {
-    const totalVP = getPlayerTotalVP(player, longestRoadPlayerId, largestArmyPlayerId, true, vertices, tiles);
+    const totalVP = getPlayerTotalVP(player, longestRoadPlayerId, largestArmyPlayerId, true, vertices, tiles, selectedScenario);
     
-    let victoryGoal = 10;
-    if (activeExpansion === 'SEAFARERS') {
-      if (selectedScenario === 'HEADING_FOR_NEW_SHORES') {
-        victoryGoal = 14;
-      } else if (selectedScenario === 'FOUR_ISLANDS') {
-        victoryGoal = 13;
-      } else if (selectedScenario === 'FOG_ISLAND') {
-        victoryGoal = 12;
-      }
-    }
+    const victoryGoal = getVictoryPointTarget(activeExpansion, selectedScenario);
 
     if (totalVP >= victoryGoal) {
       setGamePhase('GAME_OVER');
       addLog(`המשחק נגמר! ${player.name} ניצח/ה עם ${totalVP} נקודות ניצחון!`);
+      // חישוב ניקוד הדירוג בסיום המשחק
+      if (ratedWinnerRef.current === player.id) return true;
+      ratedWinnerRef.current = player.id;
+      const humanPlayer = roomId
+        ? players.find(p => p.id === myPlayerId)
+        : players.find(p => !p.isBot);
+      if (humanPlayer) {
+        const isHumanWin = player.id === humanPlayer.id;
+        const participants: RoomParticipant[] = players.map(p => ({
+          id: p.id,
+          isHuman: !p.isBot,
+          botDifficulty: (p.difficulty as any) || (p.playerType === 'GEMINI_AI' ? 'GEMINI_AI' : 'MEDIUM'),
+        
+          ratingPoints: (p as any).ratingPoints || 0
+        }));
+
+        updateRatingAfterGame(isHumanWin, participants, humanPlayer.id);
+      }
       return true;
     }
     return false;
@@ -504,6 +592,22 @@ export function useTurnManager() {
       return false;
     }
 
+    dispatchGameAction({
+      type: 'MOVE_WAGON',
+      playerId,
+      targetVertexId,
+      movementCost,
+    }, {
+      roomId: roomId || undefined,
+      isRemote: false,
+      myPlayerId: roomId ? myPlayerId : playerId,
+      players,
+      setPlayers,
+      addLog,
+    });
+    return true;
+
+    /* Direct mutation replaced by the dispatcher above.
     setPlayers((prevPlayers: Player[]) => prevPlayers.map(p => {
       if (p.id === playerId) {
         return {
@@ -516,7 +620,7 @@ export function useTurnManager() {
     }));
 
     addLog(`🚚 העגלה של ${player.name} נעה אל ${targetVertexId} בעלות של ${movementCost} נקודות תנועה.`);
-    return true;
+    */
   };
 
   return {
@@ -534,6 +638,7 @@ export function useTurnManager() {
     undoTurnActions,
     longestRoadPlayerId,
     largestArmyPlayerId,
-    moveWagon
+    moveWagon,
+    checkIfGameEnds
   };
 }

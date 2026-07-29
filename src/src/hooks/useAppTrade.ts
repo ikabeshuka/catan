@@ -1,6 +1,7 @@
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { useGame } from '../context/GameContext';
 import { getMediumBotTarget } from '../utils/ai/getMediumBotTarget';
+import { dispatchGameAction } from '../services/gameDispatcher';
 
 export const useAppTrade = () => {
   const {
@@ -11,21 +12,28 @@ export const useAppTrade = () => {
     setTurnSubPhase,
     addLog,
     edges,
-    roadBuildingRemaining,
     setRoadBuildingRemaining,
     setActivePortTrade,
     gamePhase,
     tiles,
     vertices,
     activeExpansion,
+    isTradeModalOpen,
+    setIsTradeModalOpen,
+    setActiveRobberType,
+    roomId,
+    myPlayerId,
+    resourceBank,
+    setResourceBank,
   } = useGame();
 
   const activePlayer = players[currentPlayerIndex];
-  const humanPlayer = players.find(p => !p.isBot) || players[0];
+  const humanPlayer = (roomId
+    ? players.find(p => p.id === myPlayerId)
+    : players.find(p => !p.isBot) || players[0])!;
 
   // States for dev cards / overlay / trade modals
   const [isDevCardsOverlayOpen, setIsDevCardsOverlayOpen] = useState(false);
-  const [isTradeModalOpen, setIsTradeModalOpen] = useState(false);
   const [isMonopolyModalOpen, setIsMonopolyModalOpen] = useState(false);
   const [isYearOfPlentyModalOpen, setIsYearOfPlentyModalOpen] = useState(false);
 
@@ -40,34 +48,10 @@ export const useAppTrade = () => {
   const [harborGiveRes, setHarborGiveRes] = useState<'WOOD' | 'BRICK' | 'SHEEP' | 'WHEAT' | 'ORE'>('WOOD');
   const [harborReceiveRes, setHarborReceiveRes] = useState<'WOOD' | 'BRICK' | 'SHEEP' | 'WHEAT' | 'ORE'>('BRICK');
 
-  const [prevRoadCount, setPrevRoadCount] = useState<number>(0);
-  const [prevShipCount, setPrevShipCount] = useState<number>(0);
-
-  // Track free road / ship building from Road Building card
-  useEffect(() => {
-    if (!humanPlayer) return;
-    const currentRoadCount = edges.filter(e => e.hasRoad && e.playerId === humanPlayer.id).length;
-    const currentShipCount = edges.filter(e => e.hasShip && e.shipPlayerId === humanPlayer.id).length;
-
-    if (roadBuildingRemaining > 0) {
-      if (currentRoadCount > prevRoadCount) {
-        const diff = currentRoadCount - prevRoadCount;
-        const nextRemaining = Math.max(0, roadBuildingRemaining - diff);
-        setRoadBuildingRemaining(nextRemaining);
-        addLog(`[בניית כבישים] כביש חינם נבנה בהצלחה! נותרו עוד ${nextRemaining} מבנים חינם לבנייה.`);
-      } else if (currentShipCount > prevShipCount && activeExpansion === 'SEAFARERS') {
-        const diff = currentShipCount - prevShipCount;
-        const nextRemaining = Math.max(0, roadBuildingRemaining - diff);
-        setRoadBuildingRemaining(nextRemaining);
-        addLog(`[בניית ספינות] ספינה חינם נבנתה בהצלחה! נותרו עוד ${nextRemaining} מבנים חינם לבנייה.`);
-      }
-    }
-    setPrevRoadCount(currentRoadCount);
-    setPrevShipCount(currentShipCount);
-  }, [edges, humanPlayer?.id, roadBuildingRemaining, activeExpansion, prevRoadCount, prevShipCount]);
-
   const handlePlayCard = (cardType: 'KNIGHT' | 'MONOPOLY' | 'ROAD_BUILDING' | 'YEAR_OF_PLENTY') => {
-    if (activePlayer?.id !== humanPlayer.id || turnSubPhase !== 'TRADE_AND_BUILD') return;
+    if (roomId && (!myPlayerId || activePlayer?.id !== myPlayerId)) return;
+    const canPlayInCurrentPhase = turnSubPhase === 'BEFORE_ROLL' || turnSubPhase === 'TRADE_AND_BUILD';
+    if (activePlayer?.id !== humanPlayer.id || !canPlayInCurrentPhase) return;
     if (humanPlayer.playedDevCardThisTurn) {
       alert("כבר שיחקת קלף פיתוח אחד בתור זה!");
       return;
@@ -79,49 +63,24 @@ export const useAppTrade = () => {
       return;
     }
 
-    if (cardType === 'KNIGHT') {
-      setPlayers((prevPlayers: any[]) => prevPlayers.map(p => {
-        if (p.id === humanPlayer.id) {
-          return {
-            ...p,
-            knightsPlayed: (p.knightsPlayed || 0) + 1,
-            playedDevCardThisTurn: true,
-            developmentCards: {
-              ...p.developmentCards,
-              KNIGHT: Math.max(0, p.developmentCards.KNIGHT - 1)
-            }
-          };
-        }
-        return p;
-      }));
-      setTurnSubPhase('ROBBER_PLACEMENT');
-      addLog(`[קלף פיתוח] ${humanPlayer.name} הפעיל קלף אביר ומזיז את השודד!`);
-    } else if (cardType === 'MONOPOLY') {
+    if (cardType === 'MONOPOLY') {
       setIsMonopolyModalOpen(true);
-    } else if (cardType === 'ROAD_BUILDING') {
-      setPlayers((prevPlayers: any[]) => prevPlayers.map(p => {
-        if (p.id === humanPlayer.id) {
-          return {
-            ...p,
-            playedDevCardThisTurn: true,
-            developmentCards: {
-              ...p.developmentCards,
-              ROAD_BUILDING: Math.max(0, p.developmentCards.ROAD_BUILDING - 1)
-            }
-          };
-        }
-        return p;
-      }));
-      setRoadBuildingRemaining(2);
-      setPrevRoadCount(edges.filter(e => e.hasRoad && e.playerId === humanPlayer.id).length);
-      setPrevShipCount(edges.filter(e => e.hasShip && e.shipPlayerId === humanPlayer.id).length);
-      if (activeExpansion === 'SEAFARERS') {
-        addLog(`[קלף פיתוח] ${humanPlayer.name} הפעיל קלף בניית כבישים ומקבל 2 בנייות חינם (דרכים או ספינות)!`);
-      } else {
-        addLog(`[קלף פיתוח] ${humanPlayer.name} הפעיל קלף בניית כבישים ומקבל 2 כבישים חינם לבנייה!`);
-      }
     } else if (cardType === 'YEAR_OF_PLENTY') {
       setIsYearOfPlentyModalOpen(true);
+    } else {
+      dispatchGameAction({ type: 'PLAY_DEV_CARD', playerId: humanPlayer.id, cardType }, {
+        roomId: roomId || undefined,
+        isRemote: false,
+        myPlayerId: roomId ? myPlayerId : humanPlayer.id,
+        turnSubPhase,
+        players,
+        setPlayers,
+        setTurnSubPhase,
+        setActiveRobberType,
+        setRoadBuildingRemaining,
+        activeExpansion,
+        addLog,
+      });
     }
   };
 
@@ -140,16 +99,27 @@ export const useAppTrade = () => {
       return;
     }
 
-    setPlayers((prev: any[]) => prev.map(p => 
-      p.id === humanPlayer.id ? {
-        ...p,
-        resources: {
-          ...p.resources,
-          [giveType]: p.resources[giveType] - requiredGiveAmt,
-          [receiveType]: (p.resources[receiveType] || 0) + 1
-        }
-      } : p
-    ));
+    if ((resourceBank[receiveType] || 0) < 1) {
+      alert('המשאב המבוקש אזל בבנק.');
+      return;
+    }
+    dispatchGameAction({
+      type: 'BANK_TRADE',
+      playerId: humanPlayer.id,
+      offeredResource: giveType,
+      requestedResource: receiveType,
+      ratio: requiredGiveAmt as 2 | 3 | 4,
+    }, {
+      roomId: roomId || undefined,
+      isRemote: false,
+      myPlayerId: roomId ? myPlayerId : humanPlayer.id,
+      turnSubPhase,
+      players,
+      setPlayers,
+      resourceBank,
+      setResourceBank,
+      addLog,
+    });
 
     const resourceLabels: Record<string, string> = {
       WOOD: 'עץ',
@@ -291,6 +261,15 @@ export const useAppTrade = () => {
       const botAgreed = evaluateBotTradeDecision(bot, giveRes, giveAmt, receiveRes, receiveAmt);
 
       if (botAgreed) {
+        dispatchGameAction({
+          type: 'EXECUTE_PLAYER_TRADE', playerId: humanPlayer.id, targetPlayerId: bot.id,
+          offer: { [giveRes]: giveAmt }, request: { [receiveRes]: receiveAmt },
+        }, {
+          roomId: roomId || undefined, isRemote: false,
+          myPlayerId: roomId ? myPlayerId : humanPlayer.id,
+          turnSubPhase, players, setPlayers, addLog,
+        });
+        /* Direct mutation replaced by dispatchGameAction.
         setPlayers((prevPlayers: any[]) => prevPlayers.map(p => {
           if (p.id === humanPlayer.id) {
             return {
@@ -313,6 +292,7 @@ export const useAppTrade = () => {
           }
           return p;
         }));
+        */
 
         addLog(`[מסחר] בוט ${bot.name} קיבל את ההצעה שלך והעסקה בוצעה!`);
         tradeExecuted = true;
@@ -354,5 +334,6 @@ export const useAppTrade = () => {
     handlePlayCard,
     executeHarborTrade,
     handleProposeTrade,
+    evaluateBotTradeDecision,
   };
 };

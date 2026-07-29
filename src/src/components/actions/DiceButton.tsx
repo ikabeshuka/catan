@@ -2,18 +2,32 @@ import React from 'react';
 import { useTurnManager } from '../../hooks/useTurnManager';
 import { useGame } from '../../context/GameContext';
 import { DiceIcon } from '../common/Icons';
+import { dispatchGameAction } from '../../services/gameDispatcher';
+import { rollDice } from '../../utils/gameEngine/rollDice';
 
 export const DiceButton: React.FC = () => {
-  const { turnSubPhase, isCurrentPlayerBot, handleDiceRoll, isSetupPhase } = useTurnManager();
-  const { isRolling, rollValues, lastRoll } = useGame();
+  const { currentPlayer, turnSubPhase, isCurrentPlayerBot, handleDiceRoll, isSetupPhase } = useTurnManager();
+  const { isRolling, rollValues, lastRoll, roomId, myPlayerId } = useGame();
+  const isWrongOnlinePlayer = !!roomId && (!myPlayerId || currentPlayer?.id !== myPlayerId);
 
   const onRollClick = () => {
-    if (isRolling || isDisabled) return;
-    handleDiceRoll();
+    if (isRolling || isDisabled || !currentPlayer) return;
+
+    const diceResult = rollDice();
+    dispatchGameAction({
+      type: 'ROLL_DICE',
+      playerId: currentPlayer.id,
+      diceValues: [diceResult.dice1, diceResult.dice2],
+    }, {
+      roomId: roomId || undefined,
+      isRemote: false,
+      myPlayerId: roomId ? myPlayerId : currentPlayer.id,
+      handleDiceRoll,
+    });
   };
 
   // הכפתור מושבת אם זה תור של בוט, או אם אנחנו בשלב ההקמה, או אם כבר הטלנו קוביות בתור הזה
-  const isDisabled = isCurrentPlayerBot || turnSubPhase !== 'BEFORE_ROLL' || isSetupPhase;
+  const isDisabled = isCurrentPlayerBot || isWrongOnlinePlayer || turnSubPhase !== 'BEFORE_ROLL' || isSetupPhase;
 
   let buttonContent = (
     <span className="flex items-center justify-center gap-2">

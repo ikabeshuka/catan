@@ -31,12 +31,15 @@ export function validateRoadPlacement(
     }
   }
 
-  // בדיקה שהצלע המבוקשת אינה גובלת בשני אריחי מים ('WATER') במקביל
+  // Ensure roads can ONLY be placed on edges that border at least ONE Land tile (borderingLandTiles.length >= 1)
+  // Explicitly reject road placement on edges with 0 Land tiles (such as Sea-Sea or Sea-Frame boundaries)
   if (tiles) {
     const borderingTiles = tiles.filter(tile => getTileEdgeIds(tile).includes(edgeId));
-    const waterBorderingTiles = borderingTiles.filter(tile => tile.type === 'WATER');
-    if (waterBorderingTiles.length >= 2) {
-      return false; // חסום לחלוטין בלב ים!
+    const borderingLandTiles = borderingTiles.filter(
+      tile => tile.type !== 'WATER' && tile.type !== 'SEA' && tile.type !== 'FOG'
+    );
+    if (borderingLandTiles.length < 1) {
+      return false;
     }
   }
 

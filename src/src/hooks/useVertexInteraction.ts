@@ -2,7 +2,8 @@ import { useGame } from '../context/GameContext';
 import { useTurnManager } from './useTurnManager';
 import { validateSettlementPlacement } from '../utils/validation/validateSettlementPlacement';
 import { useBoard } from '../context/BoardContext';
-import { cubeToPixel } from '../utils/hexMath/cubeToPixel';
+import { dispatchGameAction } from '../services/gameDispatcher';
+import { GameAction } from '../types/gameActions.types';
 
 export function useVertexInteraction() {
   const { selectedScenario } = useBoard();
@@ -21,12 +22,15 @@ export function useVertexInteraction() {
     showBuildingCostToast,
     addLog,
     setPlayers,
+    roomId,
+    myPlayerId,
   } = useGame();
 
   const { isSetupPhase, setupState, recordSetupPlacement, moveWagon } = useTurnManager();
 
   const getVertexConfig = (vertex: any) => {
     const currentPlayer = players[currentPlayerIndex];
+    const isLocalPlayersTurn = !roomId || (!!myPlayerId && currentPlayer?.id === myPlayerId);
     const isBlockedBySetup = isSetupPhase && setupState.hasPlacedSettlement;
     const isValidPlacement = currentPlayer && !isBlockedBySetup
       ? validateSettlementPlacement(vertex.id, currentPlayer.id, gamePhase, vertices, edges, tiles, selectedScenario)
@@ -36,14 +40,33 @@ export function useVertexInteraction() {
     const playerCitiesCount = vertices.filter(v => v.playerId === currentPlayer?.id && v.structure === 'CITY').length;
     const canUpgradeToCity = currentPlayer && !isSetupPhase && turnSubPhase === 'TRADE_AND_BUILD' && isOwnSettlement && playerCitiesCount < 4;
     const isOwnedHarbor = vertex.isHarbor && vertex.playerId === currentPlayer?.id;
-    const isClickable = ((isValidPlacement || canUpgradeToCity) || (isOwnedHarbor && turnSubPhase === 'TRADE_AND_BUILD')) && !currentPlayer?.isBot;
+    const isClickable = ((isValidPlacement || canUpgradeToCity) || (isOwnedHarbor && turnSubPhase === 'TRADE_AND_BUILD')) && !currentPlayer?.isBot && isLocalPlayersTurn;
 
     return { isValidPlacement, canUpgradeToCity, isOwnedHarbor, isClickable };
   };
 
   const handleVertexClick = (vertex: any) => {
     const currentPlayer = players[currentPlayerIndex];
-    if (currentPlayer?.isBot) return;
+    const isLocalPlayersTurn = !roomId || (!!myPlayerId && currentPlayer?.id === myPlayerId);
+    if (!currentPlayer || currentPlayer.isBot || !isLocalPlayersTurn) return;
+
+    const dispatchBuildAction = (action: Extract<GameAction, { type: 'BUILD_SETTLEMENT' | 'BUILD_CITY' }>) => {
+      dispatchGameAction(action, {
+        roomId: roomId || undefined,
+        isRemote: false,
+        myPlayerId: roomId ? myPlayerId : currentPlayer.id,
+        gamePhase,
+        players,
+        vertices,
+        tiles,
+        selectedScenario,
+        setVertices,
+        setPlayers,
+        showBuildingCostToast,
+        addLog,
+        recordSetupPlacement,
+      });
+    };
 
     // Wagon movement click
     if (isMovingWagon) {
@@ -87,14 +110,11 @@ export function useVertexInteraction() {
     // Setup phase
     if (isSetupPhase) {
       if (!isValidPlacement) return;
-      setVertices(prevVertices => prevVertices.map(v => 
-        v.id === vertex.id 
-          ? { ...v, structure: 'SETTLEMENT', playerId: currentPlayer.id } 
-          : v
-      ));
-      recordSetupPlacement?.('SETTLEMENT', vertex.id);
-      showBuildingCostToast('SETTLEMENT', true, true);
-      addLog(`שחקן ${currentPlayer.name} בנה יישוב בשלב ההקמה (חינם).`);
+      dispatchBuildAction({
+        type: 'BUILD_SETTLEMENT',
+        playerId: currentPlayer.id,
+        vertexId: vertex.id,
+      });
       return;
     }
 
@@ -108,26 +128,11 @@ export function useVertexInteraction() {
         return;
       }
 
-      setPlayers(prev => prev.map(p => p.id === currentPlayer.id 
-        ? {
-            ...p,
-            victoryPoints: p.victoryPoints + 1,
-            resources: {
-              ...p.resources,
-              WHEAT: p.resources.WHEAT - 2,
-              ORE: p.resources.ORE - 3
-            }
-          }
-        : p
-      ));
-
-      setVertices(prevVertices => prevVertices.map(v => 
-        v.id === vertex.id 
-          ? { ...v, structure: 'CITY' } 
-          : v
-      ));
-
-      addLog(`שחקן ${currentPlayer.name} שדרג יישוב לעיר! עלות: 3 ברזל, 2 חיטה.`);
+      dispatchBuildAction({
+        type: 'BUILD_CITY',
+        playerId: currentPlayer.id,
+        vertexId: vertex.id,
+      });
       return;
     }
 
@@ -147,91 +152,11 @@ export function useVertexInteraction() {
         return;
       }
 
-      let specialVPBonus = 0;
-      let targetIslandId: number | undefined;
-
-      if (selectedScenario === 'THROUGH_THE_DESERT') {
-        const [, xStr, yStr] = vertex.id.split('_');
-        const vX = parseFloat(xStr);
-        const vY = parseFloat(yStr);
-
-        const borderingTiles = (tiles || []).filter((tile: any) => {
-          const center = cubeToPixel(tile.coord, 60);
-          for (let i = 0; i < 6; i++) {
-            const angleRad = (Math.PI / 180) * (60 * i - 30);
-            const x = center.x + 60 * Math.cos(angleRad);
-            const y = center.y + 60 * Math.sin(angleRad);
-            const roundedX = Math.round(x * 10) / 10;
-            const roundedY = Math.round(y * 10) / 10;
-            if (roundedX === vX && roundedY === vY) return true;
-          }
-          return false;
-        });
-
-        const landTiles = borderingTiles.filter((t: any) => t.type !== 'WATER');
-        const foreignIslandTile = landTiles.find((t: any) => t.islandId !== undefined && t.islandId > 1);
-
-        if (foreignIslandTile) {
-          targetIslandId = foreignIslandTile.islandId;
-          let isFirstSettlementOnThisIsland = true;
-
-          const playerVertices = (vertices || []).filter((v: any) => v.playerId === currentPlayer.id && (v.structure === 'SETTLEMENT' || v.structure === 'CITY'));
-          for (const pv of playerVertices) {
-            if (pv.id === vertex.id) continue;
-
-            const [, pvXStr, pvYStr] = pv.id.split('_');
-            const pvX = parseFloat(pvXStr);
-            const pvY = parseFloat(pvYStr);
-            const pvBorderingTiles = (tiles || []).filter((tile: any) => {
-              const center = cubeToPixel(tile.coord, 60);
-              for (let i = 0; i < 6; i++) {
-                const angleRad = (Math.PI / 180) * (60 * i - 30);
-                const x = center.x + 60 * Math.cos(angleRad);
-                const y = center.y + 60 * Math.sin(angleRad);
-                const roundedX = Math.round(x * 10) / 10;
-                const roundedY = Math.round(y * 10) / 10;
-                if (roundedX === pvX && roundedY === pvY) return true;
-              }
-              return false;
-            });
-            const touchesSameIsland = pvBorderingTiles.some((tile: any) => tile.islandId === targetIslandId);
-            if (touchesSameIsland) {
-              isFirstSettlementOnThisIsland = false;
-              break;
-            }
-          }
-
-          if (isFirstSettlementOnThisIsland) {
-            specialVPBonus = 2;
-          }
-        }
-      }
-
-      setPlayers(prev => prev.map(p => p.id === currentPlayer.id 
-        ? {
-            ...p,
-            victoryPoints: p.victoryPoints + 1,
-            resources: {
-              ...p.resources,
-              WOOD: p.resources.WOOD - 1,
-              BRICK: p.resources.BRICK - 1,
-              SHEEP: p.resources.SHEEP - 1,
-              WHEAT: p.resources.WHEAT - 1
-            }
-          }
-        : p
-      ));
-
-      setVertices(prevVertices => prevVertices.map(v => 
-        v.id === vertex.id 
-          ? { ...v, structure: 'SETTLEMENT', playerId: currentPlayer.id } 
-          : v
-      ));
-
-      addLog(`שחקן ${currentPlayer.name} בנה יישוב! עלות: 1 עץ, 1 לבנה, 1 כבש, 1 חיטה.`);
-      if (specialVPBonus > 0 && targetIslandId !== undefined) {
-        addLog(`🏆 ${currentPlayer.name} התיישב לראשונה באי זר (אי מספר ${targetIslandId}) וקיבל 2 נקודות ניצחון מיוחדות! (סה"כ 3 נקודות על היישוב)`);
-      }
+      dispatchBuildAction({
+        type: 'BUILD_SETTLEMENT',
+        playerId: currentPlayer.id,
+        vertexId: vertex.id,
+      });
       return;
     }
   };

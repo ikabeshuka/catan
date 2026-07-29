@@ -1,5 +1,6 @@
 import React from 'react';
 import * as THREE from 'three';
+import { useThree } from '@react-three/fiber';
 import { HexTile3D } from './HexTile3D';
 import { NumberToken3D } from './NumberToken3D';
 import { Clouds3D } from './Clouds3D';
@@ -73,6 +74,14 @@ export const Board3DScene: React.FC<Board3DSceneProps> = ({
   isSelectableForRobber,
 }) => {
   const handleVertexClick = onVertexClick;
+
+  const { camera } = useThree();
+  React.useEffect(() => {
+    (window as any).threeCamera = camera;
+    return () => {
+      delete (window as any).threeCamera;
+    };
+  }, [camera]);
 
   const outerSeaDolphinLocations = React.useMemo(() => {
     // Generate 10 outer sea pod locations deterministically
@@ -214,17 +223,17 @@ export const Board3DScene: React.FC<Board3DSceneProps> = ({
         const currentPlayerColor = players[currentPlayerIndex]?.color || '#ffffff';
 
         // Debug console.log for built roads as requested
-        if (edge.hasRoad) {
-          console.log('[Road Built Debug3D]', {
-            edgeId: edge.id,
-            mx,
-            my,
-            length,
-            angle,
-            playerColor,
-            isValidPlacement
-          });
-        }
+        // if (edge.hasRoad) {
+        //   console.log('[Road Built Debug3D]', {
+        //     edgeId: edge.id,
+        //     mx,
+        //     my,
+        //     length,
+        //     angle,
+        //     playerColor,
+        //     isValidPlacement
+        //   });
+        // }
 
         // Render road using physical mesh geometry as requested
         return (

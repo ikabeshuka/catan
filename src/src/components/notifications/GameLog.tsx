@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { useGame } from '../../context/GameContext';
+import { TransparentImage } from '../common/TransparentImage';
 
 const escapeRegExp = (str: string) => str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
@@ -48,7 +49,7 @@ export const GameLog: React.FC = () => {
         return (
           <span key={index} className="inline-flex items-center gap-0.5 font-semibold text-emerald-400 bg-emerald-950/35 px-1 py-0.5 rounded border border-emerald-500/20 mx-0.5">
             עץ
-            <img src="/wood1.png" className="h-4 w-4 inline-block align-middle ml-1" alt="עץ" />
+            <TransparentImage src="/wood1.png" className="h-4 w-4 inline-block align-middle ml-1" alt="עץ" />
           </span>
         );
       }
@@ -56,7 +57,7 @@ export const GameLog: React.FC = () => {
         return (
           <span key={index} className="inline-flex items-center gap-0.5 font-semibold text-orange-400 bg-orange-950/35 px-1 py-0.5 rounded border border-orange-500/20 mx-0.5">
             לבנה
-            <img src="/brick1.png" className="h-4 w-4 inline-block align-middle ml-1" alt="לבנה" />
+            <TransparentImage src="/brick1.png" className="h-4 w-4 inline-block align-middle ml-1" alt="לבנה" />
           </span>
         );
       }
@@ -64,7 +65,7 @@ export const GameLog: React.FC = () => {
         return (
           <span key={index} className="inline-flex items-center gap-0.5 font-semibold text-pink-400 bg-pink-950/35 px-1 py-0.5 rounded border border-pink-500/20 mx-0.5">
             כבש
-            <img src="/wool1.png" className="h-4 w-4 inline-block align-middle ml-1" alt="כבש" />
+            <TransparentImage src="/wool1.png" className="h-4 w-4 inline-block align-middle ml-1" alt="כבש" />
           </span>
         );
       }
@@ -72,7 +73,7 @@ export const GameLog: React.FC = () => {
         return (
           <span key={index} className="inline-flex items-center gap-0.5 font-semibold text-amber-400 bg-amber-950/35 px-1 py-0.5 rounded border border-amber-500/20 mx-0.5">
             חיטה
-            <img src="/wheat1.png" className="h-4 w-4 inline-block align-middle ml-1" alt="חיטה" />
+            <TransparentImage src="/wheat1.png" className="h-4 w-4 inline-block align-middle ml-1" alt="חיטה" />
           </span>
         );
       }
@@ -80,7 +81,7 @@ export const GameLog: React.FC = () => {
         return (
           <span key={index} className="inline-flex items-center gap-0.5 font-semibold text-slate-300 bg-slate-800/35 px-1 py-0.5 rounded border border-slate-700/20 mx-0.5">
             ברזל
-            <img src="/rock1.png" className="h-4 w-4 inline-block align-middle ml-1" alt="ברזל" />
+            <TransparentImage src="/rock1.png" className="h-4 w-4 inline-block align-middle ml-1" alt="ברזל" />
           </span>
         );
       }

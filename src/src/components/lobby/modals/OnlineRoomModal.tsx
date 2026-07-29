@@ -70,9 +70,10 @@ export const OnlineRoomModal: React.FC<OnlineRoomModalProps> = ({
   // 2. הצטרפות לחדר מתוך הרשימה
   const handleJoinPublicRoom = (room: RoomInfo) => {
     socketService.joinRoom(room.roomId, playerName || 'שחקן').then((assignedId) => {
+      if (!assignedId) return;
       onRoomJoined(room.roomId, false, assignedId);
+      onClose();
     });
-    onClose();
   };
 
   // 3. הצטרפות קוד ידני (חדר פרטי)
@@ -81,9 +82,10 @@ export const OnlineRoomModal: React.FC<OnlineRoomModalProps> = ({
     if (!code) return;
 
     socketService.joinRoom(code, playerName || 'שחקן').then((assignedId) => {
+      if (!assignedId) return;
       onRoomJoined(code, false, assignedId);
+      onClose();
     });
-    onClose();
   };
 
   const getExpansionLabel = (exp: string) => {

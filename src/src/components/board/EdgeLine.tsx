@@ -83,7 +83,8 @@ export const EdgeLine: React.FC<EdgeLineProps> = ({
     const bordering = tiles.filter(t => getTileEdgeIds(t).includes(edge.id));
     const hasLand = bordering.some(t => t.type !== 'WATER' && t.type !== 'SEA' && t.type !== 'FOG');
     const hasWater = bordering.some(t => t.type === 'WATER' || t.type === 'SEA' || t.type === 'FOG');
-    return hasLand && hasWater;
+    const isLandFrame = bordering.length === 1 && hasLand;
+    return (hasLand && hasWater) || isLandFrame;
   }, [edge.id, tiles]);
 
   const isAdjacentToSetupSettlement = React.useMemo(() => {
@@ -162,7 +163,8 @@ export const EdgeLine: React.FC<EdgeLineProps> = ({
       return;
     }
 
-    if (turnSubPhase !== 'TRADE_AND_BUILD') return;
+    const canBuildFreeRoadBeforeRoll = turnSubPhase === 'BEFORE_ROLL' && roadBuildingRemaining > 0;
+    if (turnSubPhase !== 'TRADE_AND_BUILD' && !canBuildFreeRoadBeforeRoll) return;
 
     const isFreeRoad = roadBuildingRemaining > 0;
     const hasResources = isFreeRoad || (currentPlayer.resources.WOOD >= 1 && currentPlayer.resources.BRICK >= 1);
@@ -210,7 +212,8 @@ export const EdgeLine: React.FC<EdgeLineProps> = ({
       return;
     }
 
-    if (turnSubPhase !== 'TRADE_AND_BUILD') return;
+    const canBuildFreeShipBeforeRoll = turnSubPhase === 'BEFORE_ROLL' && roadBuildingRemaining > 0;
+    if (turnSubPhase !== 'TRADE_AND_BUILD' && !canBuildFreeShipBeforeRoll) return;
 
     const isFreeShip = roadBuildingRemaining > 0 && activeExpansion === 'SEAFARERS';
     const hasResources = isFreeShip || (currentPlayer.resources.WOOD >= 1 && currentPlayer.resources.SHEEP >= 1);

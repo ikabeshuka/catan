@@ -2,6 +2,7 @@ import { HexTile } from '../../types/hex.types';
 import { BoardVertex } from '../../types/boardElements.types';
 import { Player } from '../../types/player.types';
 import { cubeToPixel } from '../hexMath/cubeToPixel';
+import type { ResourceCards } from '../../types/resources.types';
 
 /**
  * מזהה את כל השחקנים שיש להם מבנים הצמודים לאריח שעליו ממוקם השודד,
@@ -55,14 +56,14 @@ export function stealRandomCard(
   stealerId: string,
   victimId: string,
   players: Player[]
-): { updatedPlayers: Player[]; stolenResource: string | null } {
+): { updatedPlayers: Player[]; stolenResource: keyof ResourceCards | null } {
   const victim = players.find(p => p.id === victimId);
   const stealer = players.find(p => p.id === stealerId);
 
   if (!victim || !stealer) return { updatedPlayers: players, stolenResource: null };
 
   // איסוף כל המשאבים שיש לקורבן
-  const availableResources: string[] = [];
+  const availableResources: (keyof ResourceCards)[] = [];
   (Object.keys(victim.resources) as (keyof typeof victim.resources)[]).forEach(res => {
     const count = victim.resources[res] || 0;
     for (let i = 0; i < count; i++) {

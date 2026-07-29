@@ -17,7 +17,7 @@ export const BotTimerIndicator: React.FC<BotTimerIndicatorProps> = ({
   }
 
   return (
-    <div className="flex-none mx-4 mb-2 p-3 bg-amber-500/10 border border-amber-500/20 rounded-xl text-right flex items-center justify-between" dir="rtl">
+    <div data-player-id={activePlayer.id} className="flex-none mx-4 mb-2 p-3 bg-amber-500/10 border border-amber-500/20 rounded-xl text-right flex items-center justify-between" dir="rtl">
       <div className="flex items-center gap-3">
         <span className="text-xl animate-pulse">⏱️</span>
         <div>
