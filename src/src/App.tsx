@@ -32,10 +32,14 @@ import { GameModalsManager } from './components/modals/GameModalsManager';
 import { UnifiedTradeModal } from './components/modals/UnifiedTradeModal';
 import { getVictoryPointTarget } from './config/gameRules';
 import { dispatchGameAction } from './services/gameDispatcher';
+import { useUser } from './context/UserContext';
+import { RoomParticipant } from './types/rating.types';
 
 const GameContent: React.FC = () => {
   const lastProcessedTurnRef = useRef<string>("");
   const lastStartedTurnRef = useRef<string>("");
+  const hasRecordedExitLossRef = useRef(false);
+  const { updateRatingAfterGame, setLastRatingResult } = useUser();
 
   const { 
     gamePhase, 
@@ -99,6 +103,54 @@ const GameContent: React.FC = () => {
   const humanPlayer = (roomId
     ? players.find(p => p.id === myPlayerId)
     : players.find(p => !p.isBot) || players[0])!;
+
+  useEffect(() => {
+    if (gamePhase === 'LOBBY') return;
+
+    const preventRefresh = (event: KeyboardEvent) => {
+      const isRefreshShortcut = event.key === 'F5' || ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'r');
+      if (!isRefreshShortcut) return;
+      event.preventDefault();
+      event.stopPropagation();
+      addLog('רענון הדף חסום בזמן משחק פעיל. השתמשו בכפתור "צא מהמשחק".');
+    };
+    const confirmRefresh = (event: BeforeUnloadEvent) => {
+      event.preventDefault();
+      event.returnValue = '';
+    };
+
+    window.addEventListener('keydown', preventRefresh, true);
+    window.addEventListener('beforeunload', confirmRefresh);
+    return () => {
+      window.removeEventListener('keydown', preventRefresh, true);
+      window.removeEventListener('beforeunload', confirmRefresh);
+    };
+  }, [gamePhase, addLog]);
+
+  const exitGame = () => {
+    if (!window.confirm('לצאת מהמשחק? היציאה תירשם כהפסד.')) return;
+
+    if (!hasRecordedExitLossRef.current && humanPlayer && gamePhase !== 'GAME_OVER') {
+      hasRecordedExitLossRef.current = true;
+      const participants: RoomParticipant[] = players.map(player => ({
+        id: player.id,
+        isHuman: !player.isBot,
+        botDifficulty: player.isBot
+          ? ((player.difficulty as RoomParticipant['botDifficulty']) || (player.playerType === 'GEMINI_AI' ? 'GEMINI_AI' : 'MEDIUM'))
+          : undefined,
+        ratingPoints: (player as Player & { ratingPoints?: number }).ratingPoints || 0,
+      }));
+      updateRatingAfterGame(false, participants, humanPlayer.id);
+      // Leaving is an immediate navigation back to the lobby, so do not carry
+      // the end-of-game rating dialog into the next game.
+      setLastRatingResult(null);
+    }
+
+    if (roomId) socketService.leaveRoom(roomId);
+    setRoomId(null);
+    setIsHost(false);
+    setGamePhase('LOBBY');
+  };
 
   const {
     isDevCardsOverlayOpen,
@@ -270,13 +322,13 @@ const GameContent: React.FC = () => {
   if (gamePhase === 'LOBBY') {
     return (
       <>
-        <UpdateNotification />
         <LobbyScreen
           roomId={roomId}
           setRoomId={setRoomId}
           isHost={isHost}
           setIsHost={setIsHost}
           onStartGame={(pCount, lobbyP, limit) => {
+            hasRecordedExitLossRef.current = false;
             setBotTimeLimit(limit);
             
             lastProcessedTurnRef.current = "";
@@ -353,7 +405,6 @@ const GameContent: React.FC = () => {
 
   return (
     <div className="flex flex-row h-screen w-screen overflow-hidden bg-black text-slate-100 font-sans p-4 gap-4">
-      <UpdateNotification />
       <ResourceFlowOverlay />
       
       {/* פריסה צידית: מכילה את פאנל השליטה (למעלה) ולוג ההיסטוריה קבוע בתחתית (למטה) */}
@@ -368,6 +419,13 @@ const GameContent: React.FC = () => {
 
       {/* האזור המרכזי: לוח המשחק והיד של השחקן */}
       <main className="flex-grow w-full h-full relative flex flex-col gap-4 overflow-hidden">
+        <button
+          onClick={exitGame}
+          className="absolute right-4 top-4 z-30 rounded-xl border border-rose-500/60 bg-rose-950/90 px-4 py-2 text-xs font-black text-rose-200 shadow-xl backdrop-blur hover:bg-rose-900"
+          dir="rtl"
+        >
+          צא מהמשחק
+        </button>
         
         {/* ה-Header הוסר לחלוטין כדי לפנות שטח אנכי מקסימלי ללוח המשחק */}
 
@@ -509,7 +567,9 @@ const GameContent: React.FC = () => {
                     <button
                       key={target.id}
                       onClick={() => {
-                        const { stolenResource } = stealRandomCard(humanPlayer.id, target.id, players);
+                        const stolenResource = roomId
+                          ? undefined
+                          : stealRandomCard(humanPlayer.id, target.id, players).stolenResource || undefined;
                         
                         const resourceLabels: Record<string, string> = {
                           WOOD: 'עץ',
@@ -520,7 +580,7 @@ const GameContent: React.FC = () => {
                         };
                         const stolenLabel = stolenResource ? resourceLabels[stolenResource] : 'לא ידוע';
 
-                        if (stolenResource) {
+                        if (roomId || stolenResource) {
                           dispatchGameAction({
                             type: 'STEAL_RESOURCE',
                             playerId: humanPlayer.id,
@@ -796,8 +856,11 @@ const GameContent: React.FC = () => {
 
 export default function App() {
   return (
-    <GameProvider>
-      <GameContent />
-    </GameProvider>
+    <>
+      <UpdateNotification />
+      <GameProvider>
+        <GameContent />
+      </GameProvider>
+    </>
   );
 }

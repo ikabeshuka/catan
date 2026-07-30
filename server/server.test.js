@@ -54,24 +54,53 @@ test('room lifecycle rejects phantoms, authorizes actions and migrates host', as
     },
   }});
   await once(guest, 'game_started');
-  const liveState = server.activeRooms.get(roomId).gameState;
-  const synced = await emitAck(host, 'sync_game_state', {
-    roomId, snapshot: { ...liveState, gamePhase: 'MAIN_GAME', turnSubPhase: 'BEFORE_ROLL' },
-  });
-  assert.equal(synced.success, true);
+  const liveRoom = server.activeRooms.get(roomId);
+  liveRoom.gameState.gamePhase = 'MAIN_GAME';
+  liveRoom.gameState.turnSubPhase = 'BEFORE_ROLL';
 
   const unauthorized = await emitAck(guest, 'send_game_action', {
-    roomId, action: { type: 'ROLL_DICE', playerId: 'p1', diceValues: [3, 4] },
+    roomId, action: { type: 'ROLL_DICE', playerId: 'p1' },
   });
   assert.equal(unauthorized.success, false);
   assert.equal(unauthorized.code, 'UNAUTHORIZED');
 
   const approvedEvent = once(guest, 'receive_game_action');
+  const snapshotEvent = once(guest, 'game_state_snapshot');
   const approved = await emitAck(host, 'send_game_action', {
-    roomId, action: { type: 'ROLL_DICE', playerId: 'p1', diceValues: [3, 4] },
+    roomId, action: { type: 'ROLL_DICE', playerId: 'p1' },
   });
   assert.equal(approved.success, true);
-  assert.equal((await approvedEvent).sequence, 1);
+  const diceEnvelope = await approvedEvent;
+  assert.equal(diceEnvelope.sequence, 1);
+  assert.equal(diceEnvelope.action.diceValues.length, 2);
+  assert.ok(diceEnvelope.action.diceValues.every(value => value >= 1 && value <= 6));
+  assert.equal((await snapshotEvent).sequence, 1);
+
+  const forgedOutcome = await emitAck(host, 'send_game_action', {
+    roomId, action: { type: 'ROLL_DICE', playerId: 'p1', diceValues: [6, 6] },
+  });
+  assert.equal(forgedOutcome.success, false);
+  assert.equal(forgedOutcome.code, 'INVALID_ACTION');
+
+  liveRoom.gameState.turnSubPhase = 'ROBBER_STEAL';
+  liveRoom.gameState.pendingRobberType = 'ROBBER';
+  liveRoom.gameState.tiles = [{ id: 'land', type: 'WOOD', hasRobber: true, coord: { q: 0, r: 0, s: 0 } }];
+  liveRoom.gameState.vertices = [{ id: 'v_52_-30', structure: 'SETTLEMENT', playerId: 'p2' }];
+  liveRoom.gameState.players[1].resources.WOOD = 1;
+  liveRoom.gameState.resourceBank.WOOD = 18;
+  const theftEvent = once(guest, 'receive_game_action');
+  const theft = await emitAck(host, 'send_game_action', {
+    roomId, action: { type: 'STEAL_RESOURCE', playerId: 'p1', victimPlayerId: 'p2' },
+  });
+  assert.equal(theft.success, true);
+  const theftEnvelope = await theftEvent;
+  assert.equal(theftEnvelope.action.stolenResource, 'WOOD');
+  assert.equal(liveRoom.gameState.players[0].resources.WOOD, 1);
+  assert.equal(liveRoom.gameState.players[1].resources.WOOD, 0);
+
+  const overwrite = await emitAck(host, 'sync_game_state', { roomId, snapshot: liveRoom.gameState });
+  assert.equal(overwrite.success, false);
+  assert.equal(overwrite.code, 'SERVER_AUTHORITATIVE');
 
   const hostChanged = once(guest, 'host_changed');
   host.disconnect();

@@ -14,7 +14,8 @@ export function validateSettlementPlacement(
   vertices: BoardVertex[],
   edges: BoardEdge[],
   tiles?: HexTile[],
-  selectedScenario?: string
+  selectedScenario?: string,
+  activeExpansion?: string
 ): boolean {
   // Check piece limit (max 5 settlements)
   if (!checkPieceLimit(playerId, 'SETTLEMENT', vertices, edges)) {
@@ -91,8 +92,8 @@ export function validateSettlementPlacement(
       return false;
     }
 
-    // Seafarers Setup Restriction: Setup settlements allowed ONLY on the main island (islandId === 1)
-    if (gamePhase === 'SETUP_ROUND_1' || gamePhase === 'SETUP_ROUND_2') {
+    // Scenario-specific setup restrictions must never leak into the base map.
+    if (activeExpansion === 'SEAFARERS' && (gamePhase === 'SETUP_ROUND_1' || gamePhase === 'SETUP_ROUND_2')) {
       const borderingLandTiles = borderingTiles.filter(tile => tile.type !== 'WATER');
       
       if (selectedScenario === 'THROUGH_THE_DESERT' || selectedScenario === 'HEADING_FOR_NEW_SHORES') {

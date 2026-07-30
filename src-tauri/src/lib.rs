@@ -3,10 +3,28 @@ use tauri::{
     tray::TrayIconBuilder,
     Manager, WindowEvent,
 };
+use std::sync::atomic::{AtomicBool, Ordering};
+
+struct DownloadState(AtomicBool);
+
+#[tauri::command]
+fn set_update_downloading(app: tauri::AppHandle, state: tauri::State<'_, DownloadState>, downloading: bool) {
+    state.0.store(downloading, Ordering::SeqCst);
+    if !downloading {
+        if let Some(window) = app.get_webview_window("main") {
+            if matches!(window.is_visible(), Ok(false)) {
+                app.exit(0);
+            }
+        }
+    }
+}
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
   tauri::Builder::default()
+    .manage(DownloadState(AtomicBool::new(false)))
+    .plugin(tauri_plugin_updater::Builder::new().build())
+    .invoke_handler(tauri::generate_handler![set_update_downloading])
     .setup(|app| {
       if cfg!(debug_assertions) {
         app.handle().plugin(
@@ -46,8 +64,11 @@ pub fn run() {
     // 3. לכידת אירוע הסגירה (לחיצה על X) והסתרה ברקע
     .on_window_event(|window, event| {
       if let WindowEvent::CloseRequested { api, .. } = event {
-        api.prevent_close();
-        let _ = window.hide();
+        let is_downloading = window.state::<DownloadState>().0.load(Ordering::SeqCst);
+        if is_downloading {
+          api.prevent_close();
+          let _ = window.hide();
+        }
       }
     })
     .run(tauri::generate_context!())

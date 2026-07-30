@@ -22,7 +22,10 @@ export const LobbyStep3_PlayerCount: React.FC<LobbyStep3PlayerCountProps> = ({
         {/* Card 3 Players */}
         <button
           type="button"
-          onClick={() => setPlayerCount(3)}
+          onClick={() => {
+            setPlayerCount(3);
+            onNext();
+          }}
           className={`group p-4 rounded-2xl border text-center transition-all duration-300 hover:scale-[1.02] cursor-pointer relative overflow-hidden flex flex-col items-center gap-4 ${
             playerCount === 3
               ? 'bg-gradient-to-b from-amber-500/10 to-orange-500/5 border-amber-500 shadow-[0_0_25px_rgba(245,158,11,0.15)]'
@@ -48,7 +51,10 @@ export const LobbyStep3_PlayerCount: React.FC<LobbyStep3PlayerCountProps> = ({
         {/* Card 4 Players */}
         <button
           type="button"
-          onClick={() => setPlayerCount(4)}
+          onClick={() => {
+            setPlayerCount(4);
+            onNext();
+          }}
           className={`group p-4 rounded-2xl border text-center transition-all duration-300 hover:scale-[1.02] cursor-pointer relative overflow-hidden flex flex-col items-center gap-4 ${
             playerCount === 4
               ? 'bg-gradient-to-b from-amber-500/10 to-orange-500/5 border-amber-500 shadow-[0_0_25px_rgba(245,158,11,0.15)]'
@@ -73,8 +79,7 @@ export const LobbyStep3_PlayerCount: React.FC<LobbyStep3PlayerCountProps> = ({
 
       </div>
 
-      {/* כפתורי ניווט */}
-      <div className="w-full flex items-center justify-between mt-6 border-t border-slate-800/80 pt-6 max-w-2xl">
+      <div className="w-full flex items-center justify-between mt-2 max-w-2xl">
         <button
           type="button"
           onClick={onPrev}
@@ -82,14 +87,7 @@ export const LobbyStep3_PlayerCount: React.FC<LobbyStep3PlayerCountProps> = ({
         >
           חזור
         </button>
-
-        <button
-          type="button"
-          onClick={onNext}
-          className="bg-gradient-to-l from-amber-500 to-orange-500 text-slate-950 font-black py-3 px-8 rounded-xl text-sm shadow-lg shadow-amber-500/10 hover:shadow-amber-500/20 active:scale-[0.98] transition-all duration-200 tracking-wide hover:brightness-110 cursor-pointer"
-        >
-          המשך להגדרת המשתתפים והזמן
-        </button>
+        <p className="text-xs font-bold text-amber-400/80">בחירת מספר השחקנים ממשיכה מיד.</p>
       </div>
     </div>
   );

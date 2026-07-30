@@ -17,7 +17,6 @@ export const BuildActionsPanel: React.FC = () => {
     currentPlayer,
     turnSubPhase,
     isCurrentPlayerBot,
-    endTurn,
     isSetupPhase,
     setupState,
     undoTurnActions,
@@ -55,15 +54,6 @@ export const BuildActionsPanel: React.FC = () => {
   const isActionsDisabled = isCurrentPlayerBot || isWrongOnlinePlayer || turnSubPhase !== 'TRADE_AND_BUILD';
   const canBuyDevelopmentCard = !isActionsDisabled && devCardDeck.length > 0 &&
     checkHumanResource('ORE', 1) && checkHumanResource('SHEEP', 1) && checkHumanResource('WHEAT', 1);
-
-  const handleEndTurn = () => {
-    dispatchGameAction({ type: 'END_TURN', playerId: currentPlayer.id }, {
-      roomId: roomId || undefined,
-      isRemote: false,
-      myPlayerId: roomId ? myPlayerId : currentPlayer.id,
-      endTurn,
-    });
-  };
 
   const handleBuyDevelopmentCard = () => {
     const cardType = devCardDeck[0] as DevCardType | undefined;
@@ -187,16 +177,6 @@ export const BuildActionsPanel: React.FC = () => {
               </div>
             </div>
 
-            {/* כפתור סיום תור בולט ומעוצב ישירות בכרטיסי הבנייה */}
-            {setupState.hasPlacedSettlement && setupState.hasPlacedRoad && (
-              <button
-                onClick={handleEndTurn}
-                disabled={isCurrentPlayerBot || isWrongOnlinePlayer}
-                className="col-span-2 w-full mt-1.5 py-3 px-4 rounded-xl font-extrabold text-xs tracking-wide bg-gradient-to-r from-emerald-500 to-teal-500 text-slate-950 hover:brightness-110 active:scale-[0.98] shadow-lg shadow-emerald-500/20 cursor-pointer text-center animate-bounce duration-1000"
-              >
-                סיום תור והמשך ➔
-              </button>
-            )}
           </>
         ) : (
           <>
@@ -210,23 +190,11 @@ export const BuildActionsPanel: React.FC = () => {
               .map((item) => {
                 const isDevCardSpanned = activeExpansion === 'SEAFARERS' && item.id === 'devCard';
                 const colSpanClass = isDevCardSpanned ? 'col-span-2' : 'col-span-1';
-                const isActiveAction = 
-                  (item.id === 'ship' && currentAction === 'BUILD_SHIP') ||
-                  (item.id === 'road' && currentAction === 'BUILD_ROAD');
                 return (
                   <div 
                     key={item.id}
-                    className={`relative overflow-hidden bg-slate-900/90 border rounded-xl p-2.5 flex flex-col justify-between gap-2 shadow-[inset_0_1px_1px_rgba(255,255,255,0.08),0_4px_12px_rgba(0,0,0,0.5)] transition-all duration-300 hover:border-white/20 ${colSpanClass} min-h-[148px] ${
-                      isActiveAction 
-                        ? 'border-cyan-500 shadow-[0_0_15px_rgba(6,182,212,0.55)] ring-1 ring-cyan-500/40 animate-pulse' 
-                        : 'border-white/10'
-                    }`}
+                    className={`relative overflow-hidden bg-slate-900/90 border border-white/10 rounded-xl p-2.5 flex flex-col justify-between gap-2 shadow-[inset_0_1px_1px_rgba(255,255,255,0.08),0_4px_12px_rgba(0,0,0,0.5)] transition-all duration-300 hover:border-white/20 ${colSpanClass} min-h-[148px]`}
                   >
-                  {isActiveAction && (
-                    <div className="absolute top-1 left-1 bg-cyan-500 text-slate-950 text-[8px] font-black px-1.5 py-0.5 rounded shadow animate-bounce z-20">
-                      בחר מיקום בלוח... {item.id === 'ship' ? '🌊' : '🛣️'}
-                    </div>
-                  )}
                   <div className="flex flex-col gap-2 flex-grow justify-between">
                     <div className="flex items-start justify-between gap-3 relative z-10">
                       {/* Framed Thumbnail on the side */}
@@ -278,27 +246,9 @@ export const BuildActionsPanel: React.FC = () => {
                       <span>רכוש</span>
                     </button>
                   ) : (item.id === 'ship' || item.id === 'road') ? (
-                    <button
-                      onClick={() => {
-                        const action = item.id === 'ship' ? 'BUILD_SHIP' : 'BUILD_ROAD';
-                        setCurrentAction(prev => prev === action ? null : action);
-                      }}
-                      disabled={isActionsDisabled}
-                      className={`w-full py-1 px-2 rounded-lg font-extrabold text-[10px] tracking-wider transition-all duration-300 border border-transparent flex items-center justify-center gap-1.5 mt-1
-                        ${isActionsDisabled
-                          ? 'bg-slate-900/60 text-slate-500 cursor-not-allowed opacity-50' 
-                          : currentAction === (item.id === 'ship' ? 'BUILD_SHIP' : 'BUILD_ROAD')
-                            ? 'bg-rose-600 text-white hover:bg-rose-500 active:scale-[0.97] cursor-pointer shadow-md'
-                            : 'bg-gradient-to-r from-blue-600 to-cyan-600 text-white hover:brightness-110 active:scale-[0.97] shadow-lg shadow-blue-500/10 hover:shadow-blue-500/25 cursor-pointer'
-                        }`}
-                    >
-                      <span>
-                        {currentAction === (item.id === 'ship' ? 'BUILD_SHIP' : 'BUILD_ROAD')
-                          ? 'בטל בנייה'
-                          : item.id === 'ship' ? 'בנה ספינה' : 'בנה כביש'
-                        }
-                      </span>
-                    </button>
+                    <div className="mt-1 rounded-lg border border-cyan-500/20 bg-cyan-500/5 px-2 py-1 text-center text-[9px] font-bold text-cyan-300">
+                      לבנייה: בחר צלע חוקית בלוח
+                    </div>
                   ) : (
                     <div className="h-6 mt-1" />
                   )}

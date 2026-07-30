@@ -1,5 +1,13 @@
 import { HexTile } from '../../types/hex.types';
 
+const NEW_SHORES_3_MAIN_ISLAND_COORDS = new Set([
+  '-1,-1', '0,-1',
+  '-2,0', '-1,0', '0,0',
+  '-3,1', '-2,1', '-1,1', '0,1',
+  '-3,2', '-2,2', '-1,2',
+  '-3,3', '-2,3'
+]);
+
 function getNewShoresIslandId(q: number, r: number, is4Player: boolean = false): number {
   if (is4Player) {
     if (r === -3 && (q === -1 || q === 0)) return 8; // Top-middle
@@ -13,11 +21,16 @@ function getNewShoresIslandId(q: number, r: number, is4Player: boolean = false):
     return 1; // כל השאר שייכים לאי המרכזי!
   }
   
+  // The 3-player main island is the connected 14-hex land mass.
+  // Check it first so its western and southern coast is not mistaken
+  // for one of the surrounding foreign islands.
+  if (NEW_SHORES_3_MAIN_ISLAND_COORDS.has(`${q},${r}`)) return 1;
+
   if ((q === -3 && (r === 0 || r === 1 || r === 2)) || (q === -4 && (r === 1 || r === 2))) return 2; // Left gold
   if ((q === -2 || q === -3) && r === 3) return 3; // Bottom-left
   if ((q === 0 && r === 3) || (q === 1 && r === 2)) return 4; // Bottom
   if (q === 2 && r === 1) return 5; // Bottom-right
-  if ((q === 3 && (r === 0 || r === -1 || r === -2)) || (q === 2 && (r === 0 || r === -2))) return 6; // Right gold
+  if ((q === 3 && (r === 0 || r === -1 || r === -2)) || (q === 2 && (r === 0 || r === -1 || r === -2))) return 6; // Right gold
   if (q === 2 && r === -3) return 7; // Top-right
   if ((q === 1 || q === 0 || q === -1) && r === -3) return 8; // Top-middle
   if (q === -2 && r === -1) return 9; // Top-left

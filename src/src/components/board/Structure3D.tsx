@@ -144,12 +144,6 @@ export const Structure3D: React.FC<Structure3DProps> = ({
         onHarborHover(vertex, e.clientX, e.clientY);
       }
     },
-    onPointerMove: (e: any) => {
-      e.stopPropagation();
-      if (vertex.isHarbor && onHarborHover) {
-        onHarborHover(vertex, e.clientX, e.clientY);
-      }
-    },
     onPointerOut: () => {
       setIsHovered(false);
       document.body.style.cursor = 'default';

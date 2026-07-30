@@ -10,6 +10,7 @@ import {
   seafarers4PlayersFourIslands,
   seafarers3PlayersFogIsland,
   seafarers4PlayersFogIsland,
+  seafarers3PlayersThroughTheDesert,
   seafarers4PlayersThroughTheDesert
 } from '../../config/seafarersPresets';
 
@@ -18,6 +19,43 @@ import {
  */
 function isNeighbor(c1: HexCoordinate, c2: HexCoordinate): boolean {
   return (Math.abs(c1.q - c2.q) + Math.abs(c1.r - c2.r) + Math.abs(c1.s - c2.s)) / 2 === 1;
+}
+
+const FRAME_NEIGHBOR_DIRECTIONS = [
+  { q: 1, r: 0 }, { q: 1, r: -1 }, { q: 0, r: -1 },
+  { q: -1, r: 0 }, { q: -1, r: 1 }, { q: 0, r: 1 },
+];
+
+/**
+ * The cardboard frame is sea too. These virtual cells make every exposed
+ * side of a Seafarers board a legal pirate target without adding buildable
+ * edges or visible hexes to the scenario layout.
+ */
+export function addFrameSeaTargets(tiles: HexTile[]): HexTile[] {
+  const boardTiles = tiles.filter(tile => !tile.isFrameSea);
+  const occupied = new Set(boardTiles.map(tile => `${tile.coord.q},${tile.coord.r}`));
+  const frameCoords = new Map<string, HexCoordinate>();
+
+  boardTiles.forEach(tile => {
+    FRAME_NEIGHBOR_DIRECTIONS.forEach(direction => {
+      const q = tile.coord.q + direction.q;
+      const r = tile.coord.r + direction.r;
+      const key = `${q},${r}`;
+      if (!occupied.has(key)) frameCoords.set(key, { q, r, s: -q - r });
+    });
+  });
+
+  const frameTiles: HexTile[] = [...frameCoords.values()].map(coord => ({
+    id: `frame_${coord.q}_${coord.r}`,
+    coord,
+    type: 'WATER',
+    numberToken: null,
+    hasRobber: false,
+    hasPirate: false,
+    isFrameSea: true,
+  }));
+
+  return [...boardTiles, ...frameTiles].sort((a, b) => a.coord.r - b.coord.r || a.coord.q - b.coord.q);
 }
 
 /**
@@ -198,7 +236,7 @@ export function generateBoard(
           }
         }
 
-        return tiles;
+        return addFrameSeaTargets(tiles);
       }
       case 'FOUR_ISLANDS': {
         const preset = playerCount === 3 ? seafarers3PlayersFourIslands : seafarers4PlayersFourIslands;
@@ -267,65 +305,68 @@ export function generateBoard(
         }
 
         // Set initial pirate and robber positions
-        const pirateTargetId = playerCount === 3 ? 'hex_fi3_37' : 'hex_fi4_37';
+        const pirateTargetId = tiles.find(t => t.hasPirate && t.type === 'WATER')?.id;
         tiles.forEach(t => {
-          t.hasPirate = t.id === pirateTargetId;
+          t.hasPirate = pirateTargetId !== undefined && t.id === pirateTargetId;
           t.hasRobber = false;
         });
 
-        if (boardType === 'RANDOM') {
-          const token12Tile = tiles.find(t => t.numberToken === 12);
-          if (token12Tile) {
-            token12Tile.hasRobber = true;
-          } else {
-            const defaultRobberId = playerCount === 3 ? 'hex_fi3_35' : 'hex_fi4_8';
-            const defaultTile = tiles.find(t => t.id === defaultRobberId);
-            if (defaultTile) defaultTile.hasRobber = true;
-          }
-        } else {
-          const robberTargetId = playerCount === 3 ? 'hex_fi3_35' : 'hex_fi4_8';
-          const t = tiles.find(x => x.id === robberTargetId);
-          if (t) t.hasRobber = true;
-        }
+        const robberTile = tiles.find(t => t.type !== 'WATER' && t.numberToken === 12);
+        if (robberTile) robberTile.hasRobber = true;
 
-        tiles.sort((a, b) => a.coord.r - b.coord.r || a.coord.q - b.coord.q);
-        return tiles;
+        // In Four Islands the pirate opens on the surrounding sea frame.
+        // Keep the marker just outside the right-hand frame where the old
+        // preset incorrectly placed it on an in-board sea hex.
+        const framedTiles = addFrameSeaTargets(tiles);
+        if (playerCount === 4) {
+          framedTiles.forEach(tile => { tile.hasPirate = tile.id === 'frame_4_0'; });
+        }
+        return framedTiles;
       }
       case 'FOG_ISLAND': {
         const preset = playerCount === 3 ? seafarers3PlayersFogIsland : seafarers4PlayersFogIsland;
         const tiles = JSON.parse(JSON.stringify(preset)) as HexTile[];
 
-        // Create randomized pools for the hidden fog tiles
+        // The official face-down stack always contains exactly 12 terrain
+        // hexes: 2 sea, 2 gold, 2 fields, 2 hills, 2 mountains,
+        // 1 pasture, and 1 forest.
         const fogResourcesPool = shuffleArray([
-          'WOOD', 'WOOD', 'BRICK', 'BRICK', 'SHEEP', 'SHEEP', 'WHEAT', 'WHEAT', 'ORE', 'ORE', 'GOLD_FIELD', 'GOLD_FIELD', 'WATER', 'WATER'
+          'WATER', 'WATER',
+          'GOLD_FIELD', 'GOLD_FIELD',
+          'WHEAT', 'WHEAT',
+          'BRICK', 'BRICK',
+          'ORE', 'ORE',
+          'SHEEP',
+          'WOOD'
         ]);
-        const fogTokensPool = shuffleArray([
-          2, 3, 4, 5, 6, 8, 9, 10, 11, 12, 3, 4, 5, 9, 10, 11
-        ]);
+        const fogTokensPool = shuffleArray(playerCount === 3
+          ? [3, 3, 4, 5, 6, 8, 9, 10, 11, 12]
+          : [3, 4, 5, 6, 8, 9, 10, 11, 11, 12]);
 
         let resIdx = 0;
         let tokIdx = 0;
 
         tiles.forEach(tile => {
           if (tile.type === 'FOG') {
-            const rawType = fogResourcesPool[resIdx % fogResourcesPool.length] as any;
+            const rawType = fogResourcesPool[resIdx] as HexTile['type'];
             resIdx++;
             tile.originalType = rawType;
 
             if (rawType === 'WATER' || rawType === 'DESERT') {
               tile.originalNumberToken = null;
             } else {
-              tile.originalNumberToken = fogTokensPool[tokIdx % fogTokensPool.length];
+              tile.originalNumberToken = fogTokensPool[tokIdx];
               tokIdx++;
             }
           }
         });
 
-        tiles.sort((a, b) => a.coord.r - b.coord.r || a.coord.q - b.coord.q);
-        return tiles;
+        return addFrameSeaTargets(tiles);
       }
       case 'THROUGH_THE_DESERT': {
-        const preset = seafarers4PlayersThroughTheDesert;
+        const preset = playerCount === 3
+          ? seafarers3PlayersThroughTheDesert
+          : seafarers4PlayersThroughTheDesert;
         const tiles = JSON.parse(JSON.stringify(preset)) as HexTile[];
 
         if (boardType === 'RANDOM') {
@@ -358,9 +399,9 @@ export function generateBoard(
         }
 
         // Ensure robber starts on the desert tile and pirate starts on a water tile
-        const pirateTargetId = 'hex_td_18';
+        const pirateTargetId = tiles.find(t => t.hasPirate && t.type === 'WATER')?.id;
         tiles.forEach(t => {
-          t.hasPirate = t.id === pirateTargetId;
+          t.hasPirate = pirateTargetId !== undefined && t.id === pirateTargetId;
           t.hasRobber = false;
         });
 
@@ -369,8 +410,7 @@ export function generateBoard(
           desertTile.hasRobber = true;
         }
 
-        tiles.sort((a, b) => a.coord.r - b.coord.r || a.coord.q - b.coord.q);
-        return tiles;
+        return addFrameSeaTargets(tiles);
       }
       default: {
         const preset = playerCount === 3 ? seafarers3PlayersNewShores : seafarers4PlayersNewShores;
@@ -393,8 +433,7 @@ export function generateBoard(
           }
         }
 
-        tiles.sort((a, b) => a.coord.r - b.coord.r || a.coord.q - b.coord.q);
-        return tiles;
+        return addFrameSeaTargets(tiles);
       }
     }
   }
@@ -557,11 +596,6 @@ export function generateBoard(
       }
     });
   }
-
-  console.log("--- Loaded Board Tile Map ---");
-  tiles.forEach(tile => {
-    console.log(`Tile ID: ${tile.id}, Type: ${tile.type}, Coord: (q:${tile.coord.q}, r:${tile.coord.r}), Island ID: ${tile.islandId}`);
-  });
 
   return tiles;
 }

@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { useUser } from '../../context/UserContext';
 
 interface PlayerStatsModalProps {
@@ -6,144 +6,112 @@ interface PlayerStatsModalProps {
   onClose: () => void;
 }
 
-export const PlayerStatsModal: React.FC<PlayerStatsModalProps> = ({ isOpen, onClose }) => {
-  const { playerStats } = useUser();
+const StatCard: React.FC<{ label: string; value: React.ReactNode; accent?: string }> = ({ label, value, accent = 'text-slate-100' }) => (
+  <div className="rounded-xl border border-slate-700/60 bg-slate-800/70 p-3 text-center">
+    <span className="block text-xs text-slate-400">{label}</span>
+    <span className={`text-2xl font-black ${accent}`}>{value}</span>
+  </div>
+);
 
-  if (!isOpen) return null;
+export const PlayerStatsModal: React.FC<PlayerStatsModalProps> = ({ isOpen, onClose }) => {
+  const { playerStats, playerName, setPlayerName, generalStats, resetStats } = useUser();
+  const [draftName, setDraftName] = useState(playerName);
+
+  useEffect(() => setDraftName(playerName), [playerName, isOpen]);
 
   const winRate = playerStats.totalGames > 0
     ? Math.round((playerStats.totalWins / playerStats.totalGames) * 100)
     : 0;
 
+  const sortedGeneralStats = useMemo(
+    () => [...generalStats].sort((a, b) => b.ratingPoints - a.ratingPoints || b.totalWins - a.totalWins),
+    [generalStats]
+  );
+
+  const generalTotals = useMemo(() => sortedGeneralStats.reduce((totals, item) => ({
+    games: totals.games + item.totalGames,
+    wins: totals.wins + item.totalWins,
+    losses: totals.losses + item.totalLosses,
+  }), { games: 0, wins: 0, losses: 0 }), [sortedGeneralStats]);
+
+  if (!isOpen) return null;
+
+  const saveName = () => setPlayerName(draftName);
+
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4" dir="rtl">
-      <div className="bg-slate-900 border border-amber-500/40 rounded-2xl p-6 max-w-2xl w-full shadow-2xl text-white max-h-[90vh] overflow-y-auto">
-        
-        {/* כותרת */}
-        <div className="flex items-center justify-between pb-4 border-b border-slate-800 mb-6">
-          <h3 className="text-xl font-bold text-amber-400 flex items-center gap-2">
-            📊 סטטיסטיקות שחקן ומטריצת ניקוד
-          </h3>
-          <button
-            onClick={onClose}
-            className="text-slate-400 hover:text-white text-lg px-2"
-          >
-            ✕
-          </button>
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4 backdrop-blur-sm" dir="rtl">
+      <div className="max-h-[92vh] w-full max-w-3xl overflow-y-auto rounded-2xl border border-amber-500/40 bg-slate-900 p-6 text-white shadow-2xl">
+        <div className="mb-5 flex items-center justify-between border-b border-slate-800 pb-4">
+          <h3 className="text-xl font-black text-amber-400">📊 דירוג וסטטיסטיקות</h3>
+          <button onClick={onClose} className="rounded-lg px-3 py-1 text-slate-400 hover:bg-slate-800 hover:text-white" aria-label="סגור">✕</button>
         </div>
 
-        {/* כרטיסיות נתונים אישיים */}
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-6">
-          <div className="bg-slate-800/60 p-3 rounded-xl border border-slate-700/50 text-center">
-            <span className="text-xs text-slate-400 block">ניקוד דירוג</span>
-            <span className="text-2xl font-bold text-amber-300">{playerStats.ratingPoints}</span>
+        <section className="mb-6 rounded-xl border border-slate-800 bg-slate-950/40 p-4">
+          <label htmlFor="stats-player-name" className="mb-2 block text-sm font-bold text-slate-300">השם שיופיע בסטטיסטיקות הכלליות</label>
+          <div className="flex gap-2">
+            <input
+              id="stats-player-name"
+              value={draftName}
+              maxLength={40}
+              onChange={event => setDraftName(event.target.value)}
+              onKeyDown={event => { if (event.key === 'Enter') saveName(); }}
+              placeholder="כתבו שם שחקן"
+              className="min-w-0 flex-1 rounded-xl border border-slate-700 bg-slate-900 px-4 py-2.5 text-white outline-none focus:border-amber-500"
+            />
+            <button onClick={saveName} disabled={!draftName.trim()} className="rounded-xl bg-amber-500 px-5 py-2.5 font-black text-slate-950 disabled:cursor-not-allowed disabled:opacity-40">שמור</button>
           </div>
-          <div className="bg-slate-800/60 p-3 rounded-xl border border-slate-700/50 text-center">
-            <span className="text-xs text-slate-400 block">סה"כ משחקים</span>
-            <span className="text-2xl font-bold text-slate-200">{playerStats.totalGames}</span>
-          </div>
-          <div className="bg-slate-800/60 p-3 rounded-xl border border-slate-700/50 text-center">
-            <span className="text-xs text-slate-400 block">ניצחונות / הפסדים</span>
-            <span className="text-xl font-bold text-emerald-400">{playerStats.totalWins} <span className="text-slate-500">/</span> <span className="text-rose-400">{playerStats.totalLosses}</span></span>
-          </div>
-          <div className="bg-slate-800/60 p-3 rounded-xl border border-slate-700/50 text-center">
-            <span className="text-xs text-slate-400 block">אחוז ניצחונות</span>
-            <span className="text-2xl font-bold text-cyan-300">{winRate}%</span>
-          </div>
+        </section>
+
+        <h4 className="mb-3 font-bold text-slate-300">הנתונים האישיים {playerName ? `של ${playerName}` : ''}</h4>
+        <div className="mb-6 grid grid-cols-2 gap-3 sm:grid-cols-4">
+          <StatCard label="ניקוד דירוג" value={playerStats.ratingPoints} accent="text-amber-300" />
+          <StatCard label="משחקים" value={playerStats.totalGames} />
+          <StatCard label="ניצחונות / הפסדים" value={<>{playerStats.totalWins} / {playerStats.totalLosses}</>} accent="text-emerald-300" />
+          <StatCard label="אחוז ניצחונות" value={`${winRate}%`} accent="text-cyan-300" />
         </div>
 
-        {/* ניצחונות לפי סוג יריב */}
-        <div className="mb-6 bg-slate-800/30 p-4 rounded-xl border border-slate-800">
-          <h4 className="text-sm font-semibold mb-3 text-slate-300">חלוקת משחקים וניצחונות לפי דרגת קושי</h4>
-          <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 text-xs">
-            <div className="bg-slate-900/60 p-2.5 rounded border border-slate-800">
-              <span className="text-slate-400 block">בוט קל:</span>
-              <span className="font-semibold text-amber-200">{playerStats.winsByBotType.EASY} ניצחונות מתוך {playerStats.gamesByBotType.EASY}</span>
-            </div>
-            <div className="bg-slate-900/60 p-2.5 rounded border border-slate-800">
-              <span className="text-slate-400 block">בוט בינוני:</span>
-              <span className="font-semibold text-amber-200">{playerStats.winsByBotType.MEDIUM} ניצחונות מתוך {playerStats.gamesByBotType.MEDIUM}</span>
-            </div>
-            <div className="bg-slate-900/60 p-2.5 rounded border border-slate-800">
-              <span className="text-slate-400 block">בוט קשה:</span>
-              <span className="font-semibold text-amber-200">{playerStats.winsByBotType.HARD} ניצחונות מתוך {playerStats.gamesByBotType.HARD}</span>
-            </div>
-            <div className="bg-slate-900/60 p-2.5 rounded border border-slate-800">
-              <span className="text-slate-400 block">בוט סופר-קשה:</span>
-              <span className="font-semibold text-amber-200">{playerStats.winsByBotType.SUPER_HARD} ניצחונות מתוך {playerStats.gamesByBotType.SUPER_HARD}</span>
-            </div>
-            <div className="bg-slate-900/60 p-2.5 rounded border border-slate-800">
-              <span className="text-slate-400 block">Gemini AI:</span>
-              <span className="font-semibold text-amber-200">{playerStats.winsByBotType.GEMINI_AI} ניצחונות מתוך {playerStats.gamesByBotType.GEMINI_AI}</span>
-            </div>
-            <div className="bg-slate-900/60 p-2.5 rounded border border-slate-800">
-              <span className="text-slate-400 block">שחקנים אנושיים:</span>
-              <span className="font-semibold text-amber-200">{playerStats.humanWins} ניצחונות מתוך {playerStats.humanGames}</span>
-            </div>
+        <section className="mb-6 rounded-xl border border-slate-800 bg-slate-950/35 p-4">
+          <h4 className="mb-3 font-bold text-slate-300">נתונים כלליים</h4>
+          <div className="mb-4 grid grid-cols-2 gap-3 sm:grid-cols-4">
+            <StatCard label="שחקנים רשומים" value={sortedGeneralStats.length} />
+            <StatCard label="סה״כ משחקים" value={generalTotals.games} />
+            <StatCard label="סה״כ ניצחונות" value={generalTotals.wins} accent="text-emerald-300" />
+            <StatCard label="סה״כ הפסדים" value={generalTotals.losses} accent="text-rose-300" />
           </div>
-        </div>
 
-        {/* טבלת ייחוס לשילובים נפוצים */}
-        <div className="mb-6">
-          <h4 className="text-sm font-semibold mb-3 text-slate-300">טבלת ניקוד ייחוס (80% יריב חזק + 20% שאר היריבים)</h4>
-          <div className="overflow-x-auto">
-            <table className="w-full text-xs text-right border-collapse">
-              <thead>
-                <tr className="bg-slate-800 text-slate-300 border-b border-slate-700">
-                  <th className="p-2">הרכב החדר</th>
-                  <th className="p-2">יריב מוביל</th>
-                  <th className="p-2">שאר היריבים</th>
-                  <th className="p-2">ניקוד בסיס</th>
-                  <th className="p-2">שחיקה (50%)</th>
-                </tr>
+          <div className="overflow-x-auto rounded-xl border border-slate-800">
+            <table className="w-full min-w-[520px] text-right text-sm">
+              <thead className="bg-slate-800 text-slate-300">
+                <tr><th className="p-3">#</th><th className="p-3">שם</th><th className="p-3">דירוג</th><th className="p-3">משחקים</th><th className="p-3">ניצחונות</th><th className="p-3">אחוז הצלחה</th></tr>
               </thead>
-              <tbody className="divide-y divide-slate-800 text-slate-300">
-                <tr>
-                  <td className="p-2">3 בוטים קלים</td>
-                  <td className="p-2">קל (1)</td>
-                  <td className="p-2">קל, קל (1)</td>
-                  <td className="p-2 font-bold text-amber-300">1.0</td>
-                  <td className="p-2 text-slate-400">0.5</td>
-                </tr>
-                <tr>
-                  <td className="p-2">2 קלים + 1 בינוני</td>
-                  <td className="p-2">בינוני (3)</td>
-                  <td className="p-2">קל, קל (1)</td>
-                  <td className="p-2 font-bold text-amber-300">2.6</td>
-                  <td className="p-2 text-slate-400">1.3</td>
-                </tr>
-                <tr>
-                  <td className="p-2">2 בינוניים + 1 קשה</td>
-                  <td className="p-2">קשה (5)</td>
-                  <td className="p-2">בינוני, בינוני (3)</td>
-                  <td className="p-2 font-bold text-amber-300">4.6</td>
-                  <td className="p-2 text-slate-400">2.3</td>
-                </tr>
-                <tr>
-                  <td className="p-2">3 בוטים סופר-קשים</td>
-                  <td className="p-2">סופר-קשה (8)</td>
-                  <td className="p-2">סופר-קשה (8)</td>
-                  <td className="p-2 font-bold text-amber-300">8.0</td>
-                  <td className="p-2 text-slate-400">4.0</td>
-                </tr>
-                <tr>
-                  <td className="p-2">3 בוטים Gemini AI</td>
-                  <td className="p-2">Gemini AI (10)</td>
-                  <td className="p-2">Gemini AI (10)</td>
-                  <td className="p-2 font-bold text-amber-300">10.0</td>
-                  <td className="p-2 text-slate-400">5.0</td>
-                </tr>
+              <tbody className="divide-y divide-slate-800">
+                {sortedGeneralStats.map((item, index) => (
+                  <tr key={item.playerName} className={item.playerName === playerName ? 'bg-amber-500/10' : 'bg-slate-900/50'}>
+                    <td className="p-3 text-slate-500">{index + 1}</td>
+                    <td className="p-3 font-bold">{item.playerName}</td>
+                    <td className="p-3 font-black text-amber-300">{item.ratingPoints}</td>
+                    <td className="p-3">{item.totalGames}</td>
+                    <td className="p-3 text-emerald-300">{item.totalWins}</td>
+                    <td className="p-3">{item.totalGames ? Math.round(item.totalWins / item.totalGames * 100) : 0}%</td>
+                  </tr>
+                ))}
+                {sortedGeneralStats.length === 0 && (
+                  <tr><td colSpan={6} className="p-6 text-center text-slate-500">כתבו שם כדי להצטרף לטבלה הכללית.</td></tr>
+                )}
               </tbody>
             </table>
           </div>
-        </div>
+        </section>
 
-        <button
-          onClick={onClose}
-          className="w-full py-2.5 bg-slate-800 hover:bg-slate-700 text-slate-200 font-semibold rounded-xl border border-slate-700 transition"
-        >
-          סגור
-        </button>
+        <div className="flex flex-col-reverse gap-3 sm:flex-row sm:justify-between">
+          <button
+            onClick={() => { if (window.confirm('לאפס את כל נתוני הדירוג והסטטיסטיקות האישיות?')) resetStats(); }}
+            className="rounded-xl border border-rose-500/50 bg-rose-950/40 px-5 py-2.5 font-bold text-rose-300 hover:bg-rose-900/50"
+          >
+            איפוס נתונים
+          </button>
+          <button onClick={onClose} className="rounded-xl border border-slate-700 bg-slate-800 px-8 py-2.5 font-bold text-slate-200 hover:bg-slate-700">סגור</button>
+        </div>
       </div>
     </div>
   );

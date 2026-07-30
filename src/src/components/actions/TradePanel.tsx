@@ -17,8 +17,16 @@ const RESOURCE_LABELS: Record<ResourceType, string> = {
   ORE: 'ברזל',
 };
 
+const RESOURCE_IMAGES: Record<ResourceType, string> = {
+  WOOD: '/wood1.png',
+  BRICK: '/brick1.png',
+  SHEEP: '/wool1.png',
+  WHEAT: '/wheat1.png',
+  ORE: '/rock1.png',
+};
+
 export const TradePanel: React.FC = () => {
-  const { players, vertices, setPlayers, addLog, setIsTradeModalOpen, roomId, myPlayerId } = useGame();
+  const { players, vertices, setPlayers, addLog, setIsTradeModalOpen, roomId, myPlayerId, resourceBank } = useGame();
   const { tradeWithBank, turnSubPhase, isCurrentPlayerBot, currentPlayer } = useTurnManager();
   const { evaluateBotTradeDecision } = useAppTrade();
 
@@ -357,6 +365,18 @@ export const TradePanel: React.FC = () => {
           </button>
         </div>
       )}
+
+      <div className="mt-3 flex items-center gap-2 rounded-xl border border-slate-800 bg-slate-950/45 p-2">
+        <span className="shrink-0 text-[10px] font-black text-slate-300">מלאי הבנק:</span>
+        <div className="grid flex-1 grid-cols-5 gap-1">
+          {RESOURCES.map(resource => (
+            <div key={`trade-bank-${resource}`} className="flex min-w-0 items-center justify-center gap-0.5 rounded-md bg-slate-900/80 px-1 py-1" title={`${RESOURCE_LABELS[resource]}: ${resourceBank[resource] || 0}`}>
+              <img src={RESOURCE_IMAGES[resource]} className="h-4 w-4 object-contain" alt="" />
+              <span className="text-[10px] font-black text-emerald-400">{resourceBank[resource] || 0}</span>
+            </div>
+          ))}
+        </div>
+      </div>
     </div>
   );
 };

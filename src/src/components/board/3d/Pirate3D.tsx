@@ -47,10 +47,6 @@ export const Pirate3D: React.FC<Pirate3DProps> = ({
         e.stopPropagation();
         onTileHover(tile, e.clientX, e.clientY);
       }}
-      onPointerMove={(e) => {
-        e.stopPropagation();
-        onTileHover(tile, e.clientX, e.clientY);
-      }}
       onPointerOut={(e) => {
         e.stopPropagation();
         onTileLeave();

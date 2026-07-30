@@ -11,6 +11,7 @@ export function useVertexInteraction() {
     vertices,
     edges,
     tiles,
+    activeExpansion,
     gamePhase,
     turnSubPhase,
     players,
@@ -24,6 +25,8 @@ export function useVertexInteraction() {
     setPlayers,
     roomId,
     myPlayerId,
+    resourceBank,
+    setResourceBank,
   } = useGame();
 
   const { isSetupPhase, setupState, recordSetupPlacement, moveWagon } = useTurnManager();
@@ -33,7 +36,7 @@ export function useVertexInteraction() {
     const isLocalPlayersTurn = !roomId || (!!myPlayerId && currentPlayer?.id === myPlayerId);
     const isBlockedBySetup = isSetupPhase && setupState.hasPlacedSettlement;
     const isValidPlacement = currentPlayer && !isBlockedBySetup
-      ? validateSettlementPlacement(vertex.id, currentPlayer.id, gamePhase, vertices, edges, tiles, selectedScenario)
+      ? validateSettlementPlacement(vertex.id, currentPlayer.id, gamePhase, vertices, edges, tiles, selectedScenario, activeExpansion)
       : false;
 
     const isOwnSettlement = vertex.structure === 'SETTLEMENT' && vertex.playerId === currentPlayer?.id;
@@ -56,12 +59,16 @@ export function useVertexInteraction() {
         isRemote: false,
         myPlayerId: roomId ? myPlayerId : currentPlayer.id,
         gamePhase,
+        turnSubPhase,
         players,
         vertices,
+        edges,
         tiles,
         selectedScenario,
         setVertices,
         setPlayers,
+        resourceBank,
+        setResourceBank,
         showBuildingCostToast,
         addLog,
         recordSetupPlacement,

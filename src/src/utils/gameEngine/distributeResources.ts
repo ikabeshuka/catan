@@ -98,5 +98,17 @@ export function distributeResources(
     updatedBank[resource] = available;
   });
 
-  return { updatedPlayers, updatedBank, flows, goldSelections };
+  const combinedGoldSelections = Array.from(
+    goldSelections.reduce((byPlayer, selection) => {
+      const existing = byPlayer.get(selection.playerId);
+      if (existing) {
+        existing.amount += selection.amount;
+      } else {
+        byPlayer.set(selection.playerId, { ...selection });
+      }
+      return byPlayer;
+    }, new Map<string, GoldSelectionPending>()).values()
+  );
+
+  return { updatedPlayers, updatedBank, flows, goldSelections: combinedGoldSelections };
 }

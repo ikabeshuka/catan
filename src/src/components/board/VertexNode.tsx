@@ -53,7 +53,7 @@ export const VertexNode: React.FC<VertexNodeProps> = ({
   const recordSetupPlacement = propRecordSetupPlacement !== undefined ? propRecordSetupPlacement : turnManager.recordSetupPlacement;
   const turnSubPhase = propTurnSubPhase !== undefined ? propTurnSubPhase : turnManager.turnSubPhase;
 
-  const { tiles, setIsTradeModalOpen } = useGame();
+  const { tiles, setIsTradeModalOpen, activeExpansion } = useGame();
   const { selectedScenario } = useBoard();
   const [isHovered, setIsHovered] = useState(false);
   
@@ -63,7 +63,7 @@ export const VertexNode: React.FC<VertexNodeProps> = ({
   // בדיקת חוקיות לבניית יישוב
   const isBlockedBySetup = isSetupPhase && setupState.hasPlacedSettlement;
   const isValidPlacement = currentPlayer && !isBlockedBySetup
-    ? validateSettlementPlacement(vertex.id, currentPlayer.id, gamePhase, vertices, edges, tiles, selectedScenario)
+    ? validateSettlementPlacement(vertex.id, currentPlayer.id, gamePhase, vertices, edges, tiles, selectedScenario, activeExpansion)
     : false;
 
   // בדיקת חוקיות לשדרוג לעיר

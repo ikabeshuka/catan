@@ -13,11 +13,11 @@ export const DiceButton: React.FC = () => {
   const onRollClick = () => {
     if (isRolling || isDisabled || !currentPlayer) return;
 
-    const diceResult = rollDice();
+    const diceResult = roomId ? null : rollDice();
     dispatchGameAction({
       type: 'ROLL_DICE',
       playerId: currentPlayer.id,
-      diceValues: [diceResult.dice1, diceResult.dice2],
+      diceValues: diceResult ? [diceResult.dice1, diceResult.dice2] : undefined,
     }, {
       roomId: roomId || undefined,
       isRemote: false,
@@ -88,7 +88,7 @@ export const DiceButton: React.FC = () => {
   };
 
   return (
-    <div className={`flex flex-col items-center gap-4 bg-slate-950/60 p-4 rounded-xl border transition-all duration-300 w-full shadow-lg backdrop-blur-md
+    <div className={`relative isolate shrink-0 overflow-hidden flex flex-col items-center gap-4 bg-slate-950/60 p-4 rounded-xl border transition-all duration-300 w-full shadow-lg backdrop-blur-md
       ${!isDisabled 
         ? 'border-amber-500/40 shadow-[0_0_15px_rgba(245,158,11,0.15)] bg-slate-900/40' 
         : 'border-slate-850 opacity-40'

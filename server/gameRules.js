@@ -22,7 +22,7 @@ function validateResourceMap(value, { allowEmpty = true } = {}) {
   return entries.every(([key, amount]) => isResource(key) && isNonNegativeInteger(amount));
 }
 
-function validateActionShape(action) {
+function validateActionShape(action, { authoritative = false } = {}) {
   if (!isPlainObject(action) || !ACTION_TYPES.has(action.type) || !isId(action.playerId)) {
     return { ok: false, message: 'Invalid game action' };
   }
@@ -30,8 +30,9 @@ function validateActionShape(action) {
   const requireId = (key) => isId(action[key]);
   switch (action.type) {
     case 'ROLL_DICE':
-      if (!Array.isArray(action.diceValues) || action.diceValues.length !== 2 ||
-          !action.diceValues.every(value => Number.isInteger(value) && value >= 1 && value <= 6)) {
+      if ((!authoritative && action.diceValues !== undefined) || (authoritative &&
+          (!Array.isArray(action.diceValues) || action.diceValues.length !== 2 ||
+          !action.diceValues.every(value => Number.isInteger(value) && value >= 1 && value <= 6)))) {
         return { ok: false, message: 'Invalid dice values' };
       }
       break;
@@ -64,12 +65,14 @@ function validateActionShape(action) {
       }
       break;
     case 'MOVE_ROBBER':
-      if (!requireId('tileId') || (action.robberType && !['ROBBER', 'PIRATE'].includes(action.robberType))) {
+      if (!requireId('tileId') || (action.robberType && !['ROBBER', 'PIRATE'].includes(action.robberType)) ||
+          (!authoritative && (action.hasEligibleVictims !== undefined || action.eligibleVictimPlayerIds !== undefined))) {
         return { ok: false, message: 'Invalid robber move' };
       }
       break;
     case 'STEAL_RESOURCE':
-      if (!requireId('victimPlayerId') || !isResource(action.stolenResource)) {
+      if (!requireId('victimPlayerId') || (!authoritative && action.stolenResource !== undefined) ||
+          (authoritative && !isResource(action.stolenResource))) {
         return { ok: false, message: 'Invalid steal action' };
       }
       break;
@@ -174,9 +177,93 @@ const tileEdgeIds = (tile) => {
   });
 };
 const isWaterTile = (tile) => ['WATER', 'SEA', 'FOG'].includes(tile.type);
+const isRevealedWaterTile = (tile) => ['WATER', 'SEA'].includes(tile.type);
+const borderingTilesForEdge = (state, edgeId) => (state.tiles || []).filter(tile => tileEdgeIds(tile).includes(edgeId));
+const isShipEdge = (state, edgeId) => {
+  const borderingTiles = borderingTilesForEdge(state, edgeId);
+  const isLandFrame = borderingTiles.length === 1 && !isWaterTile(borderingTiles[0]);
+  return borderingTiles.some(isWaterTile) || isLandFrame;
+};
+const isPirateBlockedEdge = (state, edgeId) => borderingTilesForEdge(state, edgeId).some(tile => tile.hasPirate);
+const isOpenShip = (state, playerId, source) => edgeEndpoints(source).some(vertexId => {
+  const vertex = state.vertices?.find(candidate => candidate.id === vertexId);
+  if (!vertex || (vertex.structure && vertex.structure !== 'NONE')) return false;
+  return incidentEdges(state, vertexId).filter(edge => edge.hasShip && edge.shipPlayerId === playerId).length === 1;
+});
+const getEligibleVictimIds = (state, playerId, tile, robberType) => {
+  if (!tile) return [];
+  const candidateIds = new Set();
+  if (robberType === 'PIRATE') {
+    const edgeIds = new Set(tileEdgeIds(tile));
+    (state.edges || []).forEach(edge => {
+      if (edgeIds.has(edge.id) && edge.hasShip && edge.shipPlayerId && edge.shipPlayerId !== playerId) {
+        candidateIds.add(edge.shipPlayerId);
+      }
+    });
+  } else {
+    const vertexIds = new Set(tileVertexIds(tile));
+    (state.vertices || []).forEach(vertex => {
+      if (vertexIds.has(vertex.id) && vertex.structure !== 'NONE' && vertex.playerId && vertex.playerId !== playerId) {
+        candidateIds.add(vertex.playerId);
+      }
+    });
+  }
+  return (state.players || [])
+    .filter(candidate => candidateIds.has(candidate.id) && totalResources(candidate) > 0)
+    .map(candidate => candidate.id);
+};
+
+const distributeRolledResources = (state, total) => {
+  const claims = [];
+  const goldSelections = [];
+  const receivedByPlayer = new Map();
+  (state.tiles || []).filter(tile => tile.numberToken === total && !tile.hasRobber).forEach(tile => {
+    const vertexIds = new Set(tileVertexIds(tile));
+    (state.vertices || []).forEach(vertex => {
+      if (!vertexIds.has(vertex.id) || !vertex.playerId || vertex.structure === 'NONE') return;
+      const amount = vertex.structure === 'CITY' ? 2 : 1;
+      if (tile.type === 'GOLD_FIELD') goldSelections.push({ playerId: vertex.playerId, amount, tileId: tile.id });
+      else if (RESOURCE_TYPES.includes(tile.type)) claims.push({ playerId: vertex.playerId, resource: tile.type, amount });
+    });
+  });
+
+  RESOURCE_TYPES.forEach(resource => {
+    const resourceClaims = claims.filter(claim => claim.resource === resource);
+    const totalDemand = resourceClaims.reduce((sum, claim) => sum + claim.amount, 0);
+    const claimantCount = new Set(resourceClaims.map(claim => claim.playerId)).size;
+    if (totalDemand === 0 || (totalDemand > (state.resourceBank?.[resource] || 0) && claimantCount > 1)) return;
+    let available = state.resourceBank?.[resource] || 0;
+    resourceClaims.forEach(claim => {
+      const amount = Math.min(claim.amount, available);
+      const claimant = state.players.find(candidate => candidate.id === claim.playerId);
+      if (!claimant || amount <= 0) return;
+      claimant.resources[resource] += amount;
+      receivedByPlayer.set(claim.playerId, (receivedByPlayer.get(claim.playerId) || 0) + amount);
+      available -= amount;
+    });
+    state.resourceBank[resource] = available;
+  });
+
+  state.goldSelectionQueue = Array.from(goldSelections.reduce((byPlayer, selection) => {
+    const existing = byPlayer.get(selection.playerId);
+    if (existing) existing.amount += selection.amount;
+    else byPlayer.set(selection.playerId, { ...selection });
+    return byPlayer;
+  }, new Map()).values());
+  if (goldSelections.length > 0) state.turnSubPhase = 'GOLD_RESOURCE_SELECTION';
+  if (state.activeExpansion === 'MERCHANTS_AND_BARBARIANS') {
+    const playersWithBuildings = new Set((state.vertices || [])
+      .filter(vertex => vertex.playerId && vertex.structure !== 'NONE')
+      .map(vertex => vertex.playerId));
+    state.goldCoins ||= {};
+    playersWithBuildings.forEach(playerId => {
+      if (!receivedByPlayer.has(playerId)) state.goldCoins[playerId] = (state.goldCoins[playerId] || 0) + 1;
+    });
+  }
+};
 
 function validateGameAction(state, action) {
-  const shape = validateActionShape(action);
+  const shape = validateActionShape(action, { authoritative: true });
   if (!shape.ok) return shape;
   if (!state || !Array.isArray(state.players)) return { ok: false, message: 'Game state is not ready' };
 
@@ -249,7 +336,8 @@ function validateGameAction(state, action) {
         return { ok: false, message: `Illegal ${kind.toLowerCase()} placement` };
       }
       const borderingTiles = (state.tiles || []).filter(tile => tileEdgeIds(tile).includes(action.edgeId));
-      if (kind === 'SHIP' && !borderingTiles.some(isWaterTile)) return { ok: false, message: 'Ship must be built on water or coast' };
+      const isLandFrame = borderingTiles.length === 1 && !isWaterTile(borderingTiles[0]);
+      if (kind === 'SHIP' && !borderingTiles.some(isWaterTile) && !isLandFrame) return { ok: false, message: 'Ship must be built on water or coast' };
       if (kind === 'ROAD' && !borderingTiles.some(tile => !isWaterTile(tile))) return { ok: false, message: 'Road must be built on land or coast' };
       if (isSetup) {
         if (state.setupState?.hasPlacedRoad || !state.setupState?.lastSettlementVertexId ||
@@ -272,17 +360,34 @@ function validateGameAction(state, action) {
       if (!['BEFORE_ROLL', 'TRADE_AND_BUILD'].includes(state.turnSubPhase) || player.playedDevCardThisTurn || available <= 0) {
         return { ok: false, message: 'Development card cannot be played' };
       }
+      if (action.cardType === 'YEAR_OF_PLENTY') {
+        const requestedResources = action.data.resources.reduce((counts, resource) => {
+          counts[resource] = (counts[resource] || 0) + 1;
+          return counts;
+        }, {});
+        if (Object.entries(requestedResources).some(([resource, amount]) => (state.resourceBank?.[resource] || 0) < amount)) {
+          return { ok: false, message: 'Insufficient bank resources for Year of Plenty' };
+        }
+      }
       break;
     }
     case 'MOVE_ROBBER': {
       const tile = state.tiles?.find(candidate => candidate.id === action.tileId);
-      if (!tile || state.turnSubPhase !== 'ROBBER_PLACEMENT') return { ok: false, message: 'Illegal robber target' };
+      const robberType = action.robberType || 'ROBBER';
+      if (!tile || state.turnSubPhase !== 'ROBBER_PLACEMENT' ||
+          (robberType === 'ROBBER' ? isWaterTile(tile) || tile.hasRobber : !isRevealedWaterTile(tile) || tile.hasPirate)) {
+        return { ok: false, message: 'Illegal robber target' };
+      }
       break;
     }
     case 'STEAL_RESOURCE': {
       const victim = state.players.find(candidate => candidate.id === action.victimPlayerId);
-      if (!victim || victim.id === action.playerId || (victim.resources?.[action.stolenResource] || 0) <= 0 ||
-          !['ROBBER_STEAL', 'ROBBER_PLACEMENT'].includes(state.turnSubPhase)) {
+      const robberType = state.pendingRobberType || 'ROBBER';
+      const markerTile = state.tiles?.find(tile => robberType === 'PIRATE' ? tile.hasPirate : tile.hasRobber);
+      const eligibleVictims = getEligibleVictimIds(state, action.playerId, markerTile, robberType);
+      if (!victim || victim.id === action.playerId || totalResources(victim) <= 0 ||
+          !eligibleVictims.includes(victim.id) || (victim.resources?.[action.stolenResource] || 0) <= 0 ||
+          state.turnSubPhase !== 'ROBBER_STEAL') {
         return { ok: false, message: 'Illegal steal action' };
       }
       break;
@@ -313,7 +418,10 @@ function validateGameAction(state, action) {
     case 'MOVE_SHIP': {
       const source = state.edges?.find(edge => edge.id === action.fromEdgeId);
       const target = state.edges?.find(edge => edge.id === action.toEdgeId);
-      if (!source?.hasShip || source.shipPlayerId !== action.playerId || !target || target.hasShip || target.hasRoad || state.hasMovedShipThisTurn) {
+      if (state.turnSubPhase !== 'TRADE_AND_BUILD' || !source?.hasShip || source.shipPlayerId !== action.playerId ||
+          !target || target.hasShip || target.hasRoad || state.hasMovedShipThisTurn ||
+          (state.currentTurnBuiltShips || []).includes(source.id) || !isOpenShip(state, action.playerId, source) ||
+          !isShipEdge(state, target.id) || isPirateBlockedEdge(state, source.id) || isPirateBlockedEdge(state, target.id)) {
         return { ok: false, message: 'Illegal ship move' };
       }
       if (!networkTouchesTarget(state, action.playerId, target, 'SHIP', source.id)) return { ok: false, message: 'Ship destination is disconnected' };
@@ -359,9 +467,23 @@ function applyReservedAction(state, action) {
     case 'ROLL_DICE': {
       const total = action.diceValues[0] + action.diceValues[1];
       state.lastRoll = total;
-      state.turnSubPhase = total === 7
-        ? (state.players.some(candidate => totalResources(candidate) > 7) ? 'DISCARD_PHASE' : 'ROBBER_PLACEMENT')
-        : 'TRADE_AND_BUILD';
+      if (total === 7) {
+        state.players.filter(candidate => candidate.isBot && totalResources(candidate) > 7).forEach(bot => {
+          let remaining = Math.floor(totalResources(bot) / 2);
+          RESOURCE_TYPES.forEach(resource => {
+            const amount = Math.min(bot.resources[resource] || 0, remaining);
+            bot.resources[resource] -= amount;
+            state.resourceBank[resource] += amount;
+            remaining -= amount;
+          });
+        });
+        state.turnSubPhase = state.players.some(candidate => totalResources(candidate) > 7)
+          ? 'DISCARD_PHASE'
+          : 'ROBBER_PLACEMENT';
+      } else {
+        state.turnSubPhase = 'TRADE_AND_BUILD';
+        distributeRolledResources(state, total);
+      }
       break;
     }
     case 'END_TURN':
@@ -420,6 +542,7 @@ function applyReservedAction(state, action) {
       }
       if (state.roadBuildingRemaining > 0) state.roadBuildingRemaining -= 1;
       if (String(state.gamePhase).startsWith('SETUP_')) state.setupState = { ...(state.setupState || {}), hasPlacedRoad: true };
+      else state.currentTurnBuiltShips = [...(state.currentTurnBuiltShips || []), action.edgeId];
       break;
     }
     case 'BUY_DEV_CARD':
@@ -433,6 +556,7 @@ function applyReservedAction(state, action) {
       player.playedDevCardThisTurn = true;
       if (action.cardType === 'KNIGHT') {
         player.knightsPlayed = (player.knightsPlayed || 0) + 1;
+        player.devCardReturnSubPhase = state.turnSubPhase === 'BEFORE_ROLL' ? 'BEFORE_ROLL' : 'TRADE_AND_BUILD';
         state.turnSubPhase = 'ROBBER_PLACEMENT';
       } else if (action.cardType === 'ROAD_BUILDING') {
         state.roadBuildingRemaining = 2;
@@ -451,18 +575,31 @@ function applyReservedAction(state, action) {
         });
       }
       break;
-    case 'MOVE_ROBBER':
+    case 'MOVE_ROBBER': {
+      const robberType = action.robberType || 'ROBBER';
       state.tiles.forEach(tile => {
-        if (action.robberType === 'PIRATE') tile.hasPirate = tile.id === action.tileId;
+        if (robberType === 'PIRATE') tile.hasPirate = tile.id === action.tileId;
         else tile.hasRobber = tile.id === action.tileId;
       });
-      state.turnSubPhase = action.hasEligibleVictims ? 'ROBBER_STEAL' : 'TRADE_AND_BUILD';
+      state.pendingRobberType = robberType;
+      const targetTile = state.tiles.find(tile => tile.id === action.tileId);
+      state.eligibleStealPlayerIds = getEligibleVictimIds(state, action.playerId, targetTile, robberType);
+      if (state.eligibleStealPlayerIds.length > 0) state.turnSubPhase = 'ROBBER_STEAL';
+      else {
+        state.turnSubPhase = player.devCardReturnSubPhase || 'TRADE_AND_BUILD';
+        delete player.devCardReturnSubPhase;
+        delete state.pendingRobberType;
+      }
       break;
+    }
     case 'STEAL_RESOURCE': {
       const victim = state.players.find(candidate => candidate.id === action.victimPlayerId);
       victim.resources[action.stolenResource] -= 1;
       player.resources[action.stolenResource] += 1;
-      state.turnSubPhase = 'TRADE_AND_BUILD';
+      state.eligibleStealPlayerIds = [];
+      delete state.pendingRobberType;
+      state.turnSubPhase = player.devCardReturnSubPhase || 'TRADE_AND_BUILD';
+      delete player.devCardReturnSubPhase;
       break;
     }
     case 'BANK_TRADE':

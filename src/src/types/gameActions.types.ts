@@ -4,7 +4,7 @@ export type ResourceType = 'WOOD' | 'BRICK' | 'SHEEP' | 'WHEAT' | 'ORE';
 
 export type GameAction =
   // --- תורות וקוביות ---
-  | { type: 'ROLL_DICE'; playerId: string; diceValues: [number, number] }
+  | { type: 'ROLL_DICE'; playerId: string; diceValues?: [number, number] }
   | { type: 'END_TURN'; playerId: string }
   | { type: 'DISCARD_CARDS'; playerId: string; resourcesToDiscard: Partial<Record<ResourceType, number>> }
 
@@ -30,8 +30,9 @@ export type GameAction =
       tileId: string;
       robberType?: 'ROBBER' | 'PIRATE';
       hasEligibleVictims?: boolean;
+      eligibleVictimPlayerIds?: string[];
     }
-  | { type: 'STEAL_RESOURCE'; playerId: string; victimPlayerId: string; stolenResource: ResourceType }
+  | { type: 'STEAL_RESOURCE'; playerId: string; victimPlayerId: string; stolenResource?: ResourceType }
 
   // --- מסחר ---
   | {

@@ -141,7 +141,7 @@ export const ActionSidebar: React.FC = () => {
   const activePlayerVP = getPlayerTotalVP(currentPlayer, longestRoadPlayerId, largestArmyPlayerId, true, vertices, tiles, selectedScenario);
 
   return (
-    <div className="h-full flex flex-col gap-2.5 bg-slate-950 p-1 text-white text-right" dir="rtl">
+    <div className="min-h-full flex flex-col gap-2.5 bg-slate-950 p-1 text-white text-right" dir="rtl">
       
       {/* א. שם השחקן הנוכחי וב. תצוגת נקודות הניצחון */}
       <div data-player-id={currentPlayer.id} className="relative overflow-hidden bg-slate-900/90 p-4 rounded-2xl border border-slate-800/80 shadow-[inset_0_1px_1px_rgba(255,255,255,0.08)] flex flex-col gap-3">
@@ -235,7 +235,9 @@ export const ActionSidebar: React.FC = () => {
       )}
 
       {/* אזור פעולת הקוביות */}
-      <RollDiceContainer />
+      <div className="relative z-0 shrink-0">
+        <RollDiceContainer />
+      </div>
 
       {/* כפתור סיום תור */}
       <div className="w-full">

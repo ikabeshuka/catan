@@ -100,6 +100,52 @@ export const Board3DScene: React.FC<Board3DSceneProps> = ({
   // Use the custom hook to load textures and animate sea waves
   const textures = useBoardTextures(is3DMode);
 
+  const edgeSurfaceTextures = React.useMemo(() => {
+    const prepareTexture = (source: THREE.Texture) => {
+      const texture = source.clone();
+      texture.wrapS = THREE.RepeatWrapping;
+      texture.wrapT = THREE.ClampToEdgeWrapping;
+      texture.repeat.set(1.65, 1);
+      texture.anisotropy = 16;
+      texture.minFilter = THREE.LinearMipmapLinearFilter;
+      texture.magFilter = THREE.LinearFilter;
+      texture.needsUpdate = true;
+      return texture;
+    };
+
+    return {
+      land: prepareTexture(textures.dast),
+      sea: prepareTexture(textures.FOG),
+    };
+  }, [textures.dast, textures.FOG]);
+
+  React.useEffect(() => () => {
+    edgeSurfaceTextures.land.dispose();
+    edgeSurfaceTextures.sea.dispose();
+  }, [edgeSurfaceTextures]);
+
+  const playerById = React.useMemo(
+    () => new Map(players.map(player => [player.id, player])),
+    [players]
+  );
+
+  const edgeById = React.useMemo(
+    () => new Map(edges.map(edge => [edge.id, edge])),
+    [edges]
+  );
+
+  const tilesByEdgeId = React.useMemo(() => {
+    const result = new Map<string, any[]>();
+    tiles.filter(tile => !tile.isFrameSea).forEach(tile => {
+      getTileEdgeIds(tile).forEach(edgeId => {
+        const bordering = result.get(edgeId) || [];
+        bordering.push(tile);
+        result.set(edgeId, bordering);
+      });
+    });
+    return result;
+  }, [tiles]);
+
   return (
     <group rotation={[0, 0, 0]}>
       {/* Dynamic cyclic clouds system on the GPU/3D */}
@@ -141,6 +187,47 @@ export const Board3DScene: React.FC<Board3DSceneProps> = ({
             default: return 0.80;       // גובה ברירת מחדל לאריחים שטוחים
           }
         };
+
+        if (tile.isFrameSea) {
+          const selectable = isSelectableForRobber(tile);
+          return (
+            <group key={tile.id} position={[tileX, tileY, 0]}>
+              <mesh
+                onClick={(event) => {
+                  event.stopPropagation();
+                  onTileClick(tile);
+                }}
+                onPointerOver={(event) => {
+                  event.stopPropagation();
+                  onTileHover(tile, event.clientX, event.clientY);
+                  if (selectable) document.body.style.cursor = 'pointer';
+                }}
+                onPointerOut={(event) => {
+                  event.stopPropagation();
+                  onTileLeave();
+                  document.body.style.cursor = 'default';
+                }}
+              >
+                <circleGeometry args={[2.65, 6]} />
+                <meshBasicMaterial
+                  color="#38bdf8"
+                  transparent
+                  opacity={selectable ? 0.12 : 0.001}
+                  depthWrite={false}
+                />
+              </mesh>
+              {tile.hasPirate && (
+                <Pirate3D
+                  position={[0, 0, 0.85]}
+                  tile={tile}
+                  pirateTexture={textures.pirate}
+                  onTileHover={onTileHover}
+                  onTileLeave={onTileLeave}
+                />
+              )}
+            </group>
+          );
+        }
 
         return (
           <group key={tile.id}>
@@ -216,11 +303,14 @@ export const Board3DScene: React.FC<Board3DSceneProps> = ({
         const length = Math.sqrt(dx * dx + dy * dy);
         const angle = Math.atan2(dy, dx);
 
-        const builtPlayer = players.find(p => p.id === edge.playerId || p.id === edge.shipPlayerId);
+        const builtPlayer = playerById.get(edge.playerId || edge.shipPlayerId);
         const playerColor = builtPlayer?.color || '#ff5722';
         
         const { isValidPlacement } = getEdgeConfig(edge);
         const currentPlayerColor = players[currentPlayerIndex]?.color || '#ffffff';
+        const borderingTiles = tilesByEdgeId.get(edge.id) || [];
+        const isSeaTile = (tile: any) => tile.type === 'WATER' || tile.type === 'SEA' || tile.type === 'FOG';
+        const usesSeaSurface = borderingTiles.length > 0 && borderingTiles.every(isSeaTile);
 
         // Debug console.log for built roads as requested
         // if (edge.hasRoad) {
@@ -253,6 +343,7 @@ export const Board3DScene: React.FC<Board3DSceneProps> = ({
             is3DMode={is3DMode}
             hasShip={edge.hasShip}
             shipPlayerId={edge.shipPlayerId}
+            surfaceTexture={usesSeaSurface ? edgeSurfaceTextures.sea : edgeSurfaceTextures.land}
           />
         );
       })}
@@ -264,7 +355,7 @@ export const Board3DScene: React.FC<Board3DSceneProps> = ({
         const vx = x * 0.05;
         const vy = y * -0.05;
         const safeScale3D = SCALE_3D || 0.025;
-        const builtPlayer = players.find(p => p.id === vertex.playerId);
+        const builtPlayer = playerById.get(vertex.playerId);
         const playerColor = builtPlayer?.color || '#ff5722';
 
         const vertexZ = !is3DMode ? 0.77 : 0.85;
@@ -276,7 +367,7 @@ export const Board3DScene: React.FC<Board3DSceneProps> = ({
           }
           const sortedIds = [currentPlayer.wagonPosition, vertex.id].sort();
           const edgeId = `e_${sortedIds[0]}_${sortedIds[1]}`;
-          const edge = edges.find(e => e.id === edgeId);
+          const edge = edgeById.get(edgeId);
           if (!edge) return false;
           const isOwner = edge.hasRoad && edge.playerId === currentPlayer.id;
           const cost = isOwner ? 1 : 2;
@@ -336,12 +427,6 @@ export const Board3DScene: React.FC<Board3DSceneProps> = ({
                   onHarborHover(vertex, e.clientX, e.clientY);
                 }
               }}
-              onPointerMove={(e) => {
-                e.stopPropagation();
-                if (vertex.isHarbor) {
-                  onHarborHover(vertex, e.clientX, e.clientY);
-                }
-              }}
               onPointerOut={() => {
                 document.body.style.cursor = 'default';
                 if (vertex.isHarbor) {
@@ -383,14 +468,8 @@ export const Board3DScene: React.FC<Board3DSceneProps> = ({
         const mz = !is3DMode ? 0.77 : 0.85;
 
         // Find the owner tile of this edge - prioritize land tiles (non-WATER) so Harbor3D points outwards
-        const ownerTile = tiles.find(tile => {
-          if (tile.type === 'WATER') return false;
-          const edgeIds = getTileEdgeIds(tile);
-          return edgeIds.includes(edge.id);
-        }) || tiles.find(tile => {
-          const edgeIds = getTileEdgeIds(tile);
-          return edgeIds.includes(edge.id);
-        });
+        const borderingTiles = tilesByEdgeId.get(edge.id) || [];
+        const ownerTile = borderingTiles.find(tile => tile.type !== 'WATER') || borderingTiles[0];
 
         let tileX = 0;
         let tileY = 0;
@@ -418,10 +497,6 @@ export const Board3DScene: React.FC<Board3DSceneProps> = ({
               tileY={tileY}
               harborAngle={edge.harborAngle}
               onPointerOver={(e) => {
-                e.stopPropagation();
-                onHarborHover(connectedVertex, e.clientX, e.clientY);
-              }}
-              onPointerMove={(e) => {
                 e.stopPropagation();
                 onHarborHover(connectedVertex, e.clientX, e.clientY);
               }}

@@ -49,7 +49,7 @@ const rawSeafarers3PlayersFourIslands: HexTile[] = [
   { id: 'hex_fi3_33', coord: { q: 1, r: 2, s: -3 }, type: 'WHEAT', numberToken: 5, hasRobber: false },
 
   // Row 7
-  { id: 'hex_fi3_34', coord: { q: -3, r: 3, s: 0 }, type: 'SHEEP', numberToken: 11, hasRobber: false },
+  { id: 'hex_fi3_34', coord: { q: -3, r: 3, s: 0 }, type: 'SHEEP', numberToken: 12, hasRobber: true },
   { id: 'hex_fi3_35', coord: { q: -2, r: 3, s: -1 }, type: 'WATER', numberToken: null, hasRobber: false },
   { id: 'hex_fi3_36', coord: { q: -1, r: 3, s: -2 }, type: 'WATER', numberToken: null, hasRobber: false },
   { id: 'hex_fi3_37', coord: { q: 0, r: 3, s: -3 }, type: 'WATER', numberToken: null, hasRobber: false },
@@ -100,12 +100,12 @@ const rawSeafarers4PlayersFourIslands: HexTile[] = [
   { id: 'hex_fi4_22', coord: { q: 3, r: 0, s: -3 }, type: 'WATER', numberToken: null, hasRobber: false, hasPirate: true },
 
   // Row 5
-  { id: 'hex_fi4_23', coord: { q: -3, r: 1, s: 2 }, type: 'BRICK', numberToken: 4, hasRobber: false, harbors: [{ type: 'BRICK', edgeIndex: 4 }] },
+  { id: 'hex_fi4_23', coord: { q: -3, r: 1, s: 2 }, type: 'BRICK', numberToken: 4, hasRobber: false, harbors: [{ type: 'BRICK', edgeIndex: 2 }] },
   { id: 'hex_fi4_24', coord: { q: -2, r: 1, s: 1 }, type: 'SHEEP', numberToken: 9, hasRobber: false },
   { id: 'hex_fi4_25', coord: { q: -1, r: 1, s: 0 }, type: 'WATER', numberToken: null, hasRobber: false },
   { id: 'hex_fi4_26', coord: { q: 0, r: 1, s: -1 }, type: 'WATER', numberToken: null, hasRobber: false },
   { id: 'hex_fi4_27', coord: { q: 1, r: 1, s: -2 }, type: 'WOOD', numberToken: 9, hasRobber: false },
-  { id: 'hex_fi4_28', coord: { q: 2, r: 1, s: -3 }, type: 'SHEEP', numberToken: 11, hasRobber: false, harbors: [{ type: 'GENERIC', edgeIndex: 1 }] },
+  { id: 'hex_fi4_28', coord: { q: 2, r: 1, s: -3 }, type: 'SHEEP', numberToken: 11, hasRobber: false, harbors: [{ type: 'GENERIC', edgeIndex: 1 }, { type: 'ORE', toTileId: 'hex_fi4_21' }] },
 
   // Row 6
   { id: 'hex_fi4_29', coord: { q: -3, r: 2, s: 1 }, type: 'WHEAT', numberToken: 6, hasRobber: false },

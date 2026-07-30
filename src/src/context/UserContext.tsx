@@ -1,9 +1,11 @@
 /* oxlint-disable react/only-export-components */
 import React, { createContext, useContext, useState, useEffect } from 'react';
-import { PlayerRatingStats, RoomParticipant, RatingCalculationResult } from '../types/rating.types';
+import { GeneralPlayerStats, PlayerRatingStats, RoomParticipant, RatingCalculationResult } from '../types/rating.types';
 import { calculateGameRating } from '../utils/ai/rating/ratingCalculator';
 
 const STORAGE_KEY = 'CATAN_PLAYER_RATING_STATS';
+const PROFILE_NAME_KEY = 'CATAN_PLAYER_PROFILE_NAME';
+const GENERAL_STATS_KEY = 'CATAN_GENERAL_PLAYER_STATS';
 
 const DEFAULT_STATS: PlayerRatingStats = {
   ratingPoints: 0,
@@ -30,6 +32,10 @@ const DEFAULT_STATS: PlayerRatingStats = {
 
 interface UserContextType {
   playerStats: PlayerRatingStats;
+  playerName: string;
+  setPlayerName: (name: string) => void;
+  generalStats: GeneralPlayerStats[];
+  resetStats: () => void;
   lastRatingResult: RatingCalculationResult | null;
   setLastRatingResult: (result: RatingCalculationResult | null) => void;
   updateRatingAfterGame: (
@@ -45,6 +51,8 @@ const UserContext = createContext<UserContextType | undefined>(undefined);
 
 export const UserProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [playerStats, setPlayerStats] = useState<PlayerRatingStats>(DEFAULT_STATS);
+  const [playerName, setPlayerNameState] = useState('');
+  const [generalStats, setGeneralStats] = useState<GeneralPlayerStats[]>([]);
   const [lastRatingResult, setLastRatingResult] = useState<RatingCalculationResult | null>(null);
   const [isStatsModalOpen, setIsStatsModalOpen] = useState(false);
 
@@ -52,9 +60,26 @@ export const UserProvider: React.FC<{ children: React.ReactNode }> = ({ children
   useEffect(() => {
     try {
       const saved = localStorage.getItem(STORAGE_KEY);
-      if (saved) {
-        const parsed = JSON.parse(saved);
-        setPlayerStats({ ...DEFAULT_STATS, ...parsed });
+      const parsedStats = saved ? JSON.parse(saved) : DEFAULT_STATS;
+      const normalizedStats = {
+        ...DEFAULT_STATS,
+        ...parsedStats,
+        gamesByBotType: { ...DEFAULT_STATS.gamesByBotType, ...parsedStats.gamesByBotType },
+        winsByBotType: { ...DEFAULT_STATS.winsByBotType, ...parsedStats.winsByBotType },
+      };
+      const savedName = (localStorage.getItem(PROFILE_NAME_KEY) || '').trim();
+      const savedGeneral = JSON.parse(localStorage.getItem(GENERAL_STATS_KEY) || '[]');
+      const validGeneral: GeneralPlayerStats[] = Array.isArray(savedGeneral) ? savedGeneral : [];
+
+      setPlayerStats(normalizedStats);
+      setPlayerNameState(savedName);
+      if (savedName) {
+        const entry = { ...normalizedStats, playerName: savedName, updatedAt: new Date().toISOString() };
+        const nextGeneral = [...validGeneral.filter(item => item.playerName !== savedName), entry];
+        setGeneralStats(nextGeneral);
+        localStorage.setItem(GENERAL_STATS_KEY, JSON.stringify(nextGeneral));
+      } else {
+        setGeneralStats(validGeneral);
       }
     } catch (err) {
       console.error('Failed to load player stats from localStorage:', err);
@@ -62,13 +87,46 @@ export const UserProvider: React.FC<{ children: React.ReactNode }> = ({ children
   }, []);
 
   // שמירה ל-localStorage בכל עדכון סטטיסטיקות
+  const saveGeneralEntry = (name: string, stats: PlayerRatingStats, previousName?: string) => {
+    const trimmedName = name.trim().slice(0, 40);
+    setGeneralStats(previous => {
+      const withoutCurrent = previous.filter(item =>
+        item.playerName !== trimmedName && (!previousName || item.playerName !== previousName)
+      );
+      const next = trimmedName
+        ? [...withoutCurrent, { ...stats, playerName: trimmedName, updatedAt: new Date().toISOString() }]
+        : withoutCurrent;
+      localStorage.setItem(GENERAL_STATS_KEY, JSON.stringify(next));
+      return next;
+    });
+  };
+
   const saveStats = (newStats: PlayerRatingStats) => {
     setPlayerStats(newStats);
     try {
       localStorage.setItem(STORAGE_KEY, JSON.stringify(newStats));
+      if (playerName) saveGeneralEntry(playerName, newStats);
     } catch (err) {
       console.error('Failed to save player stats to localStorage:', err);
     }
+  };
+
+  const setPlayerName = (name: string) => {
+    const nextName = name.trim().slice(0, 40);
+    const previousName = playerName;
+    setPlayerNameState(nextName);
+    localStorage.setItem(PROFILE_NAME_KEY, nextName);
+    saveGeneralEntry(nextName, playerStats, previousName);
+  };
+
+  const resetStats = () => {
+    const reset = {
+      ...DEFAULT_STATS,
+      gamesByBotType: { ...DEFAULT_STATS.gamesByBotType },
+      winsByBotType: { ...DEFAULT_STATS.winsByBotType },
+    };
+    saveStats(reset);
+    setLastRatingResult(null);
   };
 
   const updateRatingAfterGame = (
@@ -117,6 +175,10 @@ export const UserProvider: React.FC<{ children: React.ReactNode }> = ({ children
     <UserContext.Provider
       value={{
         playerStats,
+        playerName,
+        setPlayerName,
+        generalStats,
+        resetStats,
         lastRatingResult,
         setLastRatingResult,
         updateRatingAfterGame,

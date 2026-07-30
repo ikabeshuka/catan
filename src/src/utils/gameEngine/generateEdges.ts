@@ -32,8 +32,9 @@ export function getTileEdgeIds(tile: HexTile): string[] {
  */
 export function generateEdges(tiles: HexTile[], activeExpansion?: string): BoardEdge[] {
   const edgeMap: Record<string, BoardEdge> = {};
+  const boardTiles = tiles.filter(tile => !tile.isFrameSea);
 
-  tiles.forEach((tile) => {
+  boardTiles.forEach((tile) => {
     const edgeIds = getTileEdgeIds(tile);
     edgeIds.forEach((edgeId) => {
       if (!edgeMap[edgeId]) {
@@ -48,7 +49,7 @@ export function generateEdges(tiles: HexTile[], activeExpansion?: string): Board
 
   // Count how many times each edge ID is shared in the game board to find external/coast edges
   const edgeCount: Record<string, number> = {};
-  tiles.forEach((tile) => {
+  boardTiles.forEach((tile) => {
     const edgeIds = getTileEdgeIds(tile);
     edgeIds.forEach((edgeId) => {
       edgeCount[edgeId] = (edgeCount[edgeId] || 0) + 1;
@@ -88,7 +89,7 @@ export function generateEdges(tiles: HexTile[], activeExpansion?: string): Board
       return null;
     };
 
-    tiles.forEach((tile) => {
+    boardTiles.forEach((tile) => {
       if (tile.harbors) {
         tile.harbors.forEach((h: any) => {
           if (h.edgeIndex !== undefined) {
@@ -100,7 +101,7 @@ export function generateEdges(tiles: HexTile[], activeExpansion?: string): Board
               edgeMap[edgeId].harborAngle = undefined;
             }
           } else if (h.toTileId) {
-            const toTile = tiles.find(t => t.id === h.toTileId);
+            const toTile = boardTiles.find(t => t.id === h.toTileId);
             if (toTile) {
               const sharedEdge = findSharedEdge(tile, toTile);
               if (sharedEdge && edgeMap[sharedEdge]) {
@@ -128,7 +129,7 @@ export function generateEdges(tiles: HexTile[], activeExpansion?: string): Board
     ];
 
     harborConfigs.forEach(({ coord, edgeIndex, type }) => {
-      const tile = tiles.find(t => t.coord.q === coord.q && t.coord.r === coord.r);
+      const tile = boardTiles.find(t => t.coord.q === coord.q && t.coord.r === coord.r);
       if (tile) {
         const edgeIds = getTileEdgeIds(tile);
         const edgeId = edgeIds[edgeIndex];

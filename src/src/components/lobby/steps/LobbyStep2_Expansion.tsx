@@ -51,6 +51,11 @@ export const LobbyStep2_Expansion: React.FC<LobbyStep2ExpansionProps> = ({
   const isMerchantsSelected = selectedExpansions.includes('MERCHANTS_AND_BARBARIANS');
   const isSeafarersSelected = selectedExpansions.includes('SEAFARERS');
 
+  const selectBoardAndContinue = (type: 'RANDOM' | 'STARTER') => {
+    setBoardType(type);
+    onNext();
+  };
+
   return (
     <div className="w-full animate-fade-in flex flex-col items-center gap-6" dir="rtl">
       {/* 🔹 בחירת הרחבה */}
@@ -267,7 +272,7 @@ export const LobbyStep2_Expansion: React.FC<LobbyStep2ExpansionProps> = ({
           {/* מפת מתחילים (STARTER) */}
           <button
             type="button"
-            onClick={() => setBoardType('STARTER')}
+            onClick={() => selectBoardAndContinue('STARTER')}
             className={`p-4 rounded-xl border transition-all duration-300 hover:scale-[1.01] flex flex-col items-center gap-2 relative overflow-hidden cursor-pointer ${
               boardType === 'STARTER'
                 ? 'border-amber-500 bg-slate-950/80 shadow-[0_0_15px_rgba(245,158,11,0.2)]'
@@ -290,7 +295,7 @@ export const LobbyStep2_Expansion: React.FC<LobbyStep2ExpansionProps> = ({
           {/* מפה אקראית (RANDOM) */}
           <button
             type="button"
-            onClick={() => setBoardType('RANDOM')}
+            onClick={() => selectBoardAndContinue('RANDOM')}
             className={`p-4 rounded-xl border transition-all duration-300 hover:scale-[1.01] flex flex-col items-center gap-2 relative overflow-hidden cursor-pointer ${
               boardType === 'RANDOM'
                 ? 'border-amber-500 bg-slate-950/80 shadow-[0_0_15px_rgba(245,158,11,0.2)]'
@@ -312,8 +317,7 @@ export const LobbyStep2_Expansion: React.FC<LobbyStep2ExpansionProps> = ({
         </div>
       </div>
 
-      {/* כפתורי ניווט */}
-      <div className="w-full flex items-center justify-between mt-6 border-t border-slate-800/80 pt-6 max-w-2xl">
+      <div className="w-full flex items-center justify-between mt-2 max-w-2xl">
         <button
           type="button"
           onClick={onPrev}
@@ -321,14 +325,7 @@ export const LobbyStep2_Expansion: React.FC<LobbyStep2ExpansionProps> = ({
         >
           חזור
         </button>
-
-        <button
-          type="button"
-          onClick={onNext}
-          className="bg-gradient-to-l from-amber-500 to-orange-500 text-slate-950 font-black py-3 px-8 rounded-xl text-sm shadow-lg shadow-amber-500/10 hover:shadow-amber-500/20 active:scale-[0.98] transition-all duration-200 tracking-wide hover:brightness-110 cursor-pointer"
-        >
-          המשך לבחירת כמות שחקנים
-        </button>
+        <p className="text-xs font-bold text-amber-400/80">בחירת סוג הלוח ממשיכה מיד לשלב הבא.</p>
       </div>
     </div>
   );

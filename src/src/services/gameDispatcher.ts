@@ -57,7 +57,14 @@ export function dispatchGameAction(action: GameAction, context?: DispatcherConte
   // In an online room the server validates the action first and then echoes it
   // to every client, including the sender. Only that approved echo is applied.
   if (context.roomId && !context.isRemote) {
-    socketService.sendAction(context.roomId, action);
+    const requestAction = { ...action } as GameAction;
+    if (requestAction.type === 'ROLL_DICE') delete requestAction.diceValues;
+    if (requestAction.type === 'STEAL_RESOURCE') delete requestAction.stolenResource;
+    if (requestAction.type === 'MOVE_ROBBER') {
+      delete requestAction.hasEligibleVictims;
+      delete requestAction.eligibleVictimPlayerIds;
+    }
+    socketService.sendAction(context.roomId, requestAction);
     return;
   }
 
@@ -66,7 +73,7 @@ export function dispatchGameAction(action: GameAction, context?: DispatcherConte
   switch (type) {
     // --- 1. הטלת קוביות סנכרונית ---
     case 'ROLL_DICE': {
-      if (context.handleDiceRoll) {
+      if (context.handleDiceRoll && action.diceValues) {
         context.handleDiceRoll(action.diceValues);
       }
       break;
@@ -139,9 +146,10 @@ export function dispatchGameAction(action: GameAction, context?: DispatcherConte
       const player = context.players?.find((p: any) => p.id === playerId);
       if (!player) return;
       const targetVertex = context.vertices?.find((vertex: any) => vertex.id === vertexId);
-      if (!targetVertex || targetVertex.structure !== 'NONE') return;
+      if (!targetVertex || targetVertex.structure !== 'NONE' || !context.setVertices) return;
       if (!isSetupPhase && (context.turnSubPhase !== 'TRADE_AND_BUILD' ||
-          player.resources.WOOD < 1 || player.resources.BRICK < 1 || player.resources.SHEEP < 1 || player.resources.WHEAT < 1)) return;
+          player.resources.WOOD < 1 || player.resources.BRICK < 1 || player.resources.SHEEP < 1 || player.resources.WHEAT < 1 ||
+          !context.setPlayers)) return;
 
       context.setVertices?.((prev: any[]) => prev.map(v =>
         v.id === vertexId ? { ...v, structure: 'SETTLEMENT', playerId } : v
@@ -281,9 +289,17 @@ export function dispatchGameAction(action: GameAction, context?: DispatcherConte
       const player = context.players?.find((p: any) => p.id === playerId);
       if (!player) return;
       const roadTarget = context.edges?.find((edge: any) => edge.id === edgeId);
-      if (!roadTarget || roadTarget.hasRoad || roadTarget.hasShip) return;
+      if (!roadTarget || roadTarget.hasRoad || roadTarget.hasShip || !context.setEdges) return;
 
-      context.setEdges?.((prev: any[]) => prev.map(e =>
+      const isFreeRoad = !isSetupPhase && (context.roadBuildingRemaining || 0) > 0;
+      if (!isSetupPhase && !isFreeRoad && (
+        context.turnSubPhase !== 'TRADE_AND_BUILD' ||
+        player.resources.WOOD < 1 ||
+        player.resources.BRICK < 1 ||
+        !context.setPlayers
+      )) return;
+
+      context.setEdges((prev: any[]) => prev.map(e =>
         e.id === edgeId ? { ...e, hasRoad: true, playerId } : e
       ));
 
@@ -294,12 +310,10 @@ export function dispatchGameAction(action: GameAction, context?: DispatcherConte
           context.recordSetupPlacement('ROAD', edgeId);
         }
       } else {
-        const isFreeRoad = (context.roadBuildingRemaining || 0) > 0;
         if (isFreeRoad) {
           context.setRoadBuildingRemaining?.((prev: number) => prev - 1);
         } else {
-          if (context.turnSubPhase !== 'TRADE_AND_BUILD' || player.resources.WOOD < 1 || player.resources.BRICK < 1) return;
-          context.setPlayers?.((prev: any[]) => prev.map(p => p.id === playerId
+          context.setPlayers!((prev: any[]) => prev.map(p => p.id === playerId
             ? {
                 ...p,
                 resources: {
@@ -325,9 +339,17 @@ export function dispatchGameAction(action: GameAction, context?: DispatcherConte
       const player = context.players?.find((p: any) => p.id === playerId);
       if (!player) return;
       const shipTarget = context.edges?.find((edge: any) => edge.id === edgeId);
-      if (!shipTarget || shipTarget.hasRoad || shipTarget.hasShip) return;
+      if (!shipTarget || shipTarget.hasRoad || shipTarget.hasShip || !context.setEdges) return;
 
-      context.setEdges?.((prev: any[]) => prev.map(e =>
+      const isFreeShip = !isSetupPhase && (context.roadBuildingRemaining || 0) > 0 && context.activeExpansion === 'SEAFARERS';
+      if (!isSetupPhase && !isFreeShip && (
+        context.turnSubPhase !== 'TRADE_AND_BUILD' ||
+        player.resources.WOOD < 1 ||
+        player.resources.SHEEP < 1 ||
+        !context.setPlayers
+      )) return;
+
+      context.setEdges((prev: any[]) => prev.map(e =>
         e.id === edgeId ? { ...e, hasShip: true, shipPlayerId: playerId } : e
       ));
 
@@ -336,12 +358,10 @@ export function dispatchGameAction(action: GameAction, context?: DispatcherConte
         context.addLog?.(`שחקן ${player.name} בנה ספינה בשלב ההקמה (חינם).`);
         context.recordSetupPlacement?.('ROAD', edgeId);
       } else {
-        const isFreeShip = (context.roadBuildingRemaining || 0) > 0 && context.activeExpansion === 'SEAFARERS';
         if (isFreeShip) {
           context.setRoadBuildingRemaining?.((prev: number) => prev - 1);
         } else {
-          if (context.turnSubPhase !== 'TRADE_AND_BUILD' || player.resources.WOOD < 1 || player.resources.SHEEP < 1) return;
-          context.setPlayers?.((prev: any[]) => prev.map(p => p.id === playerId
+          context.setPlayers!((prev: any[]) => prev.map(p => p.id === playerId
             ? {
                 ...p,
                 resources: {
@@ -469,7 +489,7 @@ export function dispatchGameAction(action: GameAction, context?: DispatcherConte
 
     // --- 7. הזזת שודד וגניבה ---
     case 'MOVE_ROBBER': {
-      const { tileId, hasEligibleVictims } = action;
+      const { tileId, hasEligibleVictims, eligibleVictimPlayerIds } = action;
       const targetTile = context.tiles?.find((t: any) => t.id === tileId);
       if (!targetTile) return;
 
@@ -493,7 +513,12 @@ export function dispatchGameAction(action: GameAction, context?: DispatcherConte
       const returnSubPhase = player?.devCardReturnSubPhase || 'TRADE_AND_BUILD';
       context.addLog?.(`${player?.name || 'השחקן'} הזיז את ${activeRobberType === 'PIRATE' ? 'שודד הים' : 'השודד'} לאריח חדש.`);
       context.setActiveRobberType?.(null);
-      if (!hasEligibleVictims) {
+      if (hasEligibleVictims) {
+        const targets = context.players?.filter((candidate: any) => eligibleVictimPlayerIds?.includes(candidate.id)) || [];
+        context.setRobberyState?.({ tile: targetTile, targets });
+        context.setTurnSubPhase?.('ROBBER_STEAL');
+      } else {
+        context.setRobberyState?.(null);
         context.setPlayers?.((prevPlayers: any[]) => prevPlayers.map(p =>
           p.id === playerId ? { ...p, devCardReturnSubPhase: undefined } : p
         ));
@@ -504,6 +529,7 @@ export function dispatchGameAction(action: GameAction, context?: DispatcherConte
 
     case 'STEAL_RESOURCE': {
       const { victimPlayerId, stolenResource } = action;
+      if (!stolenResource) return;
       const victim = context.players?.find((p: any) => p.id === victimPlayerId);
       const stealer = context.players?.find((p: any) => p.id === playerId);
       if (!victim || !stealer) return;

@@ -47,10 +47,6 @@ export const Robber3D: React.FC<Robber3DProps> = ({
         e.stopPropagation();
         onTileHover(tile, e.clientX, e.clientY);
       }}
-      onPointerMove={(e) => {
-        e.stopPropagation();
-        onTileHover(tile, e.clientX, e.clientY);
-      }}
       onPointerOut={(e) => {
         e.stopPropagation();
         onTileLeave();

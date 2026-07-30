@@ -1,6 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { useGame } from '../../context/GameContext';
+import { useUser } from '../../context/UserContext';
 import { LobbyPlayer } from './types';
+import { PlayerStatsModal } from '../modals/PlayerStatsModal';
 import { PlayerType } from '../../types/player.types';
 import { LobbyStep1_Theme } from './steps/LobbyStep1_Theme';
 import { LobbyStep2_Expansion } from './steps/LobbyStep2_Expansion';
@@ -36,6 +38,7 @@ export const LobbyScreen: React.FC<LobbyScreenProps> = ({
     setActiveExpansion,
     selectedScenario,
     setSelectedScenario,
+    myPlayerId,
     setMyPlayerId
   } = useGame();
   
@@ -72,7 +75,7 @@ export const LobbyScreen: React.FC<LobbyScreenProps> = ({
   const togglePlayerType = (id: string, playerType: PlayerType) => {
     setLobbyPlayers(prev => prev.map((item, idx) => {
       if (item.id === id) {
-        const defaultNames = ['שחקן 1 (רוס)', 'שחקן 2', 'שחקן 3', 'שחקן 4'];
+        const defaultNames = ["רוס", "פיבי", "ג'ואי", "צ'נדלר"];
         const newName = defaultNames[idx] || item.name;
         
         if (roomId && isHost) {
@@ -91,6 +94,7 @@ export const LobbyScreen: React.FC<LobbyScreenProps> = ({
     }));
   };
 
+  const { isStatsModalOpen, setIsStatsModalOpen } = useUser();
   const [currentStep, setCurrentStep] = useState<1 | 2 | 3 | 4>(1);
   const [gameType, setGameType] = useState<'BASE' | 'SPACE'>('BASE');
   const [isGlobalDifficulty, setIsGlobalDifficulty] = useState<boolean>(true);
@@ -256,14 +260,21 @@ export const LobbyScreen: React.FC<LobbyScreenProps> = ({
             { num: 3, title: 'כמות שחקנים' },
             { num: 4, title: 'משתתפים וזמן' }
           ].map((s) => (
-            <div key={s.num} className="flex flex-col items-center z-10">
+            <button
+              key={s.num}
+              type="button"
+              onClick={() => setCurrentStep(s.num as 1 | 2 | 3 | 4)}
+              disabled={roomId !== null && !isHost}
+              className="group flex flex-col items-center z-10 disabled:cursor-not-allowed"
+              aria-label={`עבור לשלב ${s.num}: ${s.title}`}
+            >
               <div className={`w-8 h-8 rounded-full flex items-center justify-center font-bold text-sm transition-all duration-300 ${
-                currentStep === s.num ? 'bg-amber-500 text-slate-950 shadow-lg ring-4 ring-amber-500/20' : currentStep > s.num ? 'bg-emerald-500 text-white' : 'bg-slate-800 text-slate-400'
+                currentStep === s.num ? 'bg-amber-500 text-slate-950 shadow-lg ring-4 ring-amber-500/20' : currentStep > s.num ? 'bg-emerald-500 text-white group-hover:bg-emerald-400' : 'bg-slate-800 text-slate-400 group-hover:bg-slate-700 group-hover:text-slate-200'
               }`}>
                 {currentStep > s.num ? '✓' : s.num}
               </div>
               <span className={`text-xs mt-2 font-bold ${currentStep === s.num ? 'text-amber-400' : currentStep > s.num ? 'text-emerald-400' : 'text-slate-500'}`}>{s.title}</span>
-            </div>
+            </button>
           ))}
         </div>
 
@@ -314,6 +325,7 @@ export const LobbyScreen: React.FC<LobbyScreenProps> = ({
               onPrev={handlePrevStep}
               onStartGame={() => onStartGame(playerCount, lobbyPlayers, botTimeLimit)}
               isGuest={roomId !== null && !isHost}
+              highlightedPlayerId={roomId ? myPlayerId || undefined : lobbyPlayers.find(player => player.playerType === 'HUMAN')?.id}
             />
 
             {/* הצגת צ'אט החדר רק כאשר קיים חדר אונליין פעיל */}
@@ -335,6 +347,14 @@ export const LobbyScreen: React.FC<LobbyScreenProps> = ({
             className="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold rounded-lg shadow-md hover:shadow-blue-500/20 transition-all flex items-center gap-1.5"
           >
             <span>🌐</span> {roomId ? `חדר פעיל: ${roomId}` : isOnlineCreationMode ? 'Configuring Online Scenario' : 'משחק אונליין (דפדפן חדרים)'}
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setIsStatsModalOpen(true)}
+            className="px-4 py-2 bg-amber-600 hover:bg-amber-500 text-slate-950 text-xs font-bold rounded-lg shadow-md hover:shadow-amber-500/20 transition-all flex items-center gap-1.5"
+          >
+            <span>📊</span> דירוג וסטטיסטיקות
           </button>
 
           <button
@@ -377,6 +397,11 @@ export const LobbyScreen: React.FC<LobbyScreenProps> = ({
             boardType,
             playerCount,
           }}
+        />
+
+        <PlayerStatsModal
+          isOpen={isStatsModalOpen}
+          onClose={() => setIsStatsModalOpen(false)}
         />
 
       </div>

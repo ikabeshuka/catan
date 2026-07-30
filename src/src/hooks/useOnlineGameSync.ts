@@ -122,36 +122,4 @@ export const useOnlineGameSync = ({ roomId, isHost, setBotTimeLimit }: UseOnline
     });
   });
 
-  useEffect(() => {
-    if (!roomId || !isHost || game.gamePhase === 'LOBBY' || game.isRolling) return;
-    const timeoutId = window.setTimeout(() => {
-      socketService.syncGameState(roomId, {
-        players: game.players,
-        tiles: game.tiles,
-        vertices: game.vertices,
-        edges: game.edges,
-        currentPlayerIndex: game.currentPlayerIndex,
-        gamePhase: game.gamePhase,
-        turnSubPhase: game.turnSubPhase,
-        setupState: game.setupState,
-        devCardDeck: game.devCardDeck,
-        resourceBank: game.resourceBank,
-        goldCoins: game.goldCoins,
-        roadBuildingRemaining: game.roadBuildingRemaining,
-        goldSelectionQueue: game.goldSelectionQueue,
-        currentTurnBuiltShips: game.currentTurnBuiltShips,
-        hasMovedShipThisTurn: game.hasMovedShipThisTurn,
-        activeExpansion: game.activeExpansion,
-        selectedScenario: game.selectedScenario,
-        boardType: game.boardType,
-      });
-    }, 75);
-    return () => window.clearTimeout(timeoutId);
-  }, [
-    roomId, isHost, game.players, game.tiles, game.vertices, game.edges,
-    game.currentPlayerIndex, game.gamePhase, game.turnSubPhase, game.setupState,
-    game.devCardDeck, game.resourceBank, game.goldCoins, game.roadBuildingRemaining,
-    game.goldSelectionQueue, game.currentTurnBuiltShips, game.hasMovedShipThisTurn,
-    game.activeExpansion, game.selectedScenario, game.boardType, game.isRolling,
-  ]);
 };

@@ -127,7 +127,7 @@ export function useBoardInteraction() {
       playerId: currentPlayingPlayer.id,
       tileId: tile.id,
       robberType: isPirate ? 'PIRATE' : 'ROBBER',
-      hasEligibleVictims: eligibleTargets.length > 0,
+      hasEligibleVictims: roomId ? undefined : eligibleTargets.length > 0,
     }, {
       roomId: roomId || undefined,
       isRemote: false,
@@ -141,7 +141,7 @@ export function useBoardInteraction() {
       addLog,
     });
 
-    if (eligibleTargets.length > 0) {
+    if (!roomId && eligibleTargets.length > 0) {
       setRobberyState({ tile, targets: eligibleTargets });
     }
   };

@@ -1,9 +1,22 @@
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
+import { fileURLToPath, URL } from 'node:url'
 
 // https://vite.dev/config/
 export default defineConfig({
   plugins: [react()],
+  resolve: {
+    alias: [
+      {
+        find: 'three-original',
+        replacement: fileURLToPath(new URL('./node_modules/three/build/three.module.js', import.meta.url)),
+      },
+      {
+        find: /^three$/,
+        replacement: fileURLToPath(new URL('./src/src/compat/threeTimerCompat.js', import.meta.url)),
+      },
+    ],
+  },
   build: {
     rolldownOptions: {
       output: {

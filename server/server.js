@@ -278,9 +278,14 @@ function createCatanServer() {
       if (!legality.ok) { callback?.({ success: false, code: 'ILLEGAL_ACTION', message: legality.message }); return; }
 
       applyReservedAction(room.gameState, approvedAction);
+      if (approvedAction.type === 'MOVE_ROBBER') {
+        approvedAction.eligibleVictimPlayerIds = [...(room.gameState.eligibleStealPlayerIds || [])];
+        approvedAction.hasEligibleVictims = approvedAction.eligibleVictimPlayerIds.length > 0;
+      }
       room.actionSequence += 1;
       activeRooms.set(payload.roomId, room);
       io.to(payload.roomId).emit('receive_game_action', { action: approvedAction, sequence: room.actionSequence });
+      io.to(payload.roomId).emit('game_state_snapshot', { snapshot: clone(room.gameState), sequence: room.actionSequence });
       callback?.({ success: true, sequence: room.actionSequence });
     });
 
@@ -291,6 +296,9 @@ function createCatanServer() {
       const room = activeRooms.get(payload.roomId);
       if (!room || room.hostSocketId !== socket.id || socket.data.roomId !== payload.roomId) {
         callback?.({ success: false, code: 'UNAUTHORIZED' }); return;
+      }
+      if (room.status === 'IN_GAME') {
+        callback?.({ success: false, code: 'SERVER_AUTHORITATIVE' }); return;
       }
       if (!validateRuntimeGameState(payload.snapshot, room)) {
         callback?.({ success: false, code: 'INVALID_STATE' }); return;

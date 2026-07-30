@@ -67,7 +67,46 @@ interface Road3DProps {
   is3DMode?: boolean;
   hasShip?: boolean;
   shipPlayerId?: string;
+  surfaceTexture: THREE.Texture;
 }
+
+const EDGE_FADE_ALPHA = (() => {
+  const width = 128;
+  const height = 96;
+  const data = new Uint8Array(width * height * 4);
+  const blendedSideShare = 1 / 3;
+  const solidSandStart = blendedSideShare;
+  const solidSandEnd = 1 - blendedSideShare;
+
+  const smoothstep = (edge0: number, edge1: number, value: number) => {
+    const normalized = Math.min(1, Math.max(0, (value - edge0) / (edge1 - edge0)));
+    return normalized * normalized * (3 - 2 * normalized);
+  };
+
+  for (let y = 0; y < height; y += 1) {
+    for (let x = 0; x < width; x += 1) {
+      const u = x / (width - 1);
+      const v = y / (height - 1);
+      // Divide the strip width into equal thirds: each outer third softly
+      // reveals its neighboring hex, while the middle third stays sand.
+      const sideFade = smoothstep(0, solidSandStart, v)
+        * (1 - smoothstep(solidSandEnd, 1, v));
+      const endFade = smoothstep(0, 0.045, u) * (1 - smoothstep(0.955, 1, u));
+      const alpha = Math.round(255 * sideFade * endFade);
+      const offset = (y * width + x) * 4;
+      data[offset] = alpha;
+      data[offset + 1] = alpha;
+      data[offset + 2] = alpha;
+      data[offset + 3] = 255;
+    }
+  }
+
+  const texture = new THREE.DataTexture(data, width, height, THREE.RGBAFormat);
+  texture.minFilter = THREE.LinearFilter;
+  texture.magFilter = THREE.LinearFilter;
+  texture.needsUpdate = true;
+  return texture;
+})();
 
 export const Road3D: React.FC<Road3DProps> = ({
   edge,
@@ -83,6 +122,7 @@ export const Road3D: React.FC<Road3DProps> = ({
   z: _z,
   is3DMode = true,
   hasShip,
+  surfaceTexture,
 }) => {
   const { currentAction } = useGame();
 
@@ -139,13 +179,31 @@ export const Road3D: React.FC<Road3DProps> = ({
   
   // גובה Z מעודכן לפי הדרישות: 0.88 ל-3D, ו-0.77 לדו-מימד
   const roadZ = !is3DMode ? 0.77 : 0.88;
+  const surfaceWidth = is3DMode ? 0.98 : 0.88;
 
   return (
     <group
       position={[mx, my, roadZ]}
       rotation={[0, 0, angle]}
-      visible={edge.hasRoad || edge.hasShip || isValidPlacement}
     >
+      {/* פס הקרקע/ים הרחב שמתחת לדרך, עם דעיכה רכה לתוך המשושים הסמוכים */}
+      <mesh position={[0, 0, is3DMode ? -0.1 : -0.005]} renderOrder={1}>
+        <planeGeometry args={[length * 1.12, surfaceWidth]} />
+        <meshStandardMaterial
+          map={surfaceTexture}
+          alphaMap={EDGE_FADE_ALPHA}
+          transparent={true}
+          opacity={0.96}
+          depthWrite={false}
+          roughness={0.95}
+          metalness={0}
+          side={THREE.DoubleSide}
+          polygonOffset={true}
+          polygonOffsetFactor={-2}
+          polygonOffsetUnits={-2}
+        />
+      </mesh>
+
       {is3DMode ? (
         <>
           {/* מצב תלת-ממדי */}
@@ -284,7 +342,7 @@ export const Road3D: React.FC<Road3DProps> = ({
           document.body.style.cursor = 'default';
         }}
       >
-        <boxGeometry args={[length, 0.5, 0.3]} />
+        <boxGeometry args={[length * 1.08, surfaceWidth, 0.3]} />
         <meshBasicMaterial
           transparent={true}
           opacity={0.001}

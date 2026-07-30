@@ -263,7 +263,8 @@ export function useTurnManager() {
         if (goldSelections && goldSelections.length > 0) {
           setGoldSelectionQueue(goldSelections);
           setTurnSubPhase('GOLD_RESOURCE_SELECTION');
-          addLog(`🪙 אריח זהב הופעל! יש לבחור משאבים עבור ${goldSelections.length} קודקודים.`);
+          const totalGoldResources = goldSelections.reduce((sum, selection) => sum + selection.amount, 0);
+          addLog(`🪙 אריח זהב הופעל! יש לבחור ${totalGoldResources} משאבים עבור ${goldSelections.length} שחקנים.`);
         } else {
           setTurnSubPhase('TRADE_AND_BUILD');
         }

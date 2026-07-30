@@ -20,7 +20,7 @@ export const MonopolyModal: React.FC<MonopolyModalProps> = ({
   setPlayers,
   addLog,
 }) => {
-  const { roomId, myPlayerId, setTurnSubPhase } = useGame();
+  const { roomId, myPlayerId, turnSubPhase, setTurnSubPhase } = useGame();
 
   if (!isOpen) return null;
 
@@ -63,6 +63,7 @@ export const MonopolyModal: React.FC<MonopolyModalProps> = ({
                   roomId: roomId || undefined,
                   isRemote: false,
                   myPlayerId: roomId ? myPlayerId : humanPlayer.id,
+                  turnSubPhase,
                   players,
                   setPlayers,
                   setTurnSubPhase,

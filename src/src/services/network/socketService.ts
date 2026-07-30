@@ -163,7 +163,7 @@ class SocketService {
   onGameStateSnapshot(callback: (snapshot: any, isHost?: boolean) => void): Cleanup {
     const remoteHandler = (payload: any) => {
       this.lastActionSequence = Math.max(this.lastActionSequence, Number(payload?.sequence || 0));
-      callback(payload?.snapshot, false);
+      callback(payload?.snapshot);
     };
     this.snapshotCallbacks.add(callback);
     this.socket?.on('game_state_snapshot', remoteHandler);

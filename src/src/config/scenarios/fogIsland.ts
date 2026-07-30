@@ -44,13 +44,12 @@ const rawSeafarers3PlayersFogIsland: HexTile[] = [
       type: 'FOG', 
       isFog: true, 
       originalType: idx % 3 === 0 ? 'WOOD' : idx % 3 === 1 ? 'WHEAT' : 'SHEEP', 
-      originalNumberToken: idx % 4 === 0 ? 5 : idx % 4 === 1 ? 9 : idx % 4 === 2 ? 8 : 4,
-      hasPirate: idx === 44 ? true : undefined // שודד הים ממוקם על צלע אריח 44
+      originalNumberToken: idx % 4 === 0 ? 5 : idx % 4 === 1 ? 9 : idx % 4 === 2 ? 8 : 4
     })
   ),
 
   // אריחי יבשה גלויים
-  createTileFromIndex(4, 'hex_fog3', { type: 'BRICK', numberToken: 6, harbors: [{ type: 'GENERIC', toTileId: 'hex_fog3_7' }] }),
+  createTileFromIndex(4, 'hex_fog3', { type: 'BRICK', numberToken: 6, harbors: [{ type: 'GENERIC', toTileId: 'hex_fog3_3' }] }),
   createTileFromIndex(5, 'hex_fog3', { type: 'WOOD', numberToken: 11, harbors: [{ type: 'SHEEP', toTileId: 'hex_fog3_11' }] }),
   createTileFromIndex(10, 'hex_fog3', { type: 'WOOD', numberToken: 5 }),
   createTileFromIndex(11, 'hex_fog3', { type: 'WHEAT', numberToken: 3 }),
@@ -67,7 +66,7 @@ const rawSeafarers3PlayersFogIsland: HexTile[] = [
 
   // אריחי ים (WATER)
   ...[3, 9, 12, 13, 14, 16, 19, 22, 24, 26, 27, 30, 32, 33, 34, 37, 40, 42].map(idx => 
-    createTileFromIndex(idx, 'hex_fog3', { type: 'WATER' })
+    createTileFromIndex(idx, 'hex_fog3', { type: 'WATER', hasPirate: idx === 3 ? true : undefined })
   )
 ].sort((a, b) => {
   const aIdx = parseInt(a.id.split('_')[2]);
@@ -88,33 +87,32 @@ const rawSeafarers4PlayersFogIsland: HexTile[] = [
       type: 'FOG', 
       isFog: true, 
       originalType: idx % 3 === 0 ? 'ORE' : idx % 3 === 1 ? 'SHEEP' : 'WOOD', 
-      originalNumberToken: idx % 4 === 0 ? 8 : idx % 4 === 1 ? 5 : idx % 4 === 2 ? 10 : 3,
-      hasPirate: idx === 44 ? true : undefined // שודד הים ממוקם על צלע אריח 44 (בין 43 ל-44)
+      originalNumberToken: idx % 4 === 0 ? 8 : idx % 4 === 1 ? 5 : idx % 4 === 2 ? 10 : 3
     })
   ),
 
   // אריחי יבשה גלויים
-  createTileFromIndex(3, 'hex_fog4', { type: 'BRICK', numberToken: 4, harbors: [{ type: 'SHEEP', toTileId: 'hex_fog4_4' }] }),
+  createTileFromIndex(3, 'hex_fog4', { type: 'BRICK', numberToken: 4, harbors: [{ type: 'SHEEP', edgeIndex: 5 }] }),
   createTileFromIndex(4, 'hex_fog4', { type: 'WHEAT', numberToken: 10 }),
-  createTileFromIndex(5, 'hex_fog4', { type: 'ORE', numberToken: 3, harbors: [{ type: 'WHEAT', toTileId: 'hex_fog4_4' }, { type: 'GENERIC', toTileId: 'hex_fog4_11' }] }),
+  createTileFromIndex(5, 'hex_fog4', { type: 'ORE', numberToken: 3, harbors: [{ type: 'WHEAT', edgeIndex: 4 }, { type: 'GENERIC', edgeIndex: 0 }] }),
   createTileFromIndex(9, 'hex_fog4', { type: 'SHEEP', numberToken: 9 }),
   createTileFromIndex(10, 'hex_fog4', { type: 'WOOD', numberToken: 6 }),
   createTileFromIndex(11, 'hex_fog4', { type: 'BRICK', numberToken: 12, hasRobber: true }), // השודד הרגיל ממוקם על אריח 11 (BRICK 12)
   createTileFromIndex(17, 'hex_fog4', { type: 'SHEEP', numberToken: 10 }),
-  createTileFromIndex(18, 'hex_fog4', { type: 'ORE', numberToken: 8, harbors: [{ type: 'BRICK', toTileId: 'hex_fog4_11' }] }),
+  createTileFromIndex(18, 'hex_fog4', { type: 'ORE', numberToken: 8, harbors: [{ type: 'BRICK', edgeIndex: 5 }] }),
   createTileFromIndex(20, 'hex_fog4', { type: 'ORE', numberToken: 3, harbors: [{ type: 'WOOD', toTileId: 'hex_fog4_19' }] }),
   createTileFromIndex(25, 'hex_fog4', { type: 'WHEAT', numberToken: 11 }),
-  createTileFromIndex(27, 'hex_fog4', { type: 'WHEAT', numberToken: 6, harbors: [{ type: 'ORE', toTileId: 'hex_fog4_34' }] }),
+  createTileFromIndex(27, 'hex_fog4', { type: 'WHEAT', numberToken: 6, harbors: [{ type: 'ORE', edgeIndex: 2 }] }),
   createTileFromIndex(28, 'hex_fog4', { type: 'WOOD', numberToken: 4 }),
   createTileFromIndex(33, 'hex_fog4', { type: 'WOOD', numberToken: 5, harbors: [{ type: 'GENERIC', toTileId: 'hex_fog4_32' }] }),
   createTileFromIndex(34, 'hex_fog4', { type: 'BRICK', numberToken: 9 }),
   createTileFromIndex(35, 'hex_fog4', { type: 'SHEEP', numberToken: 8 }),
-  createTileFromIndex(40, 'hex_fog4', { type: 'SHEEP', numberToken: 2, harbors: [{ type: 'GENERIC', toTileId: 'hex_fog4_34' }, { type: 'GENERIC', toTileId: 'hex_fog4_41' }] }),
+  createTileFromIndex(40, 'hex_fog4', { type: 'SHEEP', numberToken: 2, harbors: [{ type: 'GENERIC', edgeIndex: 3 }, { type: 'GENERIC', edgeIndex: 1 }] }),
   createTileFromIndex(41, 'hex_fog4', { type: 'WOOD', numberToken: 5 }),
 
   // אריחי ים (WATER)
   ...[2, 8, 12, 13, 15, 16, 19, 21, 24, 26, 29, 32, 36, 39, 42].map(idx => 
-    createTileFromIndex(idx, 'hex_fog4', { type: 'WATER' })
+    createTileFromIndex(idx, 'hex_fog4', { type: 'WATER', hasPirate: idx === 2 ? true : undefined })
   )
 ].sort((a, b) => {
   const aIdx = parseInt(a.id.split('_')[2]);

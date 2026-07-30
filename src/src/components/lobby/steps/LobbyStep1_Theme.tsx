@@ -20,7 +20,10 @@ export const LobbyStep1_Theme: React.FC<LobbyStep1ThemeProps> = ({
         {/* קטאן ערכת הבסיס */}
         <button
           type="button"
-          onClick={() => setGameType('BASE')}
+          onClick={() => {
+            setGameType('BASE');
+            onNext();
+          }}
           className={`group p-4 rounded-2xl border text-center transition-all duration-300 hover:scale-[1.02] cursor-pointer relative overflow-hidden flex flex-col items-center gap-4 ${
             gameType === 'BASE'
               ? 'border-amber-500 bg-slate-900/60 shadow-[0_0_30px_rgba(245,158,11,0.15)]'
@@ -89,16 +92,7 @@ export const LobbyStep1_Theme: React.FC<LobbyStep1ThemeProps> = ({
 
       </div>
 
-      {/* כפתור המשך לשלב הבא */}
-      <div className="w-full flex justify-end mt-4 max-w-3xl border-t border-slate-800/80 pt-6">
-        <button
-          type="button"
-          onClick={onNext}
-          className="bg-gradient-to-l from-amber-500 to-orange-500 text-slate-950 font-black py-3 px-8 rounded-xl text-sm shadow-lg shadow-amber-500/10 hover:shadow-amber-500/20 active:scale-[0.98] transition-all duration-200 tracking-wide hover:brightness-110 cursor-pointer"
-        >
-          המשך לבחירת הרחבה וסוג לוח
-        </button>
-      </div>
+      <p className="text-xs font-bold text-amber-400/80">לחיצה על ערכת המשחק ממשיכה מיד לשלב הבא.</p>
     </div>
   );
 };

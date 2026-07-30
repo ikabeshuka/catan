@@ -246,10 +246,6 @@ export const HexTile3D: React.FC<HexTile3DProps> = ({
           onTileHover(tile, e.clientX, e.clientY);
           if (isSelectableForRobber(tile)) document.body.style.cursor = 'pointer';
         }}
-        onPointerMove={(e) => {
-          e.stopPropagation();
-          onTileHover(tile, e.clientX, e.clientY);
-        }}
         onPointerOut={(e) => {
           e.stopPropagation();
           onTileLeave();

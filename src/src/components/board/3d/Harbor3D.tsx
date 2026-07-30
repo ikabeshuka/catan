@@ -11,7 +11,6 @@ interface Harbor3DProps {
   tileY: number;
   harborAngle?: number;
   onPointerOver: (e: any) => void;
-  onPointerMove: (e: any) => void;
   onPointerOut: () => void;
   onClick: (e: any) => void;
 }
@@ -24,7 +23,6 @@ export const Harbor3D: React.FC<Harbor3DProps> = ({
   tileY,
   harborAngle,
   onPointerOver,
-  onPointerMove,
   onPointerOut,
   onClick,
 }) => {
@@ -69,10 +67,9 @@ export const Harbor3D: React.FC<Harbor3DProps> = ({
     <group 
       ref={groupRef} 
       rotation={[0, 0, angle]}
-      scale={[1.2, 1.2, 1.2]}
+      scale={[1.35, 1.35, 1.35]}
       onClick={onClick}
       onPointerOver={onPointerOver}
-      onPointerMove={onPointerMove}
       onPointerOut={onPointerOut}
     >
       {/* Elongated bridge/dock represented by the clean transparent port.png texture */}
@@ -82,15 +79,20 @@ export const Harbor3D: React.FC<Harbor3DProps> = ({
       </mesh>
 
       {/* Floating resource icon precisely at the outer tip/edge of the harbor legs where it meets water */}
-      <Billboard position={[0.72, 0, 0.12]} scale={[0.22, 0.22, 0.22]}>
+      <Billboard position={[0.82, 0, 0.68]} scale={[0.54, 0.54, 0.54]}>
+        <mesh position={[0, 0, -0.01]}>
+          <circleGeometry args={[0.66, 32]} />
+          <meshBasicMaterial color="#fff7d6" opacity={1} transparent={false} />
+        </mesh>
         <mesh>
           <planeGeometry args={[1, 1]} />
           <meshBasicMaterial 
             map={resourceTexture} 
-            transparent={true} 
-            depthWrite={false}
-            blending={THREE.MultiplyBlending}
-            premultipliedAlpha={true}
+            transparent={true}
+            opacity={1}
+            alphaTest={0.05}
+            depthWrite={true}
+            blending={THREE.NormalBlending}
           />
         </mesh>
       </Billboard>

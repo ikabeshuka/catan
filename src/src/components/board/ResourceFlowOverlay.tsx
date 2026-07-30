@@ -205,9 +205,6 @@ export const ResourceFlowOverlay: React.FC = () => {
             }
           }
         `;
-        const element = { style: { transform: '' } };
-        console.log('[ResourceFlow CSS]', element.style.transform || keyframeString);
-
         return (
           <div
             key={anim.id}

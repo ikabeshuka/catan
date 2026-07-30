@@ -24,3 +24,8 @@ export interface RatingCalculationResult {
   finalPointsChanged: number;       // השינוי הסופי בנקודות (+ או -)
   reason: string;                   // הסבר בעברית לשחקן על אופן החישוב
 }
+
+export interface GeneralPlayerStats extends PlayerRatingStats {
+  playerName: string;
+  updatedAt: string;
+}

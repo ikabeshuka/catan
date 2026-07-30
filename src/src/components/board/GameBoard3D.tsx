@@ -6,7 +6,6 @@ import { validateShipPlacement } from '../../utils/validation/validateShipPlacem
 import { Canvas } from '@react-three/fiber';
 import { OrbitControls } from '@react-three/drei';
 import * as THREE from 'three';
-import { useTurnManager } from '../../hooks/useTurnManager';
 import { useBoardInteraction } from '../../hooks/useBoardInteraction';
 import { Board3DScene } from './Board3DScene';
 import { getHarborDescription, getTileTooltipInfo } from '../../utils/boardTooltipHelpers';
@@ -20,18 +19,6 @@ export const GameBoard3D: React.FC = () => {
   const sheepPath = "/wool1.png";
   const wheatPath = "/wheat1.png";
   const orePath = "/rock1.png";
-
-  React.useEffect(() => {
-    if (containerRef.current) {
-      const rect = containerRef.current.getBoundingClientRect();
-      console.log('[GameBoard3D Canvas Wrapper Dimensions]', {
-        width: rect.width,
-        height: rect.height,
-        clientWidth: containerRef.current.clientWidth,
-        clientHeight: containerRef.current.clientHeight
-      });
-    }
-  }, []);
 
   const handleResetCamera = () => {
     if (orbitControlsRef.current) {
@@ -56,7 +43,7 @@ export const GameBoard3D: React.FC = () => {
     showBuildingCostToast
   } = useGame();
 
-  useTurnManager();
+  const hasFrameSea = tiles.some(tile => tile.isFrameSea);
 
   React.useEffect(() => {
     const updateCamera = () => {
@@ -64,15 +51,19 @@ export const GameBoard3D: React.FC = () => {
         const controls = orbitControlsRef.current;
         const camera = controls.object as THREE.PerspectiveCamera;
         if (camera) {
-          const isSeafarers = activeExpansion === 'SEAFARERS' || tiles.length === 37;
+          const isSeafarers = activeExpansion === 'SEAFARERS';
           if (!is3DMode) {
-            camera.position.set(0, 0, isSeafarers ? 58 : 46);
+            camera.position.set(0, 0, hasFrameSea ? 66 : isSeafarers ? 58 : 46);
             camera.fov = isSeafarers ? 35 : 30;
             camera.updateProjectionMatrix();
             controls.target.set(0, 0, 0);
             controls.update();
           } else {
-            camera.position.set(0, isSeafarers ? -38 : -29, isSeafarers ? 54 : 41);
+            camera.position.set(
+              0,
+              hasFrameSea ? -42 : isSeafarers ? -38 : -29,
+              hasFrameSea ? 60 : isSeafarers ? 54 : 41
+            );
             camera.fov = isSeafarers ? 35 : 30;
             camera.updateProjectionMatrix();
             controls.target.set(0, 0, 0);
@@ -89,7 +80,7 @@ export const GameBoard3D: React.FC = () => {
       clearTimeout(timer);
       clearTimeout(timer2);
     };
-  }, [is3DMode, activeExpansion, tiles.length]);
+  }, [is3DMode, activeExpansion, hasFrameSea]);
 
   const {
     hoveredTile,
@@ -262,7 +253,13 @@ export const GameBoard3D: React.FC = () => {
 
       {/* Main canvas viewport */}
       <div ref={containerRef} className="absolute inset-0 w-full h-full" style={{ touchAction: 'none' }}>
-        <Canvas camera={{ position: [0, 0, 44], fov: 30 }} style={{ touchAction: 'none' }}>
+        <Canvas
+          camera={{ position: [0, 0, 44], fov: 30 }}
+          dpr={[1, 1.5]}
+          frameloop={is3DMode ? 'always' : 'demand'}
+          gl={{ antialias: is3DMode, powerPreference: 'high-performance' }}
+          style={{ touchAction: 'none' }}
+        >
           <ambientLight intensity={1.2} />
           <directionalLight position={[10, 10, 20]} intensity={1.5} />
           <OrbitControls 

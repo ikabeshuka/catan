@@ -1,4 +1,6 @@
-import React, { useState } from 'react';
+import React, { Suspense, useMemo, useState } from 'react';
+import { Canvas } from '@react-three/fiber';
+import { useGLTF } from '@react-three/drei';
 import { 
   UserIcon, BotIcon, EasyIcon, MediumIcon, HardIcon, SuperHardIcon 
 } from '../../common/Icons';
@@ -19,37 +21,48 @@ interface LobbyStep4PlayersSetupProps {
   onPrev: () => void;
   onStartGame: () => void;
   isGuest?: boolean;
+  highlightedPlayerId?: string;
 }
 
-// Beautiful board game pawn icon (חייל משחק)
-const PawnIcon = ({ color, size = 32 }: { color: string; size?: number }) => (
-  <svg 
-    width={size} 
-    height={size} 
-    viewBox="0 0 24 24" 
-    fill="none" 
-    xmlns="http://www.w3.org/2000/svg"
-    className="filter drop-shadow-[0_2px_5px_rgba(0,0,0,0.5)]"
-  >
-    {/* Pawn Head */}
-    <circle cx="12" cy="7" r="4" fill={color} stroke="#ffffff" strokeWidth="1.5" />
-    {/* Pawn Neck Ring */}
-    <ellipse cx="12" cy="12" rx="3.5" ry="1" fill="#ffffff" />
-    {/* Pawn Body */}
-    <path 
-      d="M7 21C7 16.5 9.5 13.5 12 13.5C14.5 13.5 17 16.5 17 21" 
-      fill={color} 
-      stroke="#ffffff" 
-      strokeWidth="1.5" 
-      strokeLinecap="round" 
-    />
-    {/* Base Ring */}
-    <path d="M5 21C5 20.5 5.5 19.5 12 19.5C18.5 19.5 19 20.5 19 21H5Z" fill="#ffffff" />
-  </svg>
-);
+const PAWN_MODELS: Record<string, string> = {
+  '#e53935': '/models/red_pown.glb',
+  '#1e88e5': '/models/blue_pown.glb',
+  '#fdd835': '/models/yelow_pown.glb',
+  '#43a047': '/models/green_pown.glb',
+};
+
+const PawnModel = ({ modelPath }: { modelPath: string }) => {
+  const { scene: sourceScene } = useGLTF(modelPath);
+  const scene = useMemo(() => sourceScene.clone(true), [sourceScene]);
+
+  return <primitive object={scene} position={[0, -0.035, 0]} rotation={[0, -0.35, 0]} scale={3.1} />;
+};
+
+const Pawn3D = ({ color, label }: { color: string; label: string }) => {
+  const modelPath = PAWN_MODELS[color.toLowerCase()] || PAWN_MODELS['#e53935'];
+
+  return (
+    <div className="lobby-pawn-model h-24 w-20" role="img" aria-label={label}>
+      <Canvas
+        camera={{ position: [0, 0.03, 1.7], fov: 25 }}
+        dpr={[1, 1.5]}
+        gl={{ alpha: true, antialias: true }}
+      >
+        <ambientLight intensity={2.2} />
+        <directionalLight position={[2, 3, 4]} intensity={3.2} />
+        <directionalLight position={[-2, 1, 2]} intensity={1.2} />
+        <Suspense fallback={null}>
+          <PawnModel modelPath={modelPath} />
+        </Suspense>
+      </Canvas>
+    </div>
+  );
+};
+
+Object.values(PAWN_MODELS).forEach(modelPath => useGLTF.preload(modelPath));
 
 export const LobbyStep4_PlayersSetup: React.FC<LobbyStep4PlayersSetupProps> = ({
-  playerCount: _playerCount,
+  playerCount,
   lobbyPlayers,
   setLobbyPlayers,
   togglePlayerType,
@@ -62,8 +75,9 @@ export const LobbyStep4_PlayersSetup: React.FC<LobbyStep4PlayersSetupProps> = ({
   onPrev,
   onStartGame,
   isGuest = false,
+  highlightedPlayerId,
 }) => {
-  const activePlayers = lobbyPlayers.slice(0, 4);
+  const activePlayers = lobbyPlayers.slice(0, playerCount);
   const hasBots = activePlayers.some(p => p.isBot);
 
   // State to track which player's color picker popover is currently open
@@ -120,19 +134,37 @@ export const LobbyStep4_PlayersSetup: React.FC<LobbyStep4PlayersSetupProps> = ({
 
   return (
     <div className="w-full animate-fade-in flex flex-col items-center gap-6" dir="rtl">
+      <style>{`
+        @keyframes lobby-pawn-hover {
+          0%, 100% { transform: scale(1.08) rotate(0deg); }
+          25% { transform: scale(1.1) rotate(-2deg); }
+          75% { transform: scale(1.1) rotate(2deg); }
+        }
+        .lobby-pawn-trigger:hover .lobby-pawn-model {
+          animation: lobby-pawn-hover 420ms ease-in-out infinite;
+        }
+        @media (prefers-reduced-motion: reduce) {
+          .lobby-pawn-trigger:hover .lobby-pawn-model { animation: none; transform: scale(1.05); }
+        }
+      `}</style>
       
       {/* 🔹 הגדרת המשתתפים */}
       <h2 className="text-xl font-bold text-slate-100 text-center">הגדרת משתתפים וצבעים:</h2>
       
       {/* grid grid-cols-4 gap-4 structure */}
-      <div className="grid grid-cols-4 gap-4 w-full max-w-4xl relative">
+      <div className={`grid gap-4 w-full max-w-4xl relative ${playerCount === 3 ? 'grid-cols-1 sm:grid-cols-3' : 'grid-cols-2 lg:grid-cols-4'}`}>
         {activePlayers.map((p, index) => {
           const isPopoverOpen = activePopoverPlayerId === p.id;
+          const isHighlightedPlayer = p.id === highlightedPlayerId;
 
           return (
             <div 
               key={p.id}
-              className="flex flex-col items-center p-5 bg-slate-950 border border-slate-800 rounded-2xl gap-5 shadow-2xl relative transition-all duration-300 hover:border-slate-700 overflow-visible"
+              className={`lobby-player-card flex flex-col items-center p-5 rounded-2xl gap-5 relative transition-all duration-300 hover:-translate-y-1 overflow-visible ${
+                isHighlightedPlayer
+                  ? 'z-10 bg-slate-950 border border-amber-500/70 shadow-[0_16px_45px_rgba(245,158,11,0.18)] ring-1 ring-amber-400/25'
+                  : 'bg-slate-950/85 border border-slate-800/70 shadow-xl hover:border-slate-700'
+              }`}
             >
               {/* Badge indicating player index */}
               <div className="absolute top-3 right-3 px-2 py-0.5 bg-slate-900 border border-slate-800 rounded-full text-[10px] font-bold text-slate-500">
@@ -209,15 +241,24 @@ export const LobbyStep4_PlayersSetup: React.FC<LobbyStep4PlayersSetupProps> = ({
               )}
 
               {/* 2. Player Name and Pawn/Soldier */}
-              <div className="w-full flex flex-col items-center gap-4">
-                {/* Clickable Pawn/Soldier Icon with popping gold hover effect */}
+              <div className={`w-full flex flex-col items-center gap-4 transition-transform duration-300 ${isHighlightedPlayer ? 'scale-105' : 'scale-95'}`}>
+                {/* חייל תלת־ממדי לחיץ לבחירת צבע */}
                 <button
                   type="button"
                   onClick={() => setActivePopoverPlayerId(isPopoverOpen ? null : p.id)}
-                  className="p-3 bg-slate-900/60 border border-slate-800 rounded-full hover:scale-110 active:scale-95 transition-all cursor-pointer relative shadow-lg group hover:border-amber-500/40 hover:shadow-amber-500/5"
+                  className={`lobby-pawn-trigger relative flex h-28 w-24 items-center justify-center rounded-[45%] border transition-all duration-300 cursor-pointer group active:scale-95 ${
+                    isHighlightedPlayer
+                      ? 'bg-gradient-to-b from-amber-400/15 to-slate-950 border-amber-500/45 shadow-[0_12px_28px_rgba(245,158,11,0.2)]'
+                      : 'bg-slate-900/45 border-slate-800/70 shadow-lg opacity-65 hover:opacity-100'
+                  }`}
                   title="לחץ לבחירת צבע"
                 >
-                  <PawnIcon color={p.color} size={36} />
+                  <Pawn3D color={p.color} label={`חייל תלת־ממדי של ${p.name}`} />
+                  {isHighlightedPlayer && (
+                    <span className="absolute -top-2 left-1/2 -translate-x-1/2 whitespace-nowrap rounded-full border border-amber-400/40 bg-amber-500 px-2 py-0.5 text-[9px] font-black text-slate-950 shadow-lg">
+                      השחקן שלך
+                    </span>
+                  )}
                   {/* Interactivity indicator */}
                   <span className="absolute bottom-0 right-0 w-3 h-3 rounded-full bg-slate-950 border border-slate-800 flex items-center justify-center text-[8px] text-amber-400 font-black">
                     🎨

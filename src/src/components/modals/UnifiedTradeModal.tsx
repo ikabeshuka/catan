@@ -27,7 +27,7 @@ interface UnifiedTradeModalProps {
 }
 
 export const UnifiedTradeModal: React.FC<UnifiedTradeModalProps> = ({ onClose }) => {
-  const { players, vertices, setPlayers, addLog, activePortTrade, roomId, myPlayerId } = useGame();
+  const { players, vertices, setPlayers, addLog, activePortTrade, roomId, myPlayerId, resourceBank } = useGame();
   const { tradeWithBank, turnSubPhase, currentPlayer } = useTurnManager();
   const {
     giveRes,
@@ -391,6 +391,18 @@ export const UnifiedTradeModal: React.FC<UnifiedTradeModalProps> = ({ onClose })
             <span className="font-black text-center leading-tight">מסחר בנמל</span>
             <span className="text-[9px] opacity-75">(יחס {giveAmt}:{receiveAmt})</span>
           </button>
+        </div>
+
+        <div className="mt-4 flex items-center gap-3 rounded-xl border border-slate-800 bg-slate-950/45 p-3">
+          <span className="shrink-0 text-xs font-black text-slate-300">מלאי הבנק:</span>
+          <div className="grid flex-1 grid-cols-5 gap-2">
+            {(['WOOD', 'BRICK', 'SHEEP', 'WHEAT', 'ORE'] as const).map(resource => (
+              <div key={`modal-bank-${resource}`} className="flex items-center justify-center gap-1 rounded-lg bg-slate-900/80 px-1.5 py-1" title={`${RESOURCE_LABELS[resource]}: ${resourceBank[resource] || 0}`}>
+                <TransparentImage src={RESOURCE_IMAGES[resource]} className="h-5 w-5 object-contain" alt="" />
+                <span className="text-xs font-black text-emerald-400">{resourceBank[resource] || 0}</span>
+              </div>
+            ))}
+          </div>
         </div>
       </div>
     </div>
