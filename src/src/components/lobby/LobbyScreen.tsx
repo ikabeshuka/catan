@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useGame } from '../../context/GameContext';
 import { useUser } from '../../context/UserContext';
 import { LobbyPlayer } from './types';
+import { AuthWidget } from '../auth/AuthWidget';
 import { PlayerStatsModal } from '../modals/PlayerStatsModal';
 import { PlayerType } from '../../types/player.types';
 import { LobbyStep1_Theme } from './steps/LobbyStep1_Theme';
@@ -235,6 +236,11 @@ export const LobbyScreen: React.FC<LobbyScreenProps> = ({
       {/* Main setup container */}
       <div className="w-full max-w-4xl bg-slate-900/90 border border-slate-800/80 p-6 md:p-10 rounded-2xl shadow-2xl z-10 flex flex-col items-center my-auto" dir="rtl">
         
+        {/* Auth Widget */}
+        <div className="w-full max-w-sm mb-6">
+          <AuthWidget />
+        </div>
+
         {/* Header Section */}
         <div className="text-center w-full mb-6">
           <div className="inline-block px-4 py-1 bg-amber-500/15 border border-amber-500/25 rounded-full text-amber-400 text-xs font-bold uppercase tracking-wider mb-3">

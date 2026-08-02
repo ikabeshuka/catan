@@ -24,4 +24,11 @@ export interface HexTile {
   revealed?: boolean;             // האם האריח כבר נחשף
   originalType?: ResourceType;    // סוג המשאב הנסתר מתחת לערפל
   originalNumberToken?: number | null; // המספר הנסתר מתחת לערפל
+  lostTribeRewards?: {
+    id: string;
+    edgeIndex: number;
+    kind: 'VICTORY_POINT' | 'DEV_CARD' | 'HARBOR';
+    harborType?: 'WOOD' | 'BRICK' | 'SHEEP' | 'WHEAT' | 'ORE' | 'GENERIC';
+  }[];
+  robberStartLocked?: boolean;
 }

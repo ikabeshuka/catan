@@ -63,6 +63,7 @@ export type GameAction =
 
   // --- הרחבת יורדי הים (Seafarers) ---
   | { type: 'MOVE_SHIP'; playerId: string; fromEdgeId: string; toEdgeId: string }
+  | { type: 'PLACE_HARBOR'; playerId: string; edgeId: string }
   | { type: 'DISCOVER_FOG'; playerId: string; tileId: string; revealedTile: any }
   | { type: 'SELECT_GOLD_RESOURCE'; playerId: string; resource: ResourceType }
 

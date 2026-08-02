@@ -11,6 +11,7 @@ import { createStandardDevelopmentDeck } from '../config/gameRules';
 import { createSnapshot, restoreFromSnapshot, TurnSnapshot } from '../utils/gameEngine/turnSnapshots';
 import { calculateLongestRoadForPlayer } from '../utils/gameEngine/checkLongestRoad';
 import { ResourceCards } from '../types/resources.types';
+import { reserveLostTribeDevelopmentCards } from '../utils/gameEngine/lostTribeHelpers';
 
 export type GamePhase = 'LOBBY' | 'SETUP_ROUND_1' | 'SETUP_ROUND_2' | 'MAIN_GAME' | 'GAME_OVER';
 
@@ -268,15 +269,7 @@ export const PlayerProvider: React.FC<{ children: ReactNode }> = ({ children }) 
     }));
     setResourceBank(prev => ({ ...prev, WHEAT: prev.WHEAT + 1, ORE: prev.ORE + 1, SHEEP: prev.SHEEP + 1 }));
 
-    const cardNames: Record<string, string> = {
-      KNIGHT: 'אביר',
-      ROAD_BUILDING: 'בניית כבישים',
-      YEAR_OF_PLENTY: 'שנת שפע',
-      MONOPOLY: 'מונופול',
-      VICTORY_POINT: 'נקודת ניצחון',
-    };
-
-    addLog(`🎴 ${currentPlayer.name} קנה קלף פיתוח (${cardNames[normalizedType] || normalizedType})!`);
+    addLog(`🎴 ${currentPlayer.name} קנה קלף פיתוח.`);
     return true;
   };
 
@@ -377,13 +370,17 @@ export const PlayerProvider: React.FC<{ children: ReactNode }> = ({ children }) 
     const newVertices = presetVertices || generateVertices(newTiles, activeExpansion);
     const newEdges = presetEdges || generateEdges(newTiles, activeExpansion);
 
-    const deck: string[] = presetDeck ? [...presetDeck] : createStandardDevelopmentDeck();
+    let deck: string[] = presetDeck ? [...presetDeck] : createStandardDevelopmentDeck();
 
     if (!presetDeck) {
       for (let i = deck.length - 1; i > 0; i--) {
         const j = Math.floor(Math.random() * (i + 1));
         [deck[i], deck[j]] = [deck[j], deck[i]];
       }
+    }
+
+    if (!presetDeck && selectedScenario === 'THE_LOST_TRIBE') {
+      deck = reserveLostTribeDevelopmentCards(deck, newEdges);
     }
 
     const initialPlayers: Player[] = [

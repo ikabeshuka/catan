@@ -65,6 +65,7 @@ export function useVertexInteraction() {
         edges,
         tiles,
         selectedScenario,
+        activeExpansion,
         setVertices,
         setPlayers,
         resourceBank,

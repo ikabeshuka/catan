@@ -15,6 +15,8 @@ import { handleRiskManagement } from '../helpers/riskManager';
 import { longestRoadStrategy } from '../strategies/longestRoadStrategy';
 import { cityDevStrategy } from '../strategies/cityDevStrategy';
 import { balancedPortStrategy } from '../strategies/balancedPortStrategy';
+import { claimLostTribeReward, getEligibleHarborEdges, getLostTribeRewardLog } from '../../gameEngine/lostTribeHelpers';
+import { getEdgeVertices } from '../../hexMath/boardGeometryHelpers';
 
 const STRATEGIES = {
   LONG_ROAD_EXPANSION: longestRoadStrategy,
@@ -419,6 +421,20 @@ export function tradeAndBuildPhase({
             WHEAT: (currentBot.resources.WHEAT || 0) - 1
           }
         };
+        if (currentBot.unplacedHarbors?.length) {
+          const harborEdge = getEligibleHarborEdges(currentBot.id, currentVertices, currentEdges, tiles)[0];
+          if (harborEdge) {
+            const harborType = currentBot.unplacedHarbors[0];
+            currentEdges = currentEdges.map(edge => edge.id === harborEdge.id
+              ? { ...edge, isHarbor: true, harborType }
+              : edge);
+            const harborVertices = new Set(getEdgeVertices(harborEdge.id));
+            currentVertices = currentVertices.map(vertex => harborVertices.has(vertex.id)
+              ? { ...vertex, isHarbor: true, harborType }
+              : vertex);
+            currentBot = { ...currentBot, unplacedHarbors: currentBot.unplacedHarbors.slice(1) };
+          }
+        }
         if (addLog) {
           addLog(`[בנייה] הבוט ${currentBot.name} בנה יישוב!`);
         }
@@ -460,8 +476,18 @@ export function tradeAndBuildPhase({
         buildHappened = true;
       } else if (action.type === 'BUILD_SHIP' && action.targetId) {
         const targetEdgeId = action.targetId;
+        const rewardEdge = currentEdges.find(edge => edge.id === targetEdgeId);
+        const rewardLog = rewardEdge ? getLostTribeRewardLog(currentBot.name, rewardEdge) : null;
         currentEdges = currentEdges.map(e =>
-          e.id === targetEdgeId ? { ...e, hasShip: true, shipPlayerId: currentBot.id, playerId: currentBot.id } : e
+          e.id === targetEdgeId ? {
+            ...e,
+            hasShip: true,
+            shipPlayerId: currentBot.id,
+            playerId: currentBot.id,
+            lostTribeReward: e.lostTribeReward && !e.lostTribeReward.collectedBy
+              ? { ...e.lostTribeReward, collectedBy: currentBot.id }
+              : e.lostTribeReward,
+          } : e
         );
         currentBot = {
           ...currentBot,
@@ -471,7 +497,23 @@ export function tradeAndBuildPhase({
             SHEEP: (currentBot.resources.SHEEP || 0) - 1
           }
         };
+        if (rewardEdge) currentBot = claimLostTribeReward(currentBot, rewardEdge);
+        if (currentBot.unplacedHarbors?.length) {
+          const harborEdge = getEligibleHarborEdges(currentBot.id, currentVertices, currentEdges, tiles)[0];
+          if (harborEdge) {
+            const harborType = currentBot.unplacedHarbors[0];
+            currentEdges = currentEdges.map(edge => edge.id === harborEdge.id
+              ? { ...edge, isHarbor: true, harborType }
+              : edge);
+            const harborVertices = new Set(getEdgeVertices(harborEdge.id));
+            currentVertices = currentVertices.map(vertex => harborVertices.has(vertex.id)
+              ? { ...vertex, isHarbor: true, harborType }
+              : vertex);
+            currentBot = { ...currentBot, unplacedHarbors: currentBot.unplacedHarbors.slice(1) };
+          }
+        }
         if (addLog) {
+          if (rewardLog) addLog(rewardLog);
           addLog(`[בנייה] הבוט ${currentBot.name} בנה ספינה!`);
         }
         buildHappened = true;

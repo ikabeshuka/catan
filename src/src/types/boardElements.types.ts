@@ -17,4 +17,11 @@ export interface BoardEdge {
   harborAngle?: number;
   hasShip?: boolean;           // האם בנויה כאן ספינה?
   shipPlayerId?: string | null; // מזהה השחקן שבנה את הספינה
+  lostTribeReward?: {
+    id: string;
+    kind: 'VICTORY_POINT' | 'DEV_CARD' | 'HARBOR';
+    harborType?: 'WOOD' | 'BRICK' | 'SHEEP' | 'WHEAT' | 'ORE' | 'GENERIC';
+    devCardType?: 'KNIGHT' | 'VICTORY_POINT' | 'ROAD_BUILDING' | 'YEAR_OF_PLENTY' | 'MONOPOLY';
+    collectedBy?: string;
+  };
 }

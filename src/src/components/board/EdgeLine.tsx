@@ -3,12 +3,11 @@ import { useTurnManager } from '../../hooks/useTurnManager';
 import { BoardVertex, BoardEdge } from '../../types/boardElements.types';
 import { Player } from '../../types/player.types';
 import { HexTile } from '../../types/hex.types';
-import { parseEdgeId } from '../../utils/hexMath/parseEdgeId';
 import { validateRoadPlacement } from '../../utils/validation/validateRoadPlacement';
 import { validateShipPlacement } from '../../utils/validation/validateShipPlacement';
 import { useGame } from '../../context/GameContext';
-import { getTileEdgeIds } from '../../utils/gameEngine/generateEdges';
 import { getOpenShipsForPlayer } from '../../utils/gameEngine/getOpenShipsForPlayer';
+import { getCachedEdgeGeometry } from '../../utils/hexMath/boardRenderCache';
 
 interface EdgeLineProps {
   edge: BoardEdge;
@@ -57,7 +56,8 @@ export const EdgeLine: React.FC<EdgeLineProps> = ({
     setHasMovedShipThisTurn, 
     currentTurnBuiltShips,
     activeExpansion,
-    gamePhase
+    gamePhase,
+    boardRenderCache,
   } = useGame();
   const turnManager = useTurnManager();
   const isSetupPhase = propIsSetupPhase !== undefined ? propIsSetupPhase : turnManager.isSetupPhase;
@@ -65,13 +65,13 @@ export const EdgeLine: React.FC<EdgeLineProps> = ({
   const recordSetupPlacement = propRecordSetupPlacement !== undefined ? propRecordSetupPlacement : turnManager.recordSetupPlacement;
   const turnSubPhase = propTurnSubPhase !== undefined ? propTurnSubPhase : turnManager.turnSubPhase;
 
-  const { x1, y1, x2, y2 } = parseEdgeId(edge.id);
-  const mx = (x1 + x2) / 2;
-  const my = (y1 + y2) / 2;
-  const dx = x2 - x1;
-  const dy = y2 - y1;
-  const length = Math.sqrt(dx * dx + dy * dy);
-  const angleDeg = (Math.atan2(dy, dx) * 180) / Math.PI;
+  const edgeRenderData = boardRenderCache.edgeById.get(edge.id);
+  const edgeGeometry = edgeRenderData || getCachedEdgeGeometry(edge.id);
+  const { x1, y1, x2, y2 } = edgeGeometry;
+  const mx = edgeGeometry.center2D.x;
+  const my = edgeGeometry.center2D.y;
+  const length = edgeGeometry.length2D;
+  const angleDeg = edgeGeometry.angleDeg2D;
 
   const currentPlayer = players[currentPlayerIndex];
 
@@ -80,12 +80,8 @@ export const EdgeLine: React.FC<EdgeLineProps> = ({
 
   const isCoast = React.useMemo(() => {
     if (!tiles || tiles.length === 0) return false;
-    const bordering = tiles.filter(t => getTileEdgeIds(t).includes(edge.id));
-    const hasLand = bordering.some(t => t.type !== 'WATER' && t.type !== 'SEA' && t.type !== 'FOG');
-    const hasWater = bordering.some(t => t.type === 'WATER' || t.type === 'SEA' || t.type === 'FOG');
-    const isLandFrame = bordering.length === 1 && hasLand;
-    return (hasLand && hasWater) || isLandFrame;
-  }, [edge.id, tiles]);
+    return edgeRenderData?.isCoast || false;
+  }, [edgeRenderData, tiles]);
 
   const isAdjacentToSetupSettlement = React.useMemo(() => {
     if (!isSetupPhase || !setupState?.lastSettlementVertexId) return false;
@@ -97,8 +93,8 @@ export const EdgeLine: React.FC<EdgeLineProps> = ({
 
   const bordersWater = React.useMemo(() => {
     if (!tiles || tiles.length === 0) return false;
-    return tiles.filter(t => getTileEdgeIds(t).includes(edge.id)).some(t => t.type === 'WATER' || t.type === 'SEA' || t.type === 'FOG');
-  }, [edge.id, tiles]);
+    return edgeRenderData?.hasWater || false;
+  }, [edgeRenderData, tiles]);
 
   // בדיקה האם הנתיב הזה חוקי לבנייה עבור השחקן שמשחק כרגע
   const isBlockedBySetup = isSetupPhase && setupState?.hasPlacedRoad;
@@ -572,6 +568,20 @@ export const EdgeLine: React.FC<EdgeLineProps> = ({
             className="select-none pointer-events-none font-sans"
           >
             ⚓
+          </text>
+        </g>
+      )}
+
+      {edge.lostTribeReward && !edge.lostTribeReward.collectedBy && !is3DMode && (
+        <g transform={`translate(${mx}, ${my})`} pointerEvents="none">
+          <circle
+            r="9"
+            fill={edge.lostTribeReward.kind === 'VICTORY_POINT' ? '#fbbf24' : edge.lostTribeReward.kind === 'DEV_CARD' ? '#6d28d9' : '#0ea5e9'}
+            stroke="#ffffff"
+            strokeWidth="1.5"
+          />
+          <text y="3.5" textAnchor="middle" fontSize="10" fontWeight="900" fill="#ffffff">
+            {edge.lostTribeReward.kind === 'VICTORY_POINT' ? '★' : edge.lostTribeReward.kind === 'DEV_CARD' ? '?' : '⚓'}
           </text>
         </g>
       )}

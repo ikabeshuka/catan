@@ -2,6 +2,9 @@ import { GameAction } from '../types/gameActions.types';
 import { socketService } from './network/socketService';
 import { cubeToPixel } from '../utils/hexMath/cubeToPixel';
 import type { ResourceCards } from '../types/resources.types';
+import { validateSettlementPlacement } from '../utils/validation/validateSettlementPlacement';
+import { getEdgeVertices } from '../utils/hexMath/boardGeometryHelpers';
+import { claimLostTribeReward, getEligibleHarborEdges, getLostTribeRewardLog } from '../utils/gameEngine/lostTribeHelpers';
 
 export interface DispatcherContext {
   roomId?: string;
@@ -147,6 +150,16 @@ export function dispatchGameAction(action: GameAction, context?: DispatcherConte
       if (!player) return;
       const targetVertex = context.vertices?.find((vertex: any) => vertex.id === vertexId);
       if (!targetVertex || targetVertex.structure !== 'NONE' || !context.setVertices) return;
+      if (!validateSettlementPlacement(
+        vertexId,
+        playerId,
+        context.gamePhase as any,
+        context.vertices || [],
+        context.edges || [],
+        context.tiles,
+        context.selectedScenario,
+        context.activeExpansion
+      )) return;
       if (!isSetupPhase && (context.turnSubPhase !== 'TRADE_AND_BUILD' ||
           player.resources.WOOD < 1 || player.resources.BRICK < 1 || player.resources.SHEEP < 1 || player.resources.WHEAT < 1 ||
           !context.setPlayers)) return;
@@ -222,10 +235,16 @@ export function dispatchGameAction(action: GameAction, context?: DispatcherConte
           }
         }
 
+        const verticesAfterSettlement = (context.vertices || []).map((vertex: any) =>
+          vertex.id === vertexId ? { ...vertex, structure: 'SETTLEMENT', playerId } : vertex);
+        const storedHarborCanBePlaced = (player.unplacedHarbors?.length || 0) > 0 &&
+          getEligibleHarborEdges(playerId, verticesAfterSettlement, context.edges || [], context.tiles || []).length > 0;
+
         context.setPlayers?.((prev: any[]) => prev.map(p => p.id === playerId
           ? {
               ...p,
               victoryPoints: p.victoryPoints + 1,
+              harborReturnSubPhase: storedHarborCanBePlaced ? 'TRADE_AND_BUILD' : p.harborReturnSubPhase,
               resources: {
                 ...p.resources,
                 WOOD: p.resources.WOOD - 1,
@@ -244,6 +263,10 @@ export function dispatchGameAction(action: GameAction, context?: DispatcherConte
           WHEAT: previous.WHEAT + 1,
         }));
         context.showBuildingCostToast?.('SETTLEMENT', true);
+        if (storedHarborCanBePlaced) {
+          context.setTurnSubPhase?.('HARBOR_PLACEMENT');
+          context.addLog?.('היישוב החדש מאפשר להציב נמל שמור. בחר צלע חוף מודגשת.');
+        }
         context.addLog?.(`שחקן ${player.name} בנה יישוב!`);
         if (specialVPBonus > 0 && targetIslandId !== undefined) {
           context.addLog?.(`🏆 ${player.name} התיישב לראשונה באי זר (אי מספר ${targetIslandId}) וקיבל 2 נקודות ניצחון מיוחדות! (סה"כ 3 נקודות על היישוב)`);
@@ -349,8 +372,19 @@ export function dispatchGameAction(action: GameAction, context?: DispatcherConte
         !context.setPlayers
       )) return;
 
+      const rewardLog = getLostTribeRewardLog(player.name, shipTarget);
+      const harborGiftCanBePlaced = shipTarget.lostTribeReward?.kind === 'HARBOR' &&
+        getEligibleHarborEdges(playerId, context.vertices || [], context.edges || [], context.tiles || []).length > 0;
+
       context.setEdges((prev: any[]) => prev.map(e =>
-        e.id === edgeId ? { ...e, hasShip: true, shipPlayerId: playerId } : e
+        e.id === edgeId ? {
+          ...e,
+          hasShip: true,
+          shipPlayerId: playerId,
+          lostTribeReward: e.lostTribeReward && !e.lostTribeReward.collectedBy
+            ? { ...e.lostTribeReward, collectedBy: playerId }
+            : e.lostTribeReward,
+        } : e
       ));
 
       if (isSetupPhase) {
@@ -358,29 +392,73 @@ export function dispatchGameAction(action: GameAction, context?: DispatcherConte
         context.addLog?.(`שחקן ${player.name} בנה ספינה בשלב ההקמה (חינם).`);
         context.recordSetupPlacement?.('ROAD', edgeId);
       } else {
-        if (isFreeShip) {
-          context.setRoadBuildingRemaining?.((prev: number) => prev - 1);
-        } else {
-          context.setPlayers!((prev: any[]) => prev.map(p => p.id === playerId
-            ? {
-                ...p,
-                resources: {
-                  ...p.resources,
-                  WOOD: p.resources.WOOD - 1,
-                  SHEEP: p.resources.SHEEP - 1
-                }
-              }
-            : p
-          ));
+        if (isFreeShip) context.setRoadBuildingRemaining?.((prev: number) => prev - 1);
+        context.setPlayers?.((prev: any[]) => prev.map(p => {
+          if (p.id !== playerId) return p;
+          let updatedPlayer = isFreeShip ? p : {
+            ...p,
+            resources: {
+              ...p.resources,
+              WOOD: p.resources.WOOD - 1,
+              SHEEP: p.resources.SHEEP - 1,
+            },
+          };
+          updatedPlayer = claimLostTribeReward(updatedPlayer, shipTarget);
+          return harborGiftCanBePlaced ? {
+            ...updatedPlayer,
+            harborReturnSubPhase: context.turnSubPhase === 'BEFORE_ROLL' ? 'BEFORE_ROLL' : 'TRADE_AND_BUILD',
+          } : updatedPlayer;
+        }));
+        if (!isFreeShip) {
           context.setResourceBank?.(previous => ({ ...previous, WOOD: previous.WOOD + 1, SHEEP: previous.SHEEP + 1 }));
         }
         context.showBuildingCostToast?.('SHIP', true, isFreeShip);
+        if (rewardLog) context.addLog?.(rewardLog);
+        if (harborGiftCanBePlaced) {
+          context.setTurnSubPhase?.('HARBOR_PLACEMENT');
+          context.addLog?.('בחר צלע חוף מודגשת ליד יישוב שלך כדי להציב את הנמל.');
+        }
         context.addLog?.(`שחקן ${player.name} בנה ספינה!`);
       }
       break;
     }
 
     // --- 6. קניית קלף פיתוח ---
+    case 'PLACE_HARBOR': {
+      const player = context.players?.find((candidate: any) => candidate.id === playerId);
+      const harborType = player?.unplacedHarbors?.[0];
+      if (!player || !harborType || !context.setEdges || !context.setVertices) return;
+      const eligibleEdges = getEligibleHarborEdges(playerId, context.vertices || [], context.edges || [], context.tiles || []);
+      if (!eligibleEdges.some(edge => edge.id === action.edgeId)) return;
+
+      const [v1Id, v2Id] = getEdgeVertices(action.edgeId);
+      const nextEdges = (context.edges || []).map((edge: any) => edge.id === action.edgeId
+        ? { ...edge, isHarbor: true, harborType }
+        : edge);
+      const remainingHarbors = player.unplacedHarbors.slice(1);
+      const hasAnotherImmediatePlacement = remainingHarbors.length > 0 &&
+        getEligibleHarborEdges(playerId, context.vertices || [], nextEdges, context.tiles || []).length > 0;
+
+      context.setEdges(nextEdges);
+      context.setVertices((previous: any[]) => previous.map(vertex =>
+        vertex.id === v1Id || vertex.id === v2Id
+          ? { ...vertex, isHarbor: true, harborType }
+          : vertex
+      ));
+      context.setPlayers?.((previous: any[]) => previous.map(candidate => candidate.id === playerId
+        ? {
+            ...candidate,
+            unplacedHarbors: remainingHarbors,
+            harborReturnSubPhase: hasAnotherImmediatePlacement ? candidate.harborReturnSubPhase : undefined,
+          }
+        : candidate));
+      context.setTurnSubPhase?.(hasAnotherImmediatePlacement
+        ? 'HARBOR_PLACEMENT'
+        : (player.harborReturnSubPhase || 'TRADE_AND_BUILD'));
+      context.addLog?.(`⚓ ${player.name} הציב נמל ${harborType === 'GENERIC' ? 'כללי 3:1' : `${harborType} 2:1`} ויכול להשתמש בו מיד.`);
+      break;
+    }
+
     case 'BUY_DEV_CARD': {
       if (context.buyDevelopmentCard) {
         context.buyDevelopmentCard(action.cardType, playerId);

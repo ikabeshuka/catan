@@ -34,12 +34,21 @@ registerHooks({
 
 let generateBoard;
 let generateEdges;
+let evaluateVertices;
+let getVertexIslandIds;
+let reserveLostTribeDevelopmentCards;
 const modulesReady = Promise.all([
   import('../src/src/utils/gameEngine/generateBoard.ts'),
-  import('../src/src/utils/gameEngine/generateEdges.ts')
-]).then(([boardModule, edgeModule]) => {
+  import('../src/src/utils/gameEngine/generateEdges.ts'),
+  import('../src/src/utils/ai/evaluators/evaluateVertices.ts'),
+  import('../src/src/utils/gameEngine/getVertexIslandIds.ts'),
+  import('../src/src/utils/gameEngine/lostTribeHelpers.ts')
+]).then(([boardModule, edgeModule, evaluatorModule, islandModule, lostTribeModule]) => {
   generateBoard = boardModule.generateBoard;
   generateEdges = edgeModule.generateEdges;
+  evaluateVertices = evaluatorModule.evaluateVertices;
+  getVertexIslandIds = islandModule.getVertexIslandIds;
+  reserveLostTribeDevelopmentCards = lostTribeModule.reserveLostTribeDevelopmentCards;
 });
 
 const board = (scenario, playerCount) =>
@@ -90,6 +99,31 @@ test('Heading for New Shores 4-player detached right island is not marked as the
   for (const tileId of ['hex_4p_10', 'hex_4p_11', 'hex_4p_17', 'hex_4p_25']) {
     assert.equal(tiles.find(tile => tile.id === tileId)?.islandId, 6, `${tileId} must remain a foreign island`);
   }
+});
+
+test('Heading for New Shores setup bot only evaluates vertices on the main island', async () => {
+  await modulesReady;
+  const tiles = board('HEADING_FOR_NEW_SHORES', 4);
+  const vertices = [...new Set(
+    generateEdges(tiles, 'SEAFARERS').flatMap(edge => edge.id.match(/v_-?\d+(?:\.\d+)?_-?\d+(?:\.\d+)?/g) || [])
+  )].map(id => ({ id, structure: 'NONE' }));
+  const edges = generateEdges(tiles, 'SEAFARERS');
+  const candidates = evaluateVertices(
+    'bot-1',
+    'SETUP_ROUND_1',
+    tiles,
+    vertices,
+    edges,
+    'MEDIUM',
+    'HEADING_FOR_NEW_SHORES',
+    'SEAFARERS'
+  );
+
+  assert.ok(candidates.length > 0);
+  assert.ok(candidates.every(candidate => {
+    const islandIds = getVertexIslandIds(candidate.vertexId, tiles);
+    return islandIds.length > 0 && islandIds.every(id => id === 1);
+  }));
 });
 
 test('Four Islands presets have official terrain, token, harbor, robber, and pirate data', async () => {
@@ -194,6 +228,55 @@ test('Through the Desert selects dedicated official 3- and 4-player presets', as
     assert.equal(tiles.find(tile => tile.hasPirate)?.type, 'WATER');
     assert.equal(tiles.find(tile => tile.hasRobber)?.type, 'DESERT');
   }
+});
+
+test('The Lost Tribe uses the supplied 6-7-8-9-8-7-6 map and all 18 gifts', async () => {
+  await modulesReady;
+  for (const playerCount of [3, 4]) {
+    const tiles = board('THE_LOST_TRIBE', playerCount);
+    assert.equal(playableTiles(tiles).length, 51);
+    assert.deepEqual(
+      [...playableTiles(tiles).reduce((rows, tile) => rows.set(tile.coord.r, (rows.get(tile.coord.r) || 0) + 1), new Map()).values()],
+      [6, 7, 8, 9, 8, 7, 6]
+    );
+    assert.equal(tiles.filter(tile => tile.islandId === 1).length, 18);
+    assert.equal(tiles.find(tile => tile.hasPirate)?.id, 'hex_lt_3');
+    assert.equal(tiles.find(tile => tile.hasRobber)?.type, 'DESERT');
+
+    const rewardEdges = generateEdges(tiles, 'SEAFARERS').filter(edge => edge.lostTribeReward);
+    assert.equal(rewardEdges.filter(edge => edge.lostTribeReward.kind === 'VICTORY_POINT').length, 8);
+    assert.equal(rewardEdges.filter(edge => edge.lostTribeReward.kind === 'DEV_CARD').length, 4);
+    assert.equal(rewardEdges.filter(edge => edge.lostTribeReward.kind === 'HARBOR').length, 6);
+    assert.deepEqual(
+      rewardEdges.filter(edge => edge.lostTribeReward.kind === 'HARBOR')
+        .map(edge => edge.lostTribeReward.harborType).sort(),
+      ['BRICK', 'GENERIC', 'ORE', 'SHEEP', 'WHEAT', 'WOOD']
+    );
+  }
+});
+
+test('The Lost Tribe advanced setup keeps strong numbers off the three rightmost main-island hexes', async () => {
+  await modulesReady;
+  for (let iteration = 0; iteration < 30; iteration++) {
+    const tiles = generateBoard({}, 'RANDOM', 'SEAFARERS', 'THE_LOST_TRIBE', 4);
+    for (const tileId of ['hex_lt_19', 'hex_lt_28', 'hex_lt_36']) {
+      assert.equal([5, 6, 8, 9].includes(tiles.find(tile => tile.id === tileId)?.numberToken), false, tileId);
+    }
+  }
+});
+
+test('The Lost Tribe reserves exactly four shuffled development cards on gift edges', async () => {
+  await modulesReady;
+  const edges = generateEdges(board('THE_LOST_TRIBE', 4), 'SEAFARERS');
+  const deck = ['KNIGHT', 'MONOPOLY', 'ROAD_BUILDING', 'YEAR_OF_PLENTY', 'VICTORY_POINT'];
+  const remaining = reserveLostTribeDevelopmentCards(deck, edges);
+  assert.deepEqual(remaining, ['VICTORY_POINT']);
+  assert.deepEqual(
+    edges.filter(edge => edge.lostTribeReward?.kind === 'DEV_CARD')
+      .sort((left, right) => left.lostTribeReward.id.localeCompare(right.lostTribeReward.id))
+      .map(edge => edge.lostTribeReward.devCardType),
+    deck.slice(0, 4)
+  );
 });
 
 test('random Seafarers generation preserves every preset inventory and legal marker terrain', async () => {

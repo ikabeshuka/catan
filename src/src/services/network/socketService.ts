@@ -189,6 +189,10 @@ class SocketService {
   onHostChanged(callback: (data: { roomId: string; hostPlayerId: string; hostName: string }) => void) { return this.listen('host_changed', callback); }
   onGameStarted(callback: (gameStartData: any) => void) { return this.listen('game_started', callback); }
   onChatMessageReceived(callback: (message: { text: string; sender: string; color?: string; time?: string }) => void) { return this.listen('receive_chat_message', callback); }
+  onTurnPausedForReconnect(callback: (data: { playerId: string; playerName: string; remainingMs: number }) => void) { return this.listen('turn_paused_for_reconnect', callback); }
+  onTurnResumedAfterReconnect(callback: (data: { playerId: string; playerName: string }) => void) { return this.listen('turn_resumed_after_reconnect', callback); }
+  onPlayerTakenOverByBot(callback: (data: { playerId: string; playerName: string; difficulty: 'HARD' }) => void) { return this.listen('player_taken_over_by_bot', callback); }
+  onPlayerReturnedFromBot(callback: (data: { playerId: string; playerName: string }) => void) { return this.listen('player_returned_from_bot', callback); }
 
   offHostChanged() { this.socket?.off('host_changed'); }
 

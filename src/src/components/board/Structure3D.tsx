@@ -8,9 +8,10 @@ import { normalizeAndCenterModel } from '../../utils/hexMath/normalizeModel';
 interface ModelWithOutlinesProps {
   object: THREE.Object3D;
   playerColor: string;
+  showOutline: boolean;
 }
 
-const ModelWithOutlines: React.FC<ModelWithOutlinesProps> = ({ object, playerColor }) => {
+const ModelWithOutlines: React.FC<ModelWithOutlinesProps> = ({ object, playerColor, showOutline }) => {
   const renderNode = (node: THREE.Object3D, index: number): React.ReactNode => {
     if ((node as THREE.Mesh).isMesh) {
       const mesh = node as THREE.Mesh;
@@ -23,7 +24,7 @@ const ModelWithOutlines: React.FC<ModelWithOutlinesProps> = ({ object, playerCol
           rotation={mesh.rotation}
           scale={mesh.scale}
         >
-          <Outlines color={playerColor} screenspace={false} thickness={0.08} />
+          {showOutline && <Outlines color={playerColor} screenspace={false} thickness={0.08} />}
           {mesh.children && mesh.children.length > 0 && mesh.children.map((child, i) => renderNode(child, i))}
         </mesh>
       );
@@ -63,7 +64,7 @@ interface Structure3DProps {
   onHarborLeave?: () => void;
 }
 
-export const Structure3D: React.FC<Structure3DProps> = ({
+const PlacedStructure3D: React.FC<Structure3DProps> = ({
   vertex,
   playerColor,
   textures,
@@ -76,6 +77,7 @@ export const Structure3D: React.FC<Structure3DProps> = ({
   const groupRef = useRef<THREE.Group>(null);
   const meshRef = useRef<THREE.Mesh>(null);
   const [isHovered, setIsHovered] = useState(false);
+  const [isAppearanceComplete, setIsAppearanceComplete] = useState(false);
 
   // טעינת מודלי ה-GLB
   const { scene: settlementScene } = useGLTF('/models/settlement.glb');
@@ -86,31 +88,37 @@ export const Structure3D: React.FC<Structure3DProps> = ({
 
   // ביצוע scene.clone() מבוקר כדי למנוע התנגשויות בין שכפולים של מודלים ונרמול מוגדל
   const clonedScene = React.useMemo(() => {
-    const clone = activeScene.clone();
     // אל תדרוס את חומרי המודלים בצבע השחקן. השאר את המרקם/טקסטורה המקורית של המודל.
     const targetSize = isSettlement ? 0.9 : 1.3;
-    return normalizeAndCenterModel(clone, targetSize);
+    // normalizeAndCenterModel already makes the deep clone required per piece.
+    return normalizeAndCenterModel(activeScene, targetSize);
   }, [activeScene, isSettlement]);
 
   // מדדי מטרה לאנימציית צמיחה (Scale Animation)
-  const targetScale = useRef(0);
+  const appearanceProgress = useRef(0);
+  const appearanceFinishedRef = useRef(false);
 
   // ברגע שהמבנה נוצר (Mount), נסמן לאנימציה להתחיל לצמוח מאפס ל-1
   useEffect(() => {
-    if (vertex.structure !== 'NONE') {
-      targetScale.current = 1;
-    }
-  }, [vertex.structure]);
+    appearanceProgress.current = 0;
+    appearanceFinishedRef.current = false;
+    setIsAppearanceComplete(false);
+  }, [vertex.id, vertex.structure]);
 
   // מנוע האנימציות הדינמי למבנים (צמיחה + אפקט ריחוף קל ב-Hover)
-  useFrame((state) => {
+  useFrame((state, delta) => {
     const activeRef = is3DMode ? groupRef.current : meshRef.current;
     if (!activeRef) return;
 
     // 1. אנימציית צמיחה אלסטית (Lerp Scale)
-    activeRef.scale.x = THREE.MathUtils.lerp(activeRef.scale.x, targetScale.current, 0.15);
-    activeRef.scale.y = THREE.MathUtils.lerp(activeRef.scale.y, targetScale.current, 0.15);
-    activeRef.scale.z = THREE.MathUtils.lerp(activeRef.scale.z, targetScale.current, 0.15);
+    appearanceProgress.current = Math.min(1, appearanceProgress.current + delta / 0.2);
+    const inverseProgress = 1 - appearanceProgress.current;
+    const scale = 1 - inverseProgress * inverseProgress * inverseProgress;
+    activeRef.scale.setScalar(scale);
+    if (appearanceProgress.current === 1 && !appearanceFinishedRef.current) {
+      appearanceFinishedRef.current = true;
+      setIsAppearanceComplete(true);
+    }
 
     // 2. אנימציית ריחוף/נשימה עדינה (Hover Bounce)
     if (is3DMode && isHovered && vertex.structure !== 'NONE') {
@@ -191,10 +199,17 @@ export const Structure3D: React.FC<Structure3DProps> = ({
       {...commonEvents}
     >
       <group rotation={[Math.PI / 2, 0, 0]}>
-        <ModelWithOutlines object={clonedScene} playerColor={playerColor} />
+        <ModelWithOutlines object={clonedScene} playerColor={playerColor} showOutline={isHovered || isAppearanceComplete} />
       </group>
     </group>
   );
+};
+
+// Board3DScene keeps a component at every vertex for interaction purposes.
+// Empty vertices must not pay for GLTF hooks, cloning, or frame animation.
+export const Structure3D: React.FC<Structure3DProps> = (props) => {
+  if (props.vertex.structure === 'NONE') return null;
+  return <PlacedStructure3D {...props} />;
 };
 
 // Preloading for smooth async loading without lag

@@ -71,6 +71,17 @@ export const UpdateNotification: React.FC = () => {
 
   return (
     <div className="fixed left-1/2 top-4 z-[100] w-[min(92vw,430px)] -translate-x-1/2 rounded-2xl border border-cyan-400/40 bg-slate-950/95 p-4 text-right text-white shadow-2xl backdrop-blur" dir="rtl" role="status" aria-live="polite">
+      {status === 'error' && (
+        <button
+          type="button"
+          onClick={() => setStatus(null)}
+          className="absolute left-2.5 top-2.5 flex h-7 w-7 items-center justify-center rounded-md text-xl leading-none text-slate-400 transition-colors hover:bg-white/10 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-300"
+          aria-label="סגור הודעת שגיאת עדכון"
+          title="סגור"
+        >
+          ×
+        </button>
+      )}
       <div className="flex items-center gap-3">
         <span className="text-xl">{status === 'ready' ? '✓' : status === 'error' ? '⚠️' : '⬇️'}</span>
         <div className="min-w-0 flex-1">

@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { useGame } from '../../context/GameContext';
+import { useGame, getPlayerTotalVP } from '../../context/GameContext';
 import { useTurnManager } from '../../hooks/useTurnManager';
 import { useAppTrade } from '../../hooks/useAppTrade';
 import { dispatchGameAction } from '../../services/gameDispatcher';
@@ -27,7 +27,20 @@ interface UnifiedTradeModalProps {
 }
 
 export const UnifiedTradeModal: React.FC<UnifiedTradeModalProps> = ({ onClose }) => {
-  const { players, vertices, setPlayers, addLog, activePortTrade, roomId, myPlayerId, resourceBank } = useGame();
+  const {
+    players,
+    vertices,
+    tiles,
+    selectedScenario,
+    longestRoadPlayerId,
+    largestArmyPlayerId,
+    setPlayers,
+    addLog,
+    activePortTrade,
+    roomId,
+    myPlayerId,
+    resourceBank,
+  } = useGame();
   const { tradeWithBank, turnSubPhase, currentPlayer } = useTurnManager();
   const {
     giveRes,
@@ -323,23 +336,56 @@ export const UnifiedTradeModal: React.FC<UnifiedTradeModalProps> = ({ onClose })
             {otherPlayers.length === 0 ? (
               <span className="text-xs text-slate-500 italic">אין שחקנים אחרים פנויים</span>
             ) : (
-              <div className="flex flex-wrap gap-4">
-                {otherPlayers.map(p => (
-                  <label key={p.id} data-player-id={p.id} className="flex items-center gap-2 text-xs font-bold text-slate-200 cursor-pointer select-none">
-                    <input
-                      type="checkbox"
-                      checked={!!checkedTargets[p.id]}
-                      onChange={(e) => {
+              <div className="grid grid-cols-3 gap-3 w-full">
+                {otherPlayers.map(p => {
+                  const isChecked = !!checkedTargets[p.id];
+                  const baseColor = p.color;
+                  
+                  // Active: bottom half filled with color, fading at the meeting point. Unactive: transparent, only border.
+                  // The colors are brighter and lighter.
+                  const bgStyle = isChecked 
+                    ? `linear-gradient(to top, ${baseColor}a5 0%, ${baseColor}80 42%, ${baseColor}05 50%, transparent 100%)`
+                    : 'transparent';
+                  
+                  const borderStyle = isChecked 
+                    ? `2px solid ${baseColor}` 
+                    : `1px solid ${baseColor}bf`; // Brighter inactive border
+                    
+                  const textColor = '#f1f5f9'; // Always bright text because the top half of the card is dark/transparent
+
+                  return (
+                    <button
+                      key={p.id}
+                      type="button"
+                      onClick={() => {
                         setCheckedTargets(prev => ({
                           ...prev,
-                          [p.id]: e.target.checked
+                          [p.id]: !prev[p.id]
                         }));
                       }}
-                      className="rounded border-slate-700 text-amber-500 focus:ring-amber-500/20 bg-slate-950 w-4 h-4 cursor-pointer"
-                    />
-                    <span style={{ color: p.color }}>{p.name} {p.isBot ? '(מחשב)' : ''}</span>
-                  </label>
-                ))}
+                      style={{
+                        background: bgStyle,
+                        border: borderStyle,
+                        color: textColor,
+                      }}
+                      className={`flex flex-col items-center justify-center p-3 rounded-xl transition-all duration-200 cursor-pointer text-center select-none min-h-[72px] shadow-sm ${
+                        isChecked ? 'scale-[1.02] shadow-md font-black' : 'opacity-80 hover:opacity-100 hover:scale-[1.01]'
+                      }`}
+                    >
+                      <span className="text-xs leading-tight block truncate max-w-full font-bold">
+                        {p.name}
+                      </span>
+                      <span className="text-[10px] opacity-75 mt-0.5 block">
+                        {p.isBot ? 'מחשב' : 'שחקן'}
+                      </span>
+                      <span className={`text-[11px] font-black mt-1.5 px-2 py-0.5 rounded ${
+                        isChecked ? 'bg-black/20' : 'bg-slate-950/40 text-slate-300'
+                      }`}>
+                        🏆 {getPlayerTotalVP(p, longestRoadPlayerId, largestArmyPlayerId, false, vertices, tiles, selectedScenario)} נק'
+                      </span>
+                    </button>
+                  );
+                })}
               </div>
             )}
           </div>

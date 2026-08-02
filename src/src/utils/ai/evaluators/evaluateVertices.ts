@@ -30,13 +30,24 @@ export function evaluateVertices(
   tiles: HexTile[],
   vertices: BoardVertex[],
   edges: BoardEdge[],
-  botDifficulty: 'EASY' | 'MEDIUM' | 'HARD' | 'SUPER_HARD' // Added bot difficulty parameter
+  botDifficulty: 'EASY' | 'MEDIUM' | 'HARD' | 'SUPER_HARD',
+  selectedScenario?: string,
+  activeExpansion?: string
 ): EvaluatedVertex[] {
   const ratedVertices: EvaluatedVertex[] = [];
 
   // 1. סינון הצמתים - נבדוק רק צמתים שבהם הבוט באמת מורשה לבנות מבחינה חוקית
   const validVertices = vertices.filter(vertex => 
-    validateSettlementPlacement(vertex.id, botId, gamePhase, vertices, edges, tiles)
+    validateSettlementPlacement(
+      vertex.id,
+      botId,
+      gamePhase,
+      vertices,
+      edges,
+      tiles,
+      selectedScenario,
+      activeExpansion
+    )
   );
 
   // 2. חישוב ציון לכל צומת חוקי

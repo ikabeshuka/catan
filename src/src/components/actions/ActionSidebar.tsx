@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useTurnManager } from '../../hooks/useTurnManager';
+import { AuthWidget } from '../auth/AuthWidget';
 import { useGame, getPlayerTotalVP } from '../../context/GameContext';
 import { RollDiceContainer } from './RollDiceContainer';
 import { GoldTradePanel } from './GoldTradePanel';
@@ -133,16 +134,28 @@ export const ActionSidebar: React.FC = () => {
         return <span>שלב נוכחי: מסחר ובנייה</span>;
       case 'ROBBER_PLACEMENT':
         return <span>שלב השודד: נא להציב את השודד באריח אחר על הלוח</span>;
+      case 'HARBOR_PLACEMENT':
+        return <span>בחר צלע חוף מודגשת כדי להציב את הנמל שקיבלת</span>;
       default:
         return <span>נא לבצע את הפעולה הבאה</span>;
     }
   };
 
-  const activePlayerVP = getPlayerTotalVP(currentPlayer, longestRoadPlayerId, largestArmyPlayerId, true, vertices, tiles, selectedScenario);
+  const activePlayerVP = getPlayerTotalVP(
+    currentPlayer,
+    longestRoadPlayerId,
+    largestArmyPlayerId,
+    currentPlayer.id === humanPlayer?.id,
+    vertices,
+    tiles,
+    selectedScenario,
+  );
 
   return (
     <div className="min-h-full flex flex-col gap-2.5 bg-slate-950 p-1 text-white text-right" dir="rtl">
       
+      <AuthWidget />
+
       {/* א. שם השחקן הנוכחי וב. תצוגת נקודות הניצחון */}
       <div data-player-id={currentPlayer.id} className="relative overflow-hidden bg-slate-900/90 p-4 rounded-2xl border border-slate-800/80 shadow-[inset_0_1px_1px_rgba(255,255,255,0.08)] flex flex-col gap-3">
         <div className="flex items-center justify-between">

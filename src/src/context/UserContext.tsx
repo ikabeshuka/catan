@@ -1,5 +1,8 @@
 /* oxlint-disable react/only-export-components */
 import React, { createContext, useContext, useState, useEffect } from 'react';
+import { User, onAuthStateChanged } from 'firebase/auth';
+import { doc, getDoc, setDoc } from 'firebase/firestore';
+import { auth, db, signInWithGoogle, logoutUser } from '../services/firebase';
 import { GeneralPlayerStats, PlayerRatingStats, RoomParticipant, RatingCalculationResult } from '../types/rating.types';
 import { calculateGameRating } from '../utils/ai/rating/ratingCalculator';
 
@@ -31,6 +34,10 @@ const DEFAULT_STATS: PlayerRatingStats = {
 };
 
 interface UserContextType {
+  currentUser: User | null;
+  isAuthLoading: boolean;
+  loginWithGoogle: () => Promise<User | void>;
+  logout: () => Promise<void>;
   playerStats: PlayerRatingStats;
   playerName: string;
   setPlayerName: (name: string) => void;
@@ -50,14 +57,34 @@ interface UserContextType {
 const UserContext = createContext<UserContextType | undefined>(undefined);
 
 export const UserProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+  const [currentUser, setCurrentUser] = useState<User | null>(null);
+  const [isAuthLoading, setIsAuthLoading] = useState(true);
+
   const [playerStats, setPlayerStats] = useState<PlayerRatingStats>(DEFAULT_STATS);
   const [playerName, setPlayerNameState] = useState('');
   const [generalStats, setGeneralStats] = useState<GeneralPlayerStats[]>([]);
   const [lastRatingResult, setLastRatingResult] = useState<RatingCalculationResult | null>(null);
   const [isStatsModalOpen, setIsStatsModalOpen] = useState(false);
 
-  // טעינת הנתונים מ-localStorage בטעינת האפליקציה
+  // 1. מאזין להתחברות/התנתקות ב-Firebase Auth
   useEffect(() => {
+    const unsubscribe = onAuthStateChanged(auth, async (user) => {
+      setCurrentUser(user);
+      if (user) {
+        // משתמש מחובר -> טעינת פרופיל מ-Firestore
+        await loadUserDataFromFirestore(user);
+      } else {
+        // משתמש אורח -> טעינה מ-localStorage
+        loadUserDataFromLocalStorage();
+      }
+      setIsAuthLoading(false);
+    });
+
+    return () => unsubscribe();
+  }, []);
+
+  // טעינה מ-localStorage
+  const loadUserDataFromLocalStorage = () => {
     try {
       const saved = localStorage.getItem(STORAGE_KEY);
       const parsedStats = saved ? JSON.parse(saved) : DEFAULT_STATS;
@@ -73,20 +100,48 @@ export const UserProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
       setPlayerStats(normalizedStats);
       setPlayerNameState(savedName);
-      if (savedName) {
-        const entry = { ...normalizedStats, playerName: savedName, updatedAt: new Date().toISOString() };
-        const nextGeneral = [...validGeneral.filter(item => item.playerName !== savedName), entry];
-        setGeneralStats(nextGeneral);
-        localStorage.setItem(GENERAL_STATS_KEY, JSON.stringify(nextGeneral));
-      } else {
-        setGeneralStats(validGeneral);
-      }
+      setGeneralStats(validGeneral);
     } catch (err) {
       console.error('Failed to load player stats from localStorage:', err);
     }
-  }, []);
+  };
 
-  // שמירה ל-localStorage בכל עדכון סטטיסטיקות
+  // טעינה מ-Firestore
+  const loadUserDataFromFirestore = async (user: User) => {
+    try {
+      const userDocRef = doc(db, 'users', user.uid);
+      const docSnap = await getDoc(userDocRef);
+
+      if (docSnap.exists()) {
+        const data = docSnap.data();
+        const fetchedStats = data.playerStats || DEFAULT_STATS;
+        const normalizedStats = {
+          ...DEFAULT_STATS,
+          ...fetchedStats,
+          gamesByBotType: { ...DEFAULT_STATS.gamesByBotType, ...fetchedStats.gamesByBotType },
+          winsByBotType: { ...DEFAULT_STATS.winsByBotType, ...fetchedStats.winsByBotType },
+        };
+        const fetchedName = data.playerName || user.displayName || user.email?.split('@')[0] || 'שחקן';
+
+        setPlayerStats(normalizedStats);
+        setPlayerNameState(fetchedName);
+      } else {
+        // יצירת מסמך ראשוני במקרה של משתמש חדש
+        const initialName = user.displayName || user.email?.split('@')[0] || 'שחקן';
+        setPlayerNameState(initialName);
+        await setDoc(userDocRef, {
+          playerName: initialName,
+          playerStats: playerStats,
+          email: user.email,
+          updatedAt: new Date().toISOString()
+        });
+      }
+    } catch (err) {
+      console.error('Failed to load user data from Firestore:', err);
+    }
+  };
+
+  // שמירה ל-localStorage ו-Firestore
   const saveGeneralEntry = (name: string, stats: PlayerRatingStats, previousName?: string) => {
     const trimmedName = name.trim().slice(0, 40);
     setGeneralStats(previous => {
@@ -101,22 +156,41 @@ export const UserProvider: React.FC<{ children: React.ReactNode }> = ({ children
     });
   };
 
-  const saveStats = (newStats: PlayerRatingStats) => {
+  const saveStats = async (newStats: PlayerRatingStats) => {
     setPlayerStats(newStats);
     try {
       localStorage.setItem(STORAGE_KEY, JSON.stringify(newStats));
       if (playerName) saveGeneralEntry(playerName, newStats);
+
+      // אם יש משתמש מחובר -> שמירה לענן ב-Firestore
+      if (auth.currentUser) {
+        const userDocRef = doc(db, 'users', auth.currentUser.uid);
+        await setDoc(userDocRef, {
+          playerStats: newStats,
+          playerName,
+          updatedAt: new Date().toISOString()
+        }, { merge: true });
+      }
     } catch (err) {
-      console.error('Failed to save player stats to localStorage:', err);
+      console.error('Failed to save player stats:', err);
     }
   };
 
-  const setPlayerName = (name: string) => {
+  const setPlayerName = async (name: string) => {
     const nextName = name.trim().slice(0, 40);
     const previousName = playerName;
     setPlayerNameState(nextName);
     localStorage.setItem(PROFILE_NAME_KEY, nextName);
     saveGeneralEntry(nextName, playerStats, previousName);
+
+    if (auth.currentUser) {
+      try {
+        const userDocRef = doc(db, 'users', auth.currentUser.uid);
+        await setDoc(userDocRef, { playerName: nextName }, { merge: true });
+      } catch (err) {
+        console.error('Failed to update name in Firestore:', err);
+      }
+    }
   };
 
   const resetStats = () => {
@@ -134,10 +208,8 @@ export const UserProvider: React.FC<{ children: React.ReactNode }> = ({ children
     participants: RoomParticipant[],
     humanPlayerId: string
   ): RatingCalculationResult => {
-    // 1. חישוב הניקוד באמצעות המנוע
     const result = calculateGameRating(isWin, participants, playerStats, humanPlayerId);
 
-    // 2. עדכון הסטטיסטיקות
     const updatedStats: PlayerRatingStats = {
       ...playerStats,
       ratingPoints: Math.max(0, playerStats.ratingPoints + result.finalPointsChanged),
@@ -148,7 +220,6 @@ export const UserProvider: React.FC<{ children: React.ReactNode }> = ({ children
       winsByBotType: { ...playerStats.winsByBotType },
     };
 
-    // עדכון ספירת משחקים לפי סוג יריב
     participants.forEach(p => {
       if (p.id !== humanPlayerId) {
         if (!p.isHuman && p.botDifficulty) {
@@ -171,9 +242,30 @@ export const UserProvider: React.FC<{ children: React.ReactNode }> = ({ children
     return result;
   };
 
+  const loginWithGoogleHandler = async () => {
+    try {
+      const user = await signInWithGoogle();
+      if (user) {
+        await loadUserDataFromFirestore(user);
+      }
+      return user;
+    } catch (err) {
+      console.error('Google Sign-In failed:', err);
+    }
+  };
+
+  const logoutHandler = async () => {
+    await logoutUser();
+    loadUserDataFromLocalStorage();
+  };
+
   return (
     <UserContext.Provider
       value={{
+        currentUser,
+        isAuthLoading,
+        loginWithGoogle: loginWithGoogleHandler,
+        logout: logoutHandler,
         playerStats,
         playerName,
         setPlayerName,

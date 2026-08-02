@@ -61,7 +61,11 @@ export function robberPhase({
     const HEX_SIZE = 60;
 
     // --- 1. EVALUATE LAND ROBBER ---
-    const possibleLandTiles = tiles.filter(t => t.type !== 'WATER' && t.type !== 'DESERT' && !t.hasRobber);
+    const isLostTribe = tiles.some(tile => tile.robberStartLocked);
+    const possibleLandTiles = tiles.filter(t =>
+      t.type !== 'WATER' && t.type !== 'DESERT' && !t.hasRobber &&
+      (!isLostTribe || (t.islandId === 1 && !t.robberStartLocked))
+    );
     let bestLandTileId = possibleLandTiles.length > 0 ? possibleLandTiles[0].id : null;
     let highestLandScore = -1;
 

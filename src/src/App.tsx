@@ -81,6 +81,11 @@ const GameContent: React.FC = () => {
   } = useGame();
 
   const [activeRightTab, setActiveRightTab] = useState<'DEV_CARDS' | 'TRADE'>('DEV_CARDS');
+  const [onlineReconnectPause, setOnlineReconnectPause] = useState<{
+    playerId: string;
+    playerName: string;
+    remainingMs: number;
+  } | null>(null);
   const { recordSetupPlacement, endTurn, handleDiceRoll, startTurn, checkIfGameEnds } = useTurnManager();
 
   const {
@@ -94,6 +99,23 @@ const GameContent: React.FC = () => {
     isHost,
     setBotTimeLimit,
   });
+
+  useEffect(() => {
+    if (!roomId) {
+      setOnlineReconnectPause(null);
+      return;
+    }
+    const clearPause = () => setOnlineReconnectPause(null);
+    const cleanups = [
+      socketService.onTurnPausedForReconnect(setOnlineReconnectPause),
+      socketService.onTurnResumedAfterReconnect(clearPause),
+      socketService.onPlayerTakenOverByBot(clearPause),
+      socketService.onPlayerReturnedFromBot(clearPause),
+    ];
+    return () => {
+      cleanups.forEach(cleanup => cleanup());
+    };
+  }, [roomId]);
 
   const victoryGoal = getVictoryPointTarget(activeExpansion, selectedScenario);
 
@@ -314,9 +336,11 @@ const GameContent: React.FC = () => {
         } as any, // Cast to any to bypass type checking for now
         playerState: { players } as any, // Cast to any to bypass type checking for now
         legalActions: {} as any, // Placeholder, will be replaced with actual legal actions
+        selectedScenario,
+        activeExpansion,
       });
     }
-  }, [roomId, isHost, currentPlayerIndex, turnSubPhase, gamePhase, activePlayer, endTurn, recordSetupPlacement, handleDiceRoll, buyDevelopmentCard, players, addLog, setTiles, setTurnSubPhase, startTurn, tiles, vertices, edges, setPlayers, setVertices, setEdges, setCurrentPlayerIndex]);
+  }, [roomId, isHost, currentPlayerIndex, turnSubPhase, gamePhase, activePlayer, endTurn, recordSetupPlacement, handleDiceRoll, buyDevelopmentCard, players, addLog, setTiles, setTurnSubPhase, startTurn, tiles, vertices, edges, setPlayers, setVertices, setEdges, setCurrentPlayerIndex, selectedScenario, activeExpansion]);
 
   // תצוגת מסך הלובי / פתיחה - תומכת בגלילה פנימית כדי למנוע גלילה גלובלית ביישום
   if (gamePhase === 'LOBBY') {
@@ -406,6 +430,18 @@ const GameContent: React.FC = () => {
   return (
     <div className="flex flex-row h-screen w-screen overflow-hidden bg-black text-slate-100 font-sans p-4 gap-4">
       <ResourceFlowOverlay />
+      {onlineReconnectPause && (
+        <div className="absolute inset-0 z-[100] flex items-center justify-center bg-slate-950/75 p-6 backdrop-blur-sm" dir="rtl">
+          <div className="max-w-md rounded-2xl border border-amber-400/60 bg-slate-900 p-7 text-center shadow-2xl">
+            <div className="mb-3 text-4xl">⏸️</div>
+            <h2 className="text-xl font-black text-amber-300">המשחק מושהה</h2>
+            <p className="mt-3 leading-7 text-slate-100">
+              ממתינים לחיבור מחדש של {onlineReconnectPause.playerName}. אם השחקן לא יחזור בתוך 15 שניות,
+              בוט קשה ימשיך את המשחק במקומו.
+            </p>
+          </div>
+        </div>
+      )}
       
       {/* פריסה צידית: מכילה את פאנל השליטה (למעלה) ולוג ההיסטוריה קבוע בתחתית (למטה) */}
       <aside className="w-[336px] flex flex-col gap-4 h-full z-10 flex-none">
@@ -421,7 +457,8 @@ const GameContent: React.FC = () => {
       <main className="flex-grow w-full h-full relative flex flex-col gap-4 overflow-hidden">
         <button
           onClick={exitGame}
-          className="absolute right-4 top-4 z-30 rounded-xl border border-rose-500/60 bg-rose-950/90 px-4 py-2 text-xs font-black text-rose-200 shadow-xl backdrop-blur hover:bg-rose-900"
+          className="absolute right-4 top-4 z-30 rounded-lg border-0 bg-red-700 px-4 py-2 text-xs font-semibold text-white outline-none hover:bg-red-700 focus-visible:ring-2 focus-visible:ring-red-300"
+          style={{ fontFamily: '"Segoe UI", Tahoma, sans-serif' }}
           dir="rtl"
         >
           צא מהמשחק

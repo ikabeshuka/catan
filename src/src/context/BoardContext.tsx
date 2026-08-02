@@ -1,8 +1,9 @@
 /* oxlint-disable react/only-export-components */
-import React, { createContext, useContext, useState, ReactNode } from 'react';
+import React, { createContext, useContext, useMemo, useState, ReactNode } from 'react';
 import { HexTile } from '../types/hex.types';
 import { BoardVertex, BoardEdge } from '../types/boardElements.types';
 import { SeafarersScenario } from '../types/game.types';
+import { BoardRenderCache, createBoardRenderCache } from '../utils/hexMath/boardRenderCache';
 
 export interface RobberyState {
   tile: HexTile;
@@ -18,6 +19,7 @@ interface BoardContextType {
   activeExpansion: 'BASE' | 'MERCHANTS_AND_BARBARIANS' | 'SEAFARERS';
   selectedScenario: SeafarersScenario;
   activeRobberType: 'ROBBER' | 'PIRATE' | null;
+  boardRenderCache: BoardRenderCache;
 
   setTiles: React.Dispatch<React.SetStateAction<HexTile[]>>;
   setVertices: React.Dispatch<React.SetStateAction<BoardVertex[]>>;
@@ -40,6 +42,10 @@ export const BoardProvider: React.FC<{ children: ReactNode }> = ({ children }) =
   const [activeExpansion, setActiveExpansion] = useState<'BASE' | 'MERCHANTS_AND_BARBARIANS' | 'SEAFARERS'>('BASE');
   const [selectedScenario, setSelectedScenario] = useState<SeafarersScenario>('HEADING_FOR_NEW_SHORES');
   const [activeRobberType, setActiveRobberType] = useState<'ROBBER' | 'PIRATE' | null>(null);
+  const boardRenderCache = useMemo(
+    () => createBoardRenderCache(tiles, vertices, edges),
+    [tiles, vertices, edges]
+  );
 
   return (
     <BoardContext.Provider
@@ -52,6 +58,7 @@ export const BoardProvider: React.FC<{ children: ReactNode }> = ({ children }) =
         activeExpansion,
         selectedScenario,
         activeRobberType,
+        boardRenderCache,
         setTiles,
         setVertices,
         setEdges,

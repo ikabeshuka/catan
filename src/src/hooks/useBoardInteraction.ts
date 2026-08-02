@@ -1,8 +1,6 @@
 import { useState } from 'react';
 import { useGame } from '../context/GameContext';
 import { getEligibleRobberyTargets } from '../utils/gameEngine/robberSteal';
-import { parseEdgeId } from '../utils/hexMath/parseEdgeId';
-import { cubeToPixel } from '../utils/hexMath/cubeToPixel';
 import { useVertexInteraction } from './useVertexInteraction';
 import { useEdgeInteraction } from './useEdgeInteraction';
 import { dispatchGameAction } from '../services/gameDispatcher';
@@ -25,6 +23,8 @@ export function useBoardInteraction() {
     setActiveRobberType,
     roomId,
     myPlayerId,
+    boardRenderCache,
+    selectedScenario,
   } = useGame();
 
   const [hoveredTile, setHoveredTile] = useState<{
@@ -60,6 +60,7 @@ export function useBoardInteraction() {
 
     if (activeExpansion === 'SEAFARERS') {
       if (activeRobberType === 'ROBBER') {
+        if (selectedScenario === 'THE_LOST_TRIBE' && (tile.islandId !== 1 || tile.robberStartLocked)) return false;
         return tile.type !== 'WATER' && !tile.hasRobber;
       } else if (activeRobberType === 'PIRATE') {
         return tile.type === 'WATER' && !tile.hasPirate;
@@ -80,34 +81,13 @@ export function useBoardInteraction() {
 
     if (isPirate) {
       // Pirate Rule: only steal from players with a ship on one of the 6 surrounding edges of this water tile
-      const HEX_SIZE = 60;
-      const center = cubeToPixel(tile.coord, HEX_SIZE);
-      const tileVertexIds = new Set<string>();
-
-      vertices.forEach(vertex => {
-        for (let i = 0; i < 6; i++) {
-          const angleRad = (Math.PI / 180) * (60 * i - 30);
-          const x = center.x + HEX_SIZE * Math.cos(angleRad);
-          const y = center.y + HEX_SIZE * Math.sin(angleRad);
-
-          const roundedX = Math.round(x * 10) / 10;
-          const roundedY = Math.round(y * 10) / 10;
-          const checkId = `v_${roundedX}_${roundedY}`;
-
-          if (checkId === vertex.id) {
-            tileVertexIds.add(vertex.id);
-            break;
-          }
-        }
-      });
+      const tileVertexIds = new Set(boardRenderCache.tileById.get(tile.id)?.vertexIds || []);
 
       const candidatePlayerIds = new Set<string>();
       edges.forEach(edge => {
         if (edge.hasShip && edge.shipPlayerId && edge.shipPlayerId !== currentPlayingPlayer.id) {
-          const { x1, y1, x2, y2 } = parseEdgeId(edge.id);
-          const v1Id = `v_${x1}_${y1}`;
-          const v2Id = `v_${x2}_${y2}`;
-          if (tileVertexIds.has(v1Id) && tileVertexIds.has(v2Id)) {
+          const [v1Id, v2Id] = boardRenderCache.edgeById.get(edge.id)?.vertexIds || [];
+          if (v1Id && v2Id && tileVertexIds.has(v1Id) && tileVertexIds.has(v2Id)) {
             candidatePlayerIds.add(edge.shipPlayerId);
           }
         }

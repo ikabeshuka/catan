@@ -10,6 +10,7 @@ export const SEAFARERS_VICTORY_POINT_TARGETS: Record<SeafarersScenario, number> 
   FOUR_ISLANDS: 13,
   FOG_ISLAND: 12,
   THROUGH_THE_DESERT: 14,
+  THE_LOST_TRIBE: 13,
 };
 
 export const getVictoryPointTarget = (

@@ -11,7 +11,9 @@ import {
   seafarers3PlayersFogIsland,
   seafarers4PlayersFogIsland,
   seafarers3PlayersThroughTheDesert,
-  seafarers4PlayersThroughTheDesert
+  seafarers4PlayersThroughTheDesert,
+  seafarersLostTribe,
+  LOST_TRIBE_RESTRICTED_NUMBER_TILE_IDS
 } from '../../config/seafarersPresets';
 
 /**
@@ -409,6 +411,53 @@ export function generateBoard(
         if (desertTile) {
           desertTile.hasRobber = true;
         }
+
+        return addFrameSeaTargets(tiles);
+      }
+      case 'THE_LOST_TRIBE': {
+        const tiles = JSON.parse(JSON.stringify(seafarersLostTribe)) as HexTile[];
+        const mainIslandTiles = tiles.filter(tile => tile.islandId === 1);
+
+        if (boardType === 'RANDOM') {
+          const resources = shuffleArray(mainIslandTiles.map(tile => tile.type));
+          let tokens = shuffleArray(mainIslandTiles.map(tile => tile.numberToken as number));
+          let attempts = 0;
+          while (attempts < 200) {
+            const restrictedHasStrongNumber = mainIslandTiles.some((tile, tileIndex) => {
+              const numericId = Number(tile.id.split('_').pop());
+              return LOST_TRIBE_RESTRICTED_NUMBER_TILE_IDS.has(numericId) && [5, 6, 8, 9].includes(tokens[tileIndex]);
+            });
+            if (!restrictedHasStrongNumber) break;
+            tokens = shuffleArray(tokens);
+            attempts += 1;
+          }
+
+          mainIslandTiles.forEach((tile, tileIndex) => {
+            tile.type = resources[tileIndex];
+            tile.numberToken = tokens[tileIndex];
+          });
+        }
+
+        const harborTypes = shuffleArray<NonNullable<NonNullable<HexTile['lostTribeRewards']>[number]['harborType']>>([
+          'WOOD', 'BRICK', 'SHEEP', 'WHEAT', 'ORE', 'GENERIC',
+        ]);
+        let harborIndex = 0;
+        tiles.forEach(tile => {
+          tile.lostTribeRewards?.forEach(reward => {
+            if (reward.kind === 'HARBOR') {
+              reward.harborType = harborTypes[harborIndex];
+              harborIndex += 1;
+            }
+          });
+        });
+
+        const deserts = tiles.filter(tile => tile.type === 'DESERT');
+        const robberStart = deserts[Math.floor(Math.random() * deserts.length)];
+        tiles.forEach(tile => {
+          tile.hasPirate = tile.id === 'hex_lt_3';
+          tile.hasRobber = tile.id === robberStart?.id;
+          tile.robberStartLocked = tile.id === robberStart?.id;
+        });
 
         return addFrameSeaTargets(tiles);
       }

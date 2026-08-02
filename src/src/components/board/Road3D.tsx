@@ -62,51 +62,13 @@ interface Road3DProps {
   currentPlayerColor: string;
   isValidPlacement: boolean;
   onEdgeClick: (edge: BoardEdge) => void;
-  tiles: any[];
   z?: number;
   is3DMode?: boolean;
   hasShip?: boolean;
-  shipPlayerId?: string;
   surfaceTexture: THREE.Texture;
+  leftNeighborTexture: THREE.Texture;
+  rightNeighborTexture: THREE.Texture;
 }
-
-const EDGE_FADE_ALPHA = (() => {
-  const width = 128;
-  const height = 96;
-  const data = new Uint8Array(width * height * 4);
-  const blendedSideShare = 1 / 3;
-  const solidSandStart = blendedSideShare;
-  const solidSandEnd = 1 - blendedSideShare;
-
-  const smoothstep = (edge0: number, edge1: number, value: number) => {
-    const normalized = Math.min(1, Math.max(0, (value - edge0) / (edge1 - edge0)));
-    return normalized * normalized * (3 - 2 * normalized);
-  };
-
-  for (let y = 0; y < height; y += 1) {
-    for (let x = 0; x < width; x += 1) {
-      const u = x / (width - 1);
-      const v = y / (height - 1);
-      // Divide the strip width into equal thirds: each outer third softly
-      // reveals its neighboring hex, while the middle third stays sand.
-      const sideFade = smoothstep(0, solidSandStart, v)
-        * (1 - smoothstep(solidSandEnd, 1, v));
-      const endFade = smoothstep(0, 0.045, u) * (1 - smoothstep(0.955, 1, u));
-      const alpha = Math.round(255 * sideFade * endFade);
-      const offset = (y * width + x) * 4;
-      data[offset] = alpha;
-      data[offset + 1] = alpha;
-      data[offset + 2] = alpha;
-      data[offset + 3] = 255;
-    }
-  }
-
-  const texture = new THREE.DataTexture(data, width, height, THREE.RGBAFormat);
-  texture.minFilter = THREE.LinearFilter;
-  texture.magFilter = THREE.LinearFilter;
-  texture.needsUpdate = true;
-  return texture;
-})();
 
 export const Road3D: React.FC<Road3DProps> = ({
   edge,
@@ -118,11 +80,12 @@ export const Road3D: React.FC<Road3DProps> = ({
   currentPlayerColor,
   isValidPlacement,
   onEdgeClick,
-  tiles: _tiles,
   z: _z,
   is3DMode = true,
   hasShip,
   surfaceTexture,
+  leftNeighborTexture,
+  rightNeighborTexture,
 }) => {
   const { currentAction } = useGame();
 
@@ -149,6 +112,7 @@ export const Road3D: React.FC<Road3DProps> = ({
   }, [edge.hasShip, hasShip, shipScene, length, is3DMode, createStretchedClone]);
 
   const isShipMode = currentAction === 'BUILD_SHIP' || currentAction === 'MOVE_SHIP_PLACE';
+  const isHarborMode = currentAction === 'PLACE_HARBOR';
 
   // תצוגה מקדימה של ספינה - נבנה מודל חצי שקוף
   const shipPreviewModel = React.useMemo(() => {
@@ -181,6 +145,35 @@ export const Road3D: React.FC<Road3DProps> = ({
   const roadZ = !is3DMode ? 0.77 : 0.88;
   const surfaceWidth = is3DMode ? 0.98 : 0.88;
 
+  // Each outer third fades from the terrain touching that side into the
+  // original strip texture; the middle third remains completely original.
+  const blendStripShader = React.useMemo(() => (shader: THREE.WebGLProgramParametersWithUniforms) => {
+    shader.uniforms.leftNeighborMap = { value: leftNeighborTexture };
+    shader.uniforms.rightNeighborMap = { value: rightNeighborTexture };
+
+    shader.fragmentShader = `
+      uniform sampler2D leftNeighborMap;
+      uniform sampler2D rightNeighborMap;
+    ` + shader.fragmentShader;
+
+    shader.fragmentShader = shader.fragmentShader.replace(
+      '#include <map_fragment>',
+      `
+        #ifdef USE_MAP
+          vec2 stripUv = vec2(fract(vMapUv.x * 1.65), vMapUv.y);
+          vec4 sandColor = texture2D(map, vMapUv);
+          vec4 rightNeighborColor = texture2D(rightNeighborMap, stripUv);
+          vec4 leftNeighborColor = texture2D(leftNeighborMap, stripUv);
+          float rightBlend = 1.0 - smoothstep(0.0, 0.333333, vMapUv.y);
+          float leftBlend = smoothstep(0.666667, 1.0, vMapUv.y);
+          vec4 stripColor = mix(sandColor, rightNeighborColor, rightBlend);
+          stripColor = mix(stripColor, leftNeighborColor, leftBlend);
+          diffuseColor *= stripColor;
+        #endif
+      `,
+    );
+  }, [leftNeighborTexture, rightNeighborTexture]);
+
   return (
     <group
       position={[mx, my, roadZ]}
@@ -191,18 +184,36 @@ export const Road3D: React.FC<Road3DProps> = ({
         <planeGeometry args={[length * 1.12, surfaceWidth]} />
         <meshStandardMaterial
           map={surfaceTexture}
-          alphaMap={EDGE_FADE_ALPHA}
-          transparent={true}
-          opacity={0.96}
-          depthWrite={false}
           roughness={0.95}
           metalness={0}
           side={THREE.DoubleSide}
+          onBeforeCompile={blendStripShader}
+          customProgramCacheKey={() => 'three-zone-board-strip'}
           polygonOffset={true}
           polygonOffsetFactor={-2}
           polygonOffsetUnits={-2}
         />
       </mesh>
+
+      {edge.lostTribeReward && !edge.lostTribeReward.collectedBy && (
+        <group position={[0, 0, is3DMode ? 0.55 : 0.35]} renderOrder={8}>
+          {edge.lostTribeReward.kind === 'DEV_CARD' ? (
+            <mesh rotation={[0.12, 0, 0]}>
+              <boxGeometry args={[0.42, 0.58, 0.07]} />
+              <meshStandardMaterial color="#6d28d9" emissive="#2e1065" roughness={0.45} />
+            </mesh>
+          ) : (
+            <mesh rotation={[Math.PI / 2, 0, 0]}>
+              <cylinderGeometry args={[0.26, 0.26, 0.08, 24]} />
+              <meshStandardMaterial
+                color={edge.lostTribeReward.kind === 'VICTORY_POINT' ? '#fbbf24' : '#0ea5e9'}
+                emissive={edge.lostTribeReward.kind === 'VICTORY_POINT' ? '#78350f' : '#0c4a6e'}
+                roughness={0.4}
+              />
+            </mesh>
+          )}
+        </group>
+      )}
 
       {is3DMode ? (
         <>
@@ -221,7 +232,12 @@ export const Road3D: React.FC<Road3DProps> = ({
 
           {!edge.hasRoad && !edge.hasShip && isValidPlacement && (
             <>
-              {isShipMode ? (
+              {isHarborMode ? (
+                <mesh rotation={[Math.PI / 2, 0, 0]}>
+                  <torusGeometry args={[0.28, 0.07, 10, 28]} />
+                  <meshStandardMaterial color="#fbbf24" emissive="#92400e" />
+                </mesh>
+              ) : isShipMode ? (
                 shipPreviewModel && (
                   <primitive 
                     object={shipPreviewModel} 
@@ -279,7 +295,12 @@ export const Road3D: React.FC<Road3DProps> = ({
 
           {!edge.hasRoad && !edge.hasShip && isValidPlacement && (
             <>
-              {isShipMode ? (
+              {isHarborMode ? (
+                <mesh rotation={[Math.PI / 2, 0, 0]}>
+                  <torusGeometry args={[0.28, 0.07, 10, 28]} />
+                  <meshStandardMaterial color="#fbbf24" emissive="#92400e" />
+                </mesh>
+              ) : isShipMode ? (
                 /* Ship Preview Hint */
                 <group>
                   <mesh position={[0, 0, 0.05]}>

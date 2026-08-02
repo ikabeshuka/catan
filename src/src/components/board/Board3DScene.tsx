@@ -3,21 +3,18 @@ import * as THREE from 'three';
 import { useThree } from '@react-three/fiber';
 import { HexTile3D } from './HexTile3D';
 import { NumberToken3D } from './NumberToken3D';
-import { Clouds3D } from './Clouds3D';
 import { Road3D } from './Road3D';
 import { Structure3D } from './Structure3D';
 import { Wagon3D } from './3d/Wagon3D';
 import { Robber3D } from './3d/Robber3D';
 import { Pirate3D } from './3d/Pirate3D';
 import { Harbor3D } from './3d/Harbor3D';
-import { Birds3D } from './3d/Birds3D';
-import { SheepGroup3D } from './3d/SheepGroup3D';
 import { Dolphin3D } from './3d/Dolphin3D';
-import { parseVertexId } from '../../utils/hexMath/parseVertexId';
-import { parseEdgeId } from '../../utils/hexMath/parseEdgeId';
-import { cubeToPixel } from '../../utils/hexMath/cubeToPixel';
-import { getTileEdgeIds } from '../../utils/gameEngine/generateEdges';
+import { SheepGroup3D } from './3d/SheepGroup3D';
+import { Birds3D } from './3d/Birds3D';
 import { useBoardTextures } from '../../hooks/useBoardTextures';
+import { BoardRenderCache } from '../../utils/hexMath/boardRenderCache';
+import { getTokenZ } from '../../utils/hexMath/board3DMath';
 
 const HEX_SIZE_2D = 60; // Base size for 2D calculations, remains consistent
 const HEX_HEIGHT_3D = 3.0; // Visual height for 3D hexes
@@ -35,9 +32,7 @@ function getProbabilityDots3D(num: number): string {
 }
 
 interface Board3DSceneProps {
-  tiles: any[];
-  vertices: any[];
-  edges: any[];
+  boardRenderCache: BoardRenderCache;
   players: any[];
   currentPlayerIndex: number;
   onTileClick: (tile: any) => void;
@@ -55,9 +50,7 @@ interface Board3DSceneProps {
 }
 
 export const Board3DScene: React.FC<Board3DSceneProps> = ({
-  tiles,
-  vertices,
-  edges,
+  boardRenderCache,
   players,
   currentPlayerIndex,
   onTileClick,
@@ -82,20 +75,6 @@ export const Board3DScene: React.FC<Board3DSceneProps> = ({
       delete (window as any).threeCamera;
     };
   }, [camera]);
-
-  const outerSeaDolphinLocations = React.useMemo(() => {
-    // Generate 10 outer sea pod locations deterministically
-    const pods = [];
-    const count = 10;
-    for (let i = 0; i < count; i++) {
-      const angle = (i * 2 * Math.PI) / count + (i * 0.15); // distribute around circle with slight offset
-      const radius = 17 + (i * 1.7) % 18; // radius between 17 and 35
-      const tileX = Math.cos(angle) * radius;
-      const tileY = Math.sin(angle) * radius;
-      pods.push({ tileX, tileY, index: 1000 + i });
-    }
-    return pods;
-  }, []);
 
   // Use the custom hook to load textures and animate sea waves
   const textures = useBoardTextures(is3DMode);
@@ -129,64 +108,22 @@ export const Board3DScene: React.FC<Board3DSceneProps> = ({
     [players]
   );
 
-  const edgeById = React.useMemo(
-    () => new Map(edges.map(edge => [edge.id, edge])),
-    [edges]
-  );
-
-  const tilesByEdgeId = React.useMemo(() => {
-    const result = new Map<string, any[]>();
-    tiles.filter(tile => !tile.isFrameSea).forEach(tile => {
-      getTileEdgeIds(tile).forEach(edgeId => {
-        const bordering = result.get(edgeId) || [];
-        bordering.push(tile);
-        result.set(edgeId, bordering);
-      });
-    });
-    return result;
-  }, [tiles]);
-
   return (
     <group rotation={[0, 0, 0]}>
-      {/* Dynamic cyclic clouds system on the GPU/3D */}
-      {is3DMode && <Clouds3D />}
-      {is3DMode && <Birds3D />}
-
       {/* Large peripheral sea ring background */}
       <mesh position={[0, 0, -0.76]}>
         <circleGeometry args={[90.0, 64]} />
         <meshStandardMaterial map={textures.SEA} roughness={0.5} side={THREE.DoubleSide} />
       </mesh>
 
-      {/* Outer Sea Dolphins */}
-      {is3DMode && outerSeaDolphinLocations.map((pod) => (
-        <Dolphin3D
-          key={`outer-dolphin-${pod.index}`}
-          tileX={pod.tileX}
-          tileY={pod.tileY}
-          index={pod.index}
-        />
-      ))}
+      {/* Birds floating over the island */}
+      {is3DMode && <Birds3D />}
 
       {/* Render Hex Tiles */}
-      {tiles.map((tile, tileIdx) => {
+      {boardRenderCache.tiles.map(({ tile, position3D }, tileIndex) => {
         if (!tile) return null;
-        // Pointy-top hex grid math with zero spacing and exact dimensions:
-        const center2D = cubeToPixel(tile.coord, 60);
-        const tileX = center2D.x * 0.05;
-        const tileY = center2D.y * -0.05;
-
-        const getTokenZ = (type: string) => {
-          if (!is3DMode) return 0.76; // Flat on the surface
-          switch (type) {
-            case 'ORE': return 3.12;    // מעט מעל פסגת ההר שגובהה ~3.06
-            case 'BRICK': return 0.32;  // גובה בטוח מעל קרקעית המכתש שנחפרת ל-0.25
-            case 'SHEEP': return 0.95;  // מעט מעל הגבעה העדינה של המרעה
-            case 'WHEAT': return 0.87;  // מעל תלמי החיטה
-            case 'WOOD': return 0.85;   // מעל פני שטח היער
-            default: return 0.80;       // גובה ברירת מחדל לאריחים שטוחים
-          }
-        };
+        const tileX = position3D.x;
+        const tileY = position3D.y;
 
         if (tile.isFrameSea) {
           const selectable = isSelectableForRobber(tile);
@@ -225,6 +162,10 @@ export const Board3DScene: React.FC<Board3DSceneProps> = ({
                   onTileLeave={onTileLeave}
                 />
               )}
+              {/* Dolphin Group in external frame sea (Only some tiles for better performance) */}
+              {is3DMode && (tileIndex % 4 === 0) && (
+                <Dolphin3D tileX={0} tileY={0} index={tileIndex} />
+              )}
             </group>
           );
         }
@@ -248,7 +189,7 @@ export const Board3DScene: React.FC<Board3DSceneProps> = ({
               tile={tile}
               tileX={tileX}
               tileY={tileY}
-              position={[tileX, tileY, getTokenZ(tile.type)]}
+              position={[tileX, tileY, getTokenZ(tile.type, is3DMode)]}
               onTileClick={onTileClick}
               onTileHover={onTileHover}
               onTileLeave={onTileLeave}
@@ -259,7 +200,7 @@ export const Board3DScene: React.FC<Board3DSceneProps> = ({
             {/* Robber */}
             {tile.hasRobber && (
               <Robber3D
-                position={[tileX, tileY, getTokenZ(tile.type) + 0.05]}
+                position={[tileX, tileY, getTokenZ(tile.type, is3DMode) + 0.05]}
                 tile={tile}
                 robberTexture={textures.robber}
                 onTileHover={onTileHover}
@@ -270,7 +211,7 @@ export const Board3DScene: React.FC<Board3DSceneProps> = ({
             {/* Pirate */}
             {tile.hasPirate && (
               <Pirate3D
-                position={[tileX, tileY, getTokenZ(tile.type) + 0.05]}
+                position={[tileX, tileY, getTokenZ(tile.type, is3DMode) + 0.05]}
                 tile={tile}
                 pirateTexture={textures.pirate}
                 onTileHover={onTileHover}
@@ -278,39 +219,52 @@ export const Board3DScene: React.FC<Board3DSceneProps> = ({
               />
             )}
 
-            {/* Sheep Group (for SHEEP tiles) */}
+            {/* Sheep Group on pasture tiles */}
             {is3DMode && tile.type === 'SHEEP' && (
               <SheepGroup3D tileX={tileX} tileY={tileY} />
             )}
 
-            {/* Jumping Dolphins (for WATER/SEA tiles) */}
-            {is3DMode && (tile.type === 'WATER' || tile.type === 'SEA') && (
-              <Dolphin3D tileX={tileX} tileY={tileY} index={tileIdx} />
+            {/* Dolphin Group on inner sea/water tiles (Only some tiles for better performance) */}
+            {is3DMode && (tile.type === 'WATER' || tile.type === 'SEA' || tile.type === 'FOG') && (tileIndex % 3 === 0) && (
+              <Dolphin3D tileX={tileX} tileY={tileY} index={tileIndex} />
             )}
+
           </group>
         );
       })}
 
       {/* Render Edges (Roads) */}
-      {edges.map((edge) => {
+      {boardRenderCache.edges.map((edgeData) => {
+        const { edge, center3D, length3D, angleRad3D, usesSeaSurface, borderingTiles } = edgeData;
         if (!edge || !edge.id) return null;
-        const { x1, y1, x2, y2 } = parseEdgeId(edge.id);
-        const mx = ((x1 + x2) / 2) * 0.05;
-        const my = ((y1 + y2) / 2) * -0.05;
-
-        const dx = (x2 - x1) * 0.05;
-        const dy = (y2 - y1) * -0.05;
-        const length = Math.sqrt(dx * dx + dy * dy);
-        const angle = Math.atan2(dy, dx);
 
         const builtPlayer = playerById.get(edge.playerId || edge.shipPlayerId);
         const playerColor = builtPlayer?.color || '#ff5722';
         
         const { isValidPlacement } = getEdgeConfig(edge);
         const currentPlayerColor = players[currentPlayerIndex]?.color || '#ffffff';
-        const borderingTiles = tilesByEdgeId.get(edge.id) || [];
-        const isSeaTile = (tile: any) => tile.type === 'WATER' || tile.type === 'SEA' || tile.type === 'FOG';
-        const usesSeaSurface = borderingTiles.length > 0 && borderingTiles.every(isSeaTile);
+
+        // A plane's local +Y is the left side of its direction. Assign each
+        // real neighbour to that side; an absent neighbour uses the sea frame.
+        let leftNeighborTexture = textures.SEA;
+        let rightNeighborTexture = textures.SEA;
+        const edgeDirectionX = Math.cos(angleRad3D);
+        const edgeDirectionY = Math.sin(angleRad3D);
+        borderingTiles.forEach((tile) => {
+          const tilePosition = boardRenderCache.tileById.get(tile.id)?.position3D;
+          if (!tilePosition) return;
+
+          const relativeX = tilePosition.x - center3D.x;
+          const relativeY = tilePosition.y - center3D.y;
+          const isOnLeft = edgeDirectionX * relativeY - edgeDirectionY * relativeX >= 0;
+          const tileTexture = (textures as Record<string, THREE.Texture>)[tile.type] || textures.SEA;
+
+          if (isOnLeft) {
+            leftNeighborTexture = tileTexture;
+          } else {
+            rightNeighborTexture = tileTexture;
+          }
+        });
 
         // Debug console.log for built roads as requested
         // if (edge.hasRoad) {
@@ -330,30 +284,30 @@ export const Board3DScene: React.FC<Board3DSceneProps> = ({
           <Road3D
             key={edge.id}
             edge={edge}
-            mx={mx}
-            my={my}
+            mx={center3D.x}
+            my={center3D.y}
             z={0.85}
-            length={length}
-            angle={angle}
+            length={length3D}
+            angle={angleRad3D}
             playerColor={playerColor}
             currentPlayerColor={currentPlayerColor}
             isValidPlacement={isValidPlacement}
             onEdgeClick={onEdgeClick}
-            tiles={tiles}
             is3DMode={is3DMode}
             hasShip={edge.hasShip}
-            shipPlayerId={edge.shipPlayerId}
             surfaceTexture={usesSeaSurface ? edgeSurfaceTextures.sea : edgeSurfaceTextures.land}
+            leftNeighborTexture={leftNeighborTexture}
+            rightNeighborTexture={rightNeighborTexture}
           />
         );
       })}
 
       {/* Render Vertices (Settlements / Cities / Harbors) */}
-      {vertices.map((vertex) => {
+      {boardRenderCache.vertices.map(({ vertex, position3D }) => {
         if (!vertex || !vertex.id) return null;
-        const { x, y } = parseVertexId(vertex.id);
-        const vx = x * 0.05;
-        const vy = y * -0.05;
+        if (!boardRenderCache.edgesByVertexId.has(vertex.id)) return null;
+        const vx = position3D.x;
+        const vy = position3D.y;
         const safeScale3D = SCALE_3D || 0.025;
         const builtPlayer = playerById.get(vertex.playerId);
         const playerColor = builtPlayer?.color || '#ff5722';
@@ -367,7 +321,7 @@ export const Board3DScene: React.FC<Board3DSceneProps> = ({
           }
           const sortedIds = [currentPlayer.wagonPosition, vertex.id].sort();
           const edgeId = `e_${sortedIds[0]}_${sortedIds[1]}`;
-          const edge = edgeById.get(edgeId);
+          const edge = boardRenderCache.edgeById.get(edgeId)?.edge;
           if (!edge) return false;
           const isOwner = edge.hasRoad && edge.playerId === currentPlayer.id;
           const cost = isOwner ? 1 : 2;
@@ -453,35 +407,27 @@ export const Board3DScene: React.FC<Board3DSceneProps> = ({
       })}
 
       {/* Render Edge Harbors */}
-      {edges.map((edge) => {
+      {boardRenderCache.edges.map((edgeData) => {
+        const { edge, center3D, vertexIds, borderingTiles } = edgeData;
         if (!edge || !edge.isHarbor) return null;
-        
-        const { x1, y1, x2, y2 } = parseEdgeId(edge.id);
-        const vx1 = x1 * 0.05;
-        const vy1 = y1 * -0.05;
-        const vx2 = x2 * 0.05;
-        const vy2 = y2 * -0.05;
 
         // Geometric center of the two vertices
-        const mx = (vx1 + vx2) / 2;
-        const my = (vy1 + vy2) / 2;
+        const mx = center3D.x;
+        const my = center3D.y;
         const mz = !is3DMode ? 0.77 : 0.85;
 
         // Find the owner tile of this edge - prioritize land tiles (non-WATER) so Harbor3D points outwards
-        const borderingTiles = tilesByEdgeId.get(edge.id) || [];
         const ownerTile = borderingTiles.find(tile => tile.type !== 'WATER') || borderingTiles[0];
 
-        let tileX = 0;
-        let tileY = 0;
-        if (ownerTile) {
-          const center2D = cubeToPixel(ownerTile.coord, 60);
-          tileX = center2D.x * 0.05;
-          tileY = center2D.y * -0.05;
-        }
+        const ownerTilePosition = ownerTile
+          ? boardRenderCache.tileById.get(ownerTile.id)?.position3D
+          : undefined;
+        const tileX = ownerTilePosition?.x || 0;
+        const tileY = ownerTilePosition?.y || 0;
 
         // Get one of the connected vertices for tooltips/actions
-        const v1Id = `v_${x1}_${y1}`;
-        const connectedVertex = vertices.find(v => v.id === v1Id) || {
+        const v1Id = vertexIds[0];
+        const connectedVertex = boardRenderCache.vertexById.get(v1Id)?.vertex || {
           id: v1Id,
           isHarbor: true,
           harborType: edge.harborType

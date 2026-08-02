@@ -1,13 +1,13 @@
-import { useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useGame } from '../context/GameContext';
 import { useTurnManager } from './useTurnManager';
 import { validateRoadPlacement } from '../utils/validation/validateRoadPlacement';
 import { validateShipPlacement } from '../utils/validation/validateShipPlacement';
 import { getOpenShipsForPlayer } from '../utils/gameEngine/getOpenShipsForPlayer';
-import { getTileEdgeIds } from '../utils/gameEngine/generateEdges';
 import { getEdgeVertices, getTileVertexIds } from '../utils/hexMath/boardGeometryHelpers';
 import { dispatchGameAction } from '../services/gameDispatcher';
 import { GameAction } from '../types/gameActions.types';
+import { getEligibleHarborEdges } from '../utils/gameEngine/lostTribeHelpers';
 
 export function useEdgeInteraction() {
   const {
@@ -20,6 +20,7 @@ export function useEdgeInteraction() {
     setPlayers,
     gamePhase,
     setEdges,
+    setVertices,
     roadBuildingRemaining,
     showBuildingCostToast,
     currentAction,
@@ -39,6 +40,7 @@ export function useEdgeInteraction() {
     myPlayerId,
     resourceBank,
     setResourceBank,
+    boardRenderCache,
   } = useGame();
 
   const { isSetupPhase, setupState, recordSetupPlacement } = useTurnManager();
@@ -47,17 +49,19 @@ export function useEdgeInteraction() {
 
   const checkIsCoastline = (edgeId: string) => {
     if (!tiles || tiles.length === 0) return false;
-    const bordering = tiles.filter(t => getTileEdgeIds(t).includes(edgeId));
-    const hasLand = bordering.some(t => t.type !== 'WATER' && t.type !== 'SEA' && t.type !== 'FOG');
-    const hasWater = bordering.some(t => t.type === 'WATER' || t.type === 'SEA' || t.type === 'FOG');
-    const isLandFrame = bordering.length === 1 && hasLand;
-    return (hasLand && hasWater) || isLandFrame;
+    return boardRenderCache.edgeById.get(edgeId)?.isCoast || false;
   };
 
-  const getEdgeConfig = (edge: any) => {
+  const calculateEdgeConfig = useCallback((edge: any) => {
     const currentPlayer = players[currentPlayerIndex];
     const isLocalPlayersTurn = !roomId || (!!myPlayerId && currentPlayer?.id === myPlayerId);
     const isBlockedBySetup = isSetupPhase && setupState.hasPlacedRoad;
+
+    if (currentAction === 'PLACE_HARBOR') {
+      const eligible = getEligibleHarborEdges(currentPlayer.id, vertices, edges, tiles || []);
+      const canPlace = eligible.some(candidate => candidate.id === edge.id);
+      return { isValidPlacement: canPlace, isClickable: canPlace && isLocalPlayersTurn };
+    }
 
     if (currentAction === 'MOVE_SHIP_SELECT') {
       const openShips = getOpenShipsForPlayer(currentPlayer.id, edges, vertices, currentTurnBuiltShips, tiles || []);
@@ -76,7 +80,7 @@ export function useEdgeInteraction() {
       return { isValidPlacement: isValidShip, isClickable: isValidShip && isLocalPlayersTurn };
     }
 
-    const isCoast = checkIsCoastline(edge.id);
+    const isCoast = boardRenderCache.edgeById.get(edge.id)?.isCoast || false;
     let isValidPlacement = false;
 
     const isAdjacentToSetupSettlement = (() => {
@@ -87,9 +91,7 @@ export function useEdgeInteraction() {
       return v1Id === setupState.lastSettlementVertexId || v2Id === setupState.lastSettlementVertexId;
     })();
 
-    const bordersWater = tiles 
-      ? tiles.filter(t => getTileEdgeIds(t).includes(edge.id)).some(t => t.type === 'WATER' || t.type === 'SEA' || t.type === 'FOG')
-      : false;
+    const bordersWater = boardRenderCache.edgeById.get(edge.id)?.hasWater || false;
 
     if (isAdjacentToSetupSettlement && bordersWater) {
       const isValidRoad = currentPlayer && !isBlockedBySetup && validateRoadPlacement(edge.id, currentPlayer.id, vertices, edges, tiles, gamePhase);
@@ -125,7 +127,41 @@ export function useEdgeInteraction() {
     const isClickable = isValidPlacement && !currentPlayer?.isBot && isLocalPlayersTurn;
 
     return { isValidPlacement, isClickable };
-  };
+  }, [
+    activeExpansion,
+    boardRenderCache,
+    currentAction,
+    currentPlayerIndex,
+    currentTurnBuiltShips,
+    edges,
+    gamePhase,
+    isSetupPhase,
+    myPlayerId,
+    players,
+    roomId,
+    selectedShipIdToMove,
+    setupState.hasPlacedRoad,
+    setupState.lastSettlementVertexId,
+    tiles,
+    vertices,
+  ]);
+
+  const edgeConfigById = useMemo(() => new Map(
+    edges.map((edge) => [edge.id, calculateEdgeConfig(edge)])
+  ), [calculateEdgeConfig, edges]);
+
+  const getEdgeConfig = (edge: any) => edgeConfigById.get(edge.id)
+    || { isValidPlacement: false, isClickable: false };
+
+  useEffect(() => {
+    if (turnSubPhase === 'HARBOR_PLACEMENT') {
+      const currentPlayer = players[currentPlayerIndex];
+      const isLocalPlayersTurn = !roomId || (!!myPlayerId && currentPlayer?.id === myPlayerId);
+      if (currentPlayer && !currentPlayer.isBot && isLocalPlayersTurn) setCurrentAction('PLACE_HARBOR');
+    } else if (currentAction === 'PLACE_HARBOR') {
+      setCurrentAction(null);
+    }
+  }, [currentAction, currentPlayerIndex, myPlayerId, players, roomId, setCurrentAction, turnSubPhase]);
 
   const handleRevealFog = (edgeId: string) => {
     const currentPlayer = players[currentPlayerIndex];
@@ -250,6 +286,25 @@ export function useEdgeInteraction() {
     const { isValidPlacement } = getEdgeConfig(edge);
     if (!isValidPlacement) return;
 
+    if (currentAction === 'PLACE_HARBOR') {
+      dispatchGameAction({ type: 'PLACE_HARBOR', playerId: currentPlayer.id, edgeId: edge.id }, {
+        roomId: roomId || undefined,
+        isRemote: false,
+        myPlayerId: roomId ? myPlayerId : currentPlayer.id,
+        players,
+        vertices,
+        edges,
+        tiles,
+        setVertices,
+        setEdges,
+        setPlayers,
+        setTurnSubPhase,
+        turnSubPhase,
+        addLog,
+      });
+      return;
+    }
+
     if (currentAction === 'MOVE_SHIP_SELECT') {
       setSelectedShipIdToMove(edge.id);
       setCurrentAction('MOVE_SHIP_PLACE');
@@ -280,9 +335,7 @@ export function useEdgeInteraction() {
     }
 
     const isCoast = checkIsCoastline(edge.id);
-    const bordersWater = tiles 
-      ? tiles.filter(t => getTileEdgeIds(t).includes(edge.id)).some(t => t.type === 'WATER' || t.type === 'SEA' || t.type === 'FOG')
-      : false;
+    const bordersWater = boardRenderCache.edgeById.get(edge.id)?.hasWater || false;
 
     if (isSetupPhase && !isCoast && bordersWater) {
       const isValid = currentPlayer && validateShipPlacement(edge.id, currentPlayer.id, vertices, edges, tiles || [], gamePhase);

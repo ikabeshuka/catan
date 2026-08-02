@@ -1,10 +1,12 @@
 import React from 'react';
 import { useGame } from '../../context/GameContext';
+import { useGameUI } from '../../context/GameUIContext';
 import { HexTile } from './HexTile';
 import { EdgeLine } from './EdgeLine';
 import { VertexNode } from './VertexNode';
 
 export const GameBoard: React.FC = () => {
+  const { isAlternativeTheme } = useGameUI();
   const {
     tiles,
     vertices,
@@ -20,6 +22,7 @@ export const GameBoard: React.FC = () => {
     gamePhase,
     setVertices,
     setActivePortTrade,
+    boardRenderCache,
   } = useGame();
 
   // אם הלוח עדיין לא אותחל (למשל, אנחנו עדיין בלובי), לא נציג כלום
@@ -44,22 +47,22 @@ export const GameBoard: React.FC = () => {
         <defs>
           {/* Textures for Hexagons */}
           <pattern id="tex-WOOD" patternUnits="objectBoundingBox" width="1" height="1">
-            <image href="/wood.jpg" x="0" y="0" width="100%" height="100%" preserveAspectRatio="xMidYMid slice" />
+            <image href={isAlternativeTheme ? "/wood1.jpg" : "/wood.jpg"} x="0" y="0" width="100%" height="100%" preserveAspectRatio="xMidYMid slice" />
           </pattern>
           <pattern id="tex-BRICK" patternUnits="objectBoundingBox" width="1" height="1">
-            <image href="/brick.jpg" x="0" y="0" width="100%" height="100%" preserveAspectRatio="xMidYMid slice" />
+            <image href={isAlternativeTheme ? "/brick1.jpg" : "/brick.jpg"} x="0" y="0" width="100%" height="100%" preserveAspectRatio="xMidYMid slice" />
           </pattern>
           <pattern id="tex-SHEEP" patternUnits="objectBoundingBox" width="1" height="1">
-            <image href="/wool.jpg" x="0" y="0" width="100%" height="100%" preserveAspectRatio="xMidYMid slice" />
+            <image href={isAlternativeTheme ? "/wool1.jpg" : "/wool.jpg"} x="0" y="0" width="100%" height="100%" preserveAspectRatio="xMidYMid slice" />
           </pattern>
           <pattern id="tex-WHEAT" patternUnits="objectBoundingBox" width="1" height="1">
-            <image href="/wheat.jpg" x="0" y="0" width="100%" height="100%" preserveAspectRatio="xMidYMid slice" />
+            <image href={isAlternativeTheme ? "/wheat1.jpg" : "/wheat.jpg"} x="0" y="0" width="100%" height="100%" preserveAspectRatio="xMidYMid slice" />
           </pattern>
           <pattern id="tex-ORE" patternUnits="objectBoundingBox" width="1" height="1">
-            <image href="/rock.jpg" x="0" y="0" width="100%" height="100%" preserveAspectRatio="xMidYMid slice" />
+            <image href={isAlternativeTheme ? "/rock1.jpg" : "/rock.jpg"} x="0" y="0" width="100%" height="100%" preserveAspectRatio="xMidYMid slice" />
           </pattern>
           <pattern id="tex-DESERT" patternUnits="objectBoundingBox" width="1" height="1">
-            <image href="/desert.jpg" x="0" y="0" width="100%" height="100%" preserveAspectRatio="xMidYMid slice" />
+            <image href={isAlternativeTheme ? "/desert1.jpg" : "/desert.jpg"} x="0" y="0" width="100%" height="100%" preserveAspectRatio="xMidYMid slice" />
           </pattern>
           <pattern id="tex-SEA" patternUnits="objectBoundingBox" width="1" height="1">
             <image href="/see.jpg" x="0" y="0" width="100%" height="100%" preserveAspectRatio="xMidYMid slice" />
@@ -183,7 +186,7 @@ export const GameBoard: React.FC = () => {
 
           {/* שכבה 3: צמתי הלוח (הנקודות שבהן בונים יישובים וערים) - נמצאים למעלה כדי שיהיה קל ללחוץ עליהם */}
           <g id="vertices-layer" style={{ transformStyle: 'preserve-3d' }}>
-            {vertices.map((vertex) => (
+            {vertices.filter((vertex) => boardRenderCache.edgesByVertexId.has(vertex.id)).map((vertex) => (
               <VertexNode
                 key={vertex.id}
                 vertex={vertex}

@@ -42,6 +42,33 @@ test('accepts outcome-free dice requests and rejects client-supplied outcomes', 
   assert.equal(validateActionShape({ type: 'ADMIN_WIN', playerId: 'p1' }).ok, false);
 });
 
+test('collects a Lost Tribe victory chit when a ship is built on its edge', () => {
+  const state = baseState();
+  state.vertices[1] = { ...state.vertices[1], structure: 'SETTLEMENT', playerId: 'p1' };
+  state.edges[1].lostTribeReward = { id: 'vp-a', kind: 'VICTORY_POINT' };
+  state.players[0].victoryPoints = 2;
+  const action = { type: 'BUILD_SHIP', playerId: 'p1', edgeId: state.edges[1].id };
+  assert.equal(validateGameAction(state, action).ok, true);
+  applyReservedAction(state, action);
+  assert.equal(state.players[0].victoryPoints, 3);
+  assert.equal(state.edges[1].lostTribeReward.collectedBy, 'p1');
+});
+
+test('places a stored Lost Tribe harbor only on a legal coastal settlement edge', () => {
+  const state = baseState();
+  state.turnSubPhase = 'HARBOR_PLACEMENT';
+  state.players[0].unplacedHarbors = ['WOOD'];
+  state.players[0].harborReturnSubPhase = 'TRADE_AND_BUILD';
+  state.tiles.push({ id: 'water-1', type: 'WATER', coord: { q: 1, r: 0, s: -1 } });
+  const action = { type: 'PLACE_HARBOR', playerId: 'p1', edgeId: state.edges[0].id };
+  assert.equal(validateGameAction(state, action).ok, true);
+  applyReservedAction(state, action);
+  assert.equal(state.edges[0].isHarbor, true);
+  assert.equal(state.edges[0].harborType, 'WOOD');
+  assert.deepEqual(state.players[0].unplacedHarbors, []);
+  assert.equal(state.turnSubPhase, 'TRADE_AND_BUILD');
+});
+
 test('distributes an authoritative dice result from the finite bank', () => {
   const state = baseState();
   state.turnSubPhase = 'BEFORE_ROLL';

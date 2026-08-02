@@ -80,10 +80,6 @@ export const Harbor3D: React.FC<Harbor3DProps> = ({
 
       {/* Floating resource icon precisely at the outer tip/edge of the harbor legs where it meets water */}
       <Billboard position={[0.82, 0, 0.68]} scale={[0.54, 0.54, 0.54]}>
-        <mesh position={[0, 0, -0.01]}>
-          <circleGeometry args={[0.66, 32]} />
-          <meshBasicMaterial color="#fff7d6" opacity={1} transparent={false} />
-        </mesh>
         <mesh>
           <planeGeometry args={[1, 1]} />
           <meshBasicMaterial 

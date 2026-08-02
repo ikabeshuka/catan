@@ -23,6 +23,7 @@ export interface ResourceFlow {
 
 interface GameUIContextType {
   is3DMode: boolean;
+  isAlternativeTheme: boolean;
   buildingToast: BuildingToast | null;
   resourceFlows: ResourceFlow[];
   resourcePosition: 'bottom' | 'right';
@@ -31,13 +32,14 @@ interface GameUIContextType {
   isRolling: boolean;
   rollValues: { d1: number; d2: number };
   lastRoll: { d1: number; d2: number } | null;
-  currentAction: 'BUILD_ROAD' | 'BUILD_SHIP' | 'MOVE_SHIP_SELECT' | 'MOVE_SHIP_PLACE' | null;
+  currentAction: 'BUILD_ROAD' | 'BUILD_SHIP' | 'MOVE_SHIP_SELECT' | 'MOVE_SHIP_PLACE' | 'PLACE_HARBOR' | null;
   barbarianPositions: any[];
   merchantConvoys: any[];
   isMovingWagon: boolean;
   isTradeModalOpen: boolean;
 
   setIs3DMode: React.Dispatch<React.SetStateAction<boolean>>;
+  setIsAlternativeTheme: React.Dispatch<React.SetStateAction<boolean>>;
   setBuildingToast: React.Dispatch<React.SetStateAction<BuildingToast | null>>;
   setResourceFlows: React.Dispatch<React.SetStateAction<ResourceFlow[]>>;
   setResourcePosition: React.Dispatch<React.SetStateAction<'bottom' | 'right'>>;
@@ -46,7 +48,7 @@ interface GameUIContextType {
   setIsRolling: React.Dispatch<React.SetStateAction<boolean>>;
   setRollValues: React.Dispatch<React.SetStateAction<{ d1: number; d2: number }>>;
   setLastRoll: React.Dispatch<React.SetStateAction<{ d1: number; d2: number } | null>>;
-  setCurrentAction: React.Dispatch<React.SetStateAction<'BUILD_ROAD' | 'BUILD_SHIP' | 'MOVE_SHIP_SELECT' | 'MOVE_SHIP_PLACE' | null>>;
+  setCurrentAction: React.Dispatch<React.SetStateAction<'BUILD_ROAD' | 'BUILD_SHIP' | 'MOVE_SHIP_SELECT' | 'MOVE_SHIP_PLACE' | 'PLACE_HARBOR' | null>>;
   setBarbarianPositions: React.Dispatch<React.SetStateAction<any[]>>;
   setMerchantConvoys: React.Dispatch<React.SetStateAction<any[]>>;
   setIsMovingWagon: React.Dispatch<React.SetStateAction<boolean>>;
@@ -60,6 +62,7 @@ const GameUIContext = createContext<GameUIContextType | undefined>(undefined);
 
 export const GameUIProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
   const [is3DMode, setIs3DMode] = useState<boolean>(false);
+  const [isAlternativeTheme, setIsAlternativeTheme] = useState<boolean>(false);
   const [buildingToast, setBuildingToast] = useState<BuildingToast | null>(null);
   const [resourceFlows, setResourceFlows] = useState<ResourceFlow[]>([]);
   const [resourcePosition, setResourcePosition] = useState<'bottom' | 'right'>('bottom');
@@ -68,7 +71,7 @@ export const GameUIProvider: React.FC<{ children: ReactNode }> = ({ children }) 
   const [isRolling, setIsRolling] = useState<boolean>(false);
   const [rollValues, setRollValues] = useState<{ d1: number; d2: number }>({ d1: 1, d2: 1 });
   const [lastRoll, setLastRoll] = useState<{ d1: number; d2: number } | null>(null);
-  const [currentAction, setCurrentAction] = useState<'BUILD_ROAD' | 'BUILD_SHIP' | 'MOVE_SHIP_SELECT' | 'MOVE_SHIP_PLACE' | null>(null);
+  const [currentAction, setCurrentAction] = useState<'BUILD_ROAD' | 'BUILD_SHIP' | 'MOVE_SHIP_SELECT' | 'MOVE_SHIP_PLACE' | 'PLACE_HARBOR' | null>(null);
   const [barbarianPositions, setBarbarianPositions] = useState<any[]>([]);
   const [merchantConvoys, setMerchantConvoys] = useState<any[]>([]);
   const [isMovingWagon, setIsMovingWagon] = useState<boolean>(false);
@@ -97,6 +100,7 @@ export const GameUIProvider: React.FC<{ children: ReactNode }> = ({ children }) 
     <GameUIContext.Provider
       value={{
         is3DMode,
+        isAlternativeTheme,
         buildingToast,
         resourceFlows,
         resourcePosition,
@@ -111,6 +115,7 @@ export const GameUIProvider: React.FC<{ children: ReactNode }> = ({ children }) 
         isMovingWagon,
         isTradeModalOpen,
         setIs3DMode,
+        setIsAlternativeTheme,
         setBuildingToast,
         setResourceFlows,
         setResourcePosition,

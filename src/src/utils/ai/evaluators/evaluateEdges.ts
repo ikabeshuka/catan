@@ -134,6 +134,10 @@ export function evaluateShipEdges(
       score += 3.0;
     }
 
+    if (edge.lostTribeReward && !edge.lostTribeReward.collectedBy) {
+      score += edge.lostTribeReward.kind === 'VICTORY_POINT' ? 12 : 8;
+    }
+
     ratedEdges.push({
       edgeId: edge.id,
       score

@@ -1,30 +1,10 @@
 import { HexTile } from '../../types/hex.types';
 import { BoardEdge } from '../../types/boardElements.types';
-import { cubeToPixel } from '../hexMath/cubeToPixel';
 import { parseEdgeId } from '../hexMath/parseEdgeId';
-
-const HEX_SIZE = 60;
+import { getCachedTileGeometry } from '../hexMath/boardRenderCache';
 
 export function getTileEdgeIds(tile: HexTile): string[] {
-  const center = cubeToPixel(tile.coord, HEX_SIZE);
-  const vertexIdsInHex: string[] = [];
-  for (let i = 0; i < 6; i++) {
-    const angleRad = (Math.PI / 180) * (60 * i - 30);
-    const x = center.x + HEX_SIZE * Math.cos(angleRad);
-    const y = center.y + HEX_SIZE * Math.sin(angleRad);
-    // שינוי לעיגול עשרוני אחיד ומסונכרן
-    const roundedX = Math.round(x * 10) / 10;
-    const roundedY = Math.round(y * 10) / 10;
-    vertexIdsInHex.push(`v_${roundedX}_${roundedY}`);
-  }
-  const edgeIds: string[] = [];
-  for (let i = 0; i < 6; i++) {
-    const v1 = vertexIdsInHex[i];
-    const v2 = vertexIdsInHex[(i + 1) % 6];
-    const sortedIds = [v1, v2].sort();
-    edgeIds.push(`e_${sortedIds[0]}_${sortedIds[1]}`);
-  }
-  return edgeIds;
+  return getCachedTileGeometry(tile).edgeIds;
 }
 
 /**
@@ -57,6 +37,20 @@ export function generateEdges(tiles: HexTile[], activeExpansion?: string): Board
   });
 
   const isExternalEdge = (edgeId: string) => edgeCount[edgeId] === 1;
+
+  boardTiles.forEach(tile => {
+    if (!tile.lostTribeRewards) return;
+    const edgeIds = getTileEdgeIds(tile);
+    tile.lostTribeRewards.forEach(reward => {
+      const edge = edgeMap[edgeIds[reward.edgeIndex]];
+      if (!edge) return;
+      edge.lostTribeReward = {
+        id: reward.id,
+        kind: reward.kind,
+        harborType: reward.harborType,
+      };
+    });
+  });
 
   if (activeExpansion === 'SEAFARERS') {
     const findSharedEdge = (t1: HexTile, t2: HexTile): string | null => {

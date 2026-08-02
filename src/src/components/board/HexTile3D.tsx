@@ -38,13 +38,13 @@ export const HexTile3D: React.FC<HexTile3DProps> = ({
 
   const windTexture = useMemo(() => {
     const tex = wheatTexture;
-    if (!tex) return null;
+    if (tile.type !== 'WHEAT' || !tex) return null;
     const cloned = tex.clone();
     cloned.wrapS = THREE.RepeatWrapping;
     cloned.wrapT = THREE.RepeatWrapping;
     cloned.needsUpdate = true;
     return cloned;
-  }, [wheatTexture]);
+  }, [tile.type, wheatTexture]);
 
   useEffect(() => {
     return () => {
@@ -80,10 +80,13 @@ export const HexTile3D: React.FC<HexTile3DProps> = ({
 
     try {
       const canvas = document.createElement('canvas');
-      canvas.width = 512;
-      canvas.height = 512;
+      // Keep the authored 512px drawing coordinates, but render to a smaller
+      // backing texture. This cuts the per-hex texture memory by 75%.
+      canvas.width = 256;
+      canvas.height = 256;
       const ctx = canvas.getContext('2d');
       if (ctx) {
+        ctx.scale(0.5, 0.5);
         if ((tile.type === 'CASTLE' || tile.type === 'QUARRY' || tile.type === 'GLASSWORKS' || tile.type === 'GOLD_FIELD') && !tex) {
           // Special expansion tile styles
           let bgColor = '#8e24aa'; // Castle Purple
@@ -197,17 +200,15 @@ export const HexTile3D: React.FC<HexTile3DProps> = ({
 
   // 3. מנוע האנימציות הדינמי בזמן אמת (60FPS)
   useFrame((state) => {
-    if (!meshRef.current) return;
+    // Only wheat needs a per-frame shader update. All other terrain is static;
+    // skipping their animation work keeps Seafarers boards responsive.
+    if (!is3DMode || tile.type !== 'WHEAT' || !meshRef.current) return;
 
     const time = state.clock.getElapsedTime();
 
     // אריחי ים: הזזה רציפה ואיטית של הפיקסלים (Texture Offset) ליצירת זרימת מים ריאליסטית ומנצנצת.
     // שאר האריחים (כולל המדבר) נשארים סטטיים לחלוטין ומיושרים למרכז (ללא הזזה).
-    const isSea = (tile.type as string) === 'SEA' || tile.type === 'WATER';
-    if (is3DMode && isSea && textureRef.current) { 
-      textureRef.current.offset.x = time * 0.005;
-      textureRef.current.offset.y = Math.sin(time * 0.02) * 0.02;
-    } else if (textureRef.current) {
+    if (textureRef.current) {
       textureRef.current.offset.x = 0;
       textureRef.current.offset.y = 0;
     }

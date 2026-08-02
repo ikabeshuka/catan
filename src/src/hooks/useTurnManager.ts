@@ -418,15 +418,7 @@ export function useTurnManager() {
       return p;
     }));
 
-    const cardNamesHE: Record<string, string> = {
-      KNIGHT: 'אביר',
-      ROAD_BUILDING: 'בניית 2 דרכים',
-      YEAR_OF_PLENTY: 'שנת שפע',
-      MONOPOLY: 'מונופול'
-    };
-    const cardName = cardNamesHE[drawnCard] || 'נקודת ניצחון';
-
-    addLog(`${currentPlayer.name} רכש קלף פיתוח מהקופה וקיבל: ${cardName}.`);
+    addLog(`${currentPlayer.name} רכש קלף פיתוח מהקופה.`);
     return true;
   };
 

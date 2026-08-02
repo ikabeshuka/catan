@@ -59,6 +59,10 @@ export const PhaseGuide: React.FC = () => {
       guideText = 'שלב המסחר והבנייה';
       subText = 'בנה כבישים ויישובים על ידי לחיצה על הלוח, או בצע מסחר 4:1 עם הבנק דרך הסרגל.';
       badgeColor = 'bg-emerald-500/15 border-emerald-500/30 text-emerald-400';
+    } else if (turnSubPhase === 'HARBOR_PLACEMENT') {
+      guideText = 'הצבת נמל מהשבט האבוד';
+      subText = 'בחר צלע חוף מוזהבת ליד אחד היישובים או הערים שלך. לא ניתן להצמיד שני נמלים.';
+      badgeColor = 'bg-sky-500/15 border-sky-500/30 text-sky-300';
     }
   }
 

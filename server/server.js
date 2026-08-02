@@ -6,6 +6,7 @@ const { validateActionShape, validateGameAction, applyReservedAction, DEV_CARD_T
 
 const DEFAULT_PORT = 3001;
 const RECONNECT_GRACE_MS = Number(process.env.RECONNECT_GRACE_MS || 15000);
+const DISCONNECTED_TURN_PAUSE_MS = Number(process.env.DISCONNECTED_TURN_PAUSE_MS || 15000);
 const MAX_PAYLOAD_BYTES = 512 * 1024;
 const ROOM_ID_PATTERN = /^CATAN-[A-Z0-9]{4,12}$/;
 const SLOT_STATUSES = new Set(['OPEN', 'LOCKED_BOT']);
@@ -35,7 +36,9 @@ const validateRuntimeGameState = (state, room) => {
   return state.devCardDeck.every(card => DEV_CARD_TYPES.includes(card));
 };
 const validateInitialGameState = (state, room) => {
-  if (!validateRuntimeGameState(state, room) || !['SETUP_ROUND_1', 'SETUP_ROUND_2'].includes(state.gamePhase) || state.devCardDeck.length !== 25) return false;
+  const isLostTribe = state.selectedScenario === 'THE_LOST_TRIBE';
+  const expectedDeckLength = isLostTribe ? 21 : 25;
+  if (!validateRuntimeGameState(state, room) || !['SETUP_ROUND_1', 'SETUP_ROUND_2'].includes(state.gamePhase) || state.devCardDeck.length !== expectedDeckLength) return false;
   const playerIds = state.players.map(player => player?.id);
   if (new Set(playerIds).size !== playerIds.length || playerIds.some((id, index) => id !== `p${index + 1}`)) return false;
   if (state.players.some(player => !isPlainObject(player.resources) || RESOURCE_TYPES.some(resource =>
@@ -46,10 +49,17 @@ const validateInitialGameState = (state, room) => {
     if (!DEV_CARD_TYPES.includes(card)) return false;
     deckCounts[card] += 1;
   }
+  if (isLostTribe) {
+    const reservedCards = state.edges
+      .filter(edge => edge?.lostTribeReward?.kind === 'DEV_CARD')
+      .map(edge => edge.lostTribeReward.devCardType);
+    if (reservedCards.length !== 4 || reservedCards.some(card => !DEV_CARD_TYPES.includes(card))) return false;
+    reservedCards.forEach(card => { deckCounts[card] += 1; });
+  }
   return DEV_CARD_TYPES.every(type => deckCounts[type] === STANDARD_DEV_COUNTS[type]);
 };
 
-function createCatanServer() {
+function createCatanServer({ disconnectedTurnPauseMs = DISCONNECTED_TURN_PAUSE_MS } = {}) {
   const app = express();
   const httpServer = http.createServer(app);
   const io = new Server(httpServer, {
@@ -114,6 +124,71 @@ function createCatanServer() {
     });
   };
 
+  const emitGameSnapshot = room => {
+    io.to(room.roomId).emit('game_state_snapshot', { snapshot: clone(room.gameState), sequence: room.actionSequence });
+  };
+
+  const clearDisconnectedTurnPause = (room, { announce = false } = {}) => {
+    const pause = room.disconnectedTurnPause;
+    if (!pause) return null;
+    clearTimeout(pause.timer);
+    delete room.disconnectedTurnPause;
+    if (announce) {
+      io.to(room.roomId).emit('turn_resumed_after_reconnect', {
+        playerId: pause.playerId,
+        playerName: pause.playerName,
+      });
+    }
+    return pause;
+  };
+
+  const beginDisconnectedTurnPause = room => {
+    const activePlayer = room.gameState?.players?.[room.gameState?.currentPlayerIndex];
+    if (!activePlayer || activePlayer.isBot || room.disconnectedTurnPause) return;
+    const slot = room.slots.find(candidate => candidate.id === activePlayer.id);
+    const isConnected = Boolean(slot?.socketId && io.sockets.sockets.has(slot.socketId));
+    if (!slot || isConnected) return;
+
+    const pause = {
+      playerId: activePlayer.id,
+      playerName: activePlayer.name || slot.playerName || 'שחקן',
+      expiresAt: Date.now() + disconnectedTurnPauseMs,
+      timer: null,
+    };
+    room.disconnectedTurnPause = pause;
+    io.to(room.roomId).emit('turn_paused_for_reconnect', {
+      playerId: pause.playerId,
+      playerName: pause.playerName,
+      remainingMs: disconnectedTurnPauseMs,
+    });
+
+    pause.timer = setTimeout(() => {
+      if (room.disconnectedTurnPause !== pause || slot.socketId) return;
+      const player = room.gameState?.players?.find(candidate => candidate.id === pause.playerId);
+      if (!player) return;
+
+      slot.botTakeover = {
+        isBot: Boolean(player.isBot),
+        playerType: player.playerType,
+        difficulty: player.difficulty,
+      };
+      player.isBot = true;
+      player.playerType = 'LOCAL_BOT';
+      player.difficulty = 'HARD';
+      player.botTakeover = true;
+      clearDisconnectedTurnPause(room);
+      room.actionSequence += 1;
+      activeRooms.set(room.roomId, room);
+      io.to(room.roomId).emit('player_taken_over_by_bot', {
+        playerId: player.id,
+        playerName: player.name || pause.playerName,
+        difficulty: 'HARD',
+      });
+      emitGameSnapshot(room);
+    }, disconnectedTurnPauseMs);
+    pause.timer.unref?.();
+  };
+
   const releaseSocketFromRoom = (socket, roomId, immediate = false) => {
     const room = activeRooms.get(roomId);
     if (!room) return;
@@ -125,6 +200,13 @@ function createCatanServer() {
     if (room.hostSocketId === socket.id && room.currentPlayers > 0) migrateHost(room);
     activeRooms.set(roomId, room);
     broadcastRoomState(room);
+
+    if (room.status === 'IN_GAME' && !immediate) {
+      // Keep the seat reserved indefinitely during a live game: the player
+      // may reconnect even after the temporary bot has taken over.
+      beginDisconnectedTurnPause(room);
+      return;
+    }
 
     const finalize = () => {
       clearDisconnectTimer(slot);
@@ -226,6 +308,26 @@ function createCatanServer() {
       assignedSlot.playerName = playerName.trim();
       assignedSlot.sessionToken ||= createSessionToken();
       delete assignedSlot.disconnectedAt;
+      const pausedTurn = room.disconnectedTurnPause?.playerId === assignedSlot.id
+        ? clearDisconnectedTurnPause(room, { announce: true })
+        : null;
+      let restoredFromBot = false;
+      if (room.status === 'IN_GAME' && assignedSlot.botTakeover) {
+        const player = room.gameState?.players?.find(candidate => candidate.id === assignedSlot.id);
+        if (player) {
+          player.isBot = assignedSlot.botTakeover.isBot;
+          player.playerType = assignedSlot.botTakeover.playerType;
+          player.difficulty = assignedSlot.botTakeover.difficulty;
+          delete player.botTakeover;
+          delete assignedSlot.botTakeover;
+          room.actionSequence += 1;
+          restoredFromBot = true;
+          io.to(roomId).emit('player_returned_from_bot', {
+            playerId: player.id,
+            playerName: player.name || assignedSlot.playerName || 'שחקן',
+          });
+        }
+      }
       socket.join(roomId);
       socket.data.roomId = roomId;
       socket.data.assignedPlayerId = assignedSlot.id;
@@ -236,6 +338,7 @@ function createCatanServer() {
       }
       activeRooms.set(roomId, room);
       broadcastRoomState(room);
+      if (pausedTurn || restoredFromBot) emitGameSnapshot(room);
       socket.to(roomId).emit('player_joined', { playerId: assignedSlot.id, playerName: assignedSlot.playerName });
       callback?.({
         success: true,
@@ -255,7 +358,13 @@ function createCatanServer() {
       const room = activeRooms.get(payload.roomId);
       if (!room) { callback?.({ success: false, code: 'ROOM_NOT_FOUND', message: 'החדר לא נמצא' }); return; }
       const slot = room.slots.find(candidate => candidate.socketId === socket.id);
-      if (!slot || !socket.rooms.has(payload.roomId) || socket.data.roomId !== payload.roomId || payload.action?.playerId !== slot.id) {
+      if (room.disconnectedTurnPause) {
+        callback?.({ success: false, code: 'TURN_PAUSED_FOR_RECONNECT', message: 'Turn is paused while a player reconnects' }); return;
+      }
+      const actionPlayer = room.gameState?.players?.find(candidate => candidate.id === payload.action?.playerId);
+      const hostControlsBot = Boolean(actionPlayer?.isBot && room.hostSocketId === socket.id);
+      if (!slot || !socket.rooms.has(payload.roomId) || socket.data.roomId !== payload.roomId ||
+          (!hostControlsBot && payload.action?.playerId !== slot.id)) {
         callback?.({ success: false, code: 'UNAUTHORIZED', message: 'אין הרשאה לבצע פעולה זו' }); return;
       }
       const shape = validateActionShape(payload.action);
@@ -283,9 +392,10 @@ function createCatanServer() {
         approvedAction.hasEligibleVictims = approvedAction.eligibleVictimPlayerIds.length > 0;
       }
       room.actionSequence += 1;
+      beginDisconnectedTurnPause(room);
       activeRooms.set(payload.roomId, room);
       io.to(payload.roomId).emit('receive_game_action', { action: approvedAction, sequence: room.actionSequence });
-      io.to(payload.roomId).emit('game_state_snapshot', { snapshot: clone(room.gameState), sequence: room.actionSequence });
+      emitGameSnapshot(room);
       callback?.({ success: true, sequence: room.actionSequence });
     });
 

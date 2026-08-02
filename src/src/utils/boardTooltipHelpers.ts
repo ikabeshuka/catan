@@ -113,10 +113,11 @@ export const getTileTooltipInfo = (type: string) => {
         color: 'from-orange-500/10 to-amber-950/20 border-orange-700/20 text-orange-200'
       };
     case 'WATER':
+    case 'SEA':
       return {
         name: 'ים',
         produces: 'אין',
-        img: '/cea1.png',
+        img: '/sea1.png',
         description: 'מים פתוחים וסוערים שניתן לשוט בהם באמצעות ספינות.',
         color: 'from-blue-500/20 to-blue-950/40 border-blue-500/40 text-blue-300'
       };

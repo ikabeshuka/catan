@@ -6,7 +6,7 @@ const ACTION_TYPES = new Set([
   'BUY_DEV_CARD', 'PLAY_DEV_CARD', 'MOVE_ROBBER', 'STEAL_RESOURCE',
   'PROPOSE_TRADE', 'ACCEPT_TRADE', 'DECLINE_TRADE', 'BANK_TRADE',
   'EXECUTE_PLAYER_TRADE', 'GOLD_TRADE',
-  'MOVE_SHIP', 'DISCOVER_FOG', 'SELECT_GOLD_RESOURCE',
+  'MOVE_SHIP', 'PLACE_HARBOR', 'DISCOVER_FOG', 'SELECT_GOLD_RESOURCE',
   'MOVE_WAGON', 'UPGRADE_WAGON',
 ]);
 
@@ -47,6 +47,7 @@ function validateActionShape(action, { authoritative = false } = {}) {
       break;
     case 'BUILD_ROAD':
     case 'BUILD_SHIP':
+    case 'PLACE_HARBOR':
       if (!requireId('edgeId')) return { ok: false, message: 'Invalid edge' };
       break;
     case 'BUY_DEV_CARD':
@@ -185,6 +186,23 @@ const isShipEdge = (state, edgeId) => {
   return borderingTiles.some(isWaterTile) || isLandFrame;
 };
 const isPirateBlockedEdge = (state, edgeId) => borderingTilesForEdge(state, edgeId).some(tile => tile.hasPirate);
+const eligibleHarborEdges = (state, playerId) => {
+  const harborEdges = (state.edges || []).filter(edge => edge.isHarbor);
+  return (state.edges || []).filter(edge => {
+    if (edge.isHarbor) return false;
+    const endpoints = edgeEndpoints(edge);
+    if (!endpoints.some(endpoint => state.vertices?.some(vertex =>
+      vertex.id === endpoint && vertex.playerId === playerId && ['SETTLEMENT', 'CITY'].includes(vertex.structure)))) return false;
+    const borderingTiles = borderingTilesForEdge(state, edge.id);
+    const waterTiles = borderingTiles.filter(isWaterTile);
+    if (waterTiles.length === 0 || !borderingTiles.some(tile => !isWaterTile(tile))) return false;
+    if (harborEdges.some(harbor => edgeEndpoints(harbor).some(endpoint => endpoints.includes(endpoint)))) return false;
+    return waterTiles.every(waterTile => {
+      const waterEdges = new Set(tileEdgeIds(waterTile));
+      return !harborEdges.some(harbor => waterEdges.has(harbor.id));
+    });
+  });
+};
 const isOpenShip = (state, playerId, source) => edgeEndpoints(source).some(vertexId => {
   const vertex = state.vertices?.find(candidate => candidate.id === vertexId);
   if (!vertex || (vertex.structure && vertex.structure !== 'NONE')) return false;
@@ -301,7 +319,7 @@ function validateGameAction(state, action) {
       if (!vertex || vertex.structure !== 'NONE' || countPieces(state, action.playerId, 'SETTLEMENT') >= 5) return { ok: false, message: 'Illegal settlement target' };
       const borderingTiles = (state.tiles || []).filter(tile => tileVertexIds(tile).includes(action.vertexId));
       if (borderingTiles.length === 0 || borderingTiles.every(isWaterTile)) return { ok: false, message: 'Settlement must touch land' };
-      if (isSetup && ['HEADING_FOR_NEW_SHORES', 'THROUGH_THE_DESERT'].includes(state.selectedScenario) &&
+      if (isSetup && ['HEADING_FOR_NEW_SHORES', 'THROUGH_THE_DESERT', 'THE_LOST_TRIBE'].includes(state.selectedScenario) &&
           borderingTiles.some(tile => !isWaterTile(tile) && tile.islandId !== 1)) {
         return { ok: false, message: 'Setup settlement must be on the main island' };
       }
@@ -313,6 +331,9 @@ function validateGameAction(state, action) {
       }
       if (!isSetup && (state.turnSubPhase !== 'TRADE_AND_BUILD' || !hasResources(player, { WOOD: 1, BRICK: 1, SHEEP: 1, WHEAT: 1 }))) {
         return { ok: false, message: 'Settlement cannot be built now' };
+      }
+      if (state.selectedScenario === 'THE_LOST_TRIBE' && borderingTiles.some(tile => !isWaterTile(tile) && tile.islandId !== 1)) {
+        return { ok: false, message: 'Settlements cannot be built on the small islands' };
       }
       break;
     }
@@ -378,6 +399,10 @@ function validateGameAction(state, action) {
           (robberType === 'ROBBER' ? isWaterTile(tile) || tile.hasRobber : !isRevealedWaterTile(tile) || tile.hasPirate)) {
         return { ok: false, message: 'Illegal robber target' };
       }
+      if (state.selectedScenario === 'THE_LOST_TRIBE' && robberType === 'ROBBER' &&
+          (tile.islandId !== 1 || tile.robberStartLocked)) {
+        return { ok: false, message: 'The robber cannot move to a small island or return to its starting desert' };
+      }
       break;
     }
     case 'STEAL_RESOURCE': {
@@ -427,6 +452,12 @@ function validateGameAction(state, action) {
       if (!networkTouchesTarget(state, action.playerId, target, 'SHIP', source.id)) return { ok: false, message: 'Ship destination is disconnected' };
       break;
     }
+    case 'PLACE_HARBOR':
+      if (state.turnSubPhase !== 'HARBOR_PLACEMENT' || !player.unplacedHarbors?.length ||
+          !eligibleHarborEdges(state, action.playerId).some(edge => edge.id === action.edgeId)) {
+        return { ok: false, message: 'Illegal harbor placement' };
+      }
+      break;
     case 'DISCOVER_FOG': {
       const tile = state.tiles?.find(candidate => candidate.id === action.tileId);
       if (!tile || tile.type !== 'FOG') return { ok: false, message: 'Illegal fog discovery' };
@@ -515,6 +546,10 @@ function applyReservedAction(state, action) {
       if (!String(state.gamePhase).startsWith('SETUP_')) {
         spend({ WOOD: 1, BRICK: 1, SHEEP: 1, WHEAT: 1 });
         returnToBank({ WOOD: 1, BRICK: 1, SHEEP: 1, WHEAT: 1 });
+        if (player.unplacedHarbors?.length && eligibleHarborEdges(state, action.playerId).length > 0) {
+          player.harborReturnSubPhase = 'TRADE_AND_BUILD';
+          state.turnSubPhase = 'HARBOR_PLACEMENT';
+        }
       }
       break;
     case 'BUILD_CITY':
@@ -535,6 +570,7 @@ function applyReservedAction(state, action) {
     }
     case 'BUILD_SHIP': {
       const edge = state.edges.find(candidate => candidate.id === action.edgeId);
+      const reward = edge.lostTribeReward && !edge.lostTribeReward.collectedBy ? edge.lostTribeReward : null;
       Object.assign(edge, { hasShip: true, shipPlayerId: action.playerId });
       if (!String(state.gamePhase).startsWith('SETUP_') && !(state.roadBuildingRemaining > 0)) {
         spend({ WOOD: 1, SHEEP: 1 });
@@ -543,6 +579,41 @@ function applyReservedAction(state, action) {
       if (state.roadBuildingRemaining > 0) state.roadBuildingRemaining -= 1;
       if (String(state.gamePhase).startsWith('SETUP_')) state.setupState = { ...(state.setupState || {}), hasPlacedRoad: true };
       else state.currentTurnBuiltShips = [...(state.currentTurnBuiltShips || []), action.edgeId];
+      if (reward && !String(state.gamePhase).startsWith('SETUP_')) {
+        reward.collectedBy = action.playerId;
+        if (reward.kind === 'VICTORY_POINT') player.victoryPoints = (player.victoryPoints || 0) + 1;
+        if (reward.kind === 'DEV_CARD' && reward.devCardType) {
+          player.developmentCards[reward.devCardType] = (player.developmentCards[reward.devCardType] || 0) + 1;
+          if (reward.devCardType !== 'VICTORY_POINT') {
+            player.boughtDevCardsThisTurn ||= {};
+            player.boughtDevCardsThisTurn[reward.devCardType] = (player.boughtDevCardsThisTurn[reward.devCardType] || 0) + 1;
+          }
+        }
+        if (reward.kind === 'HARBOR' && reward.harborType) {
+          player.unplacedHarbors = [...(player.unplacedHarbors || []), reward.harborType];
+          if (eligibleHarborEdges(state, action.playerId).length > 0) {
+            player.harborReturnSubPhase = state.turnSubPhase === 'BEFORE_ROLL' ? 'BEFORE_ROLL' : 'TRADE_AND_BUILD';
+            state.turnSubPhase = 'HARBOR_PLACEMENT';
+          }
+        }
+      }
+      break;
+    }
+    case 'PLACE_HARBOR': {
+      const edge = state.edges.find(candidate => candidate.id === action.edgeId);
+      const harborType = player.unplacedHarbors[0];
+      Object.assign(edge, { isHarbor: true, harborType });
+      edgeEndpoints(edge).forEach(vertexId => {
+        const vertex = state.vertices.find(candidate => candidate.id === vertexId);
+        if (vertex) Object.assign(vertex, { isHarbor: true, harborType });
+      });
+      player.unplacedHarbors = player.unplacedHarbors.slice(1);
+      if (player.unplacedHarbors.length > 0 && eligibleHarborEdges(state, action.playerId).length > 0) {
+        state.turnSubPhase = 'HARBOR_PLACEMENT';
+      } else {
+        state.turnSubPhase = player.harborReturnSubPhase || 'TRADE_AND_BUILD';
+        delete player.harborReturnSubPhase;
+      }
       break;
     }
     case 'BUY_DEV_CARD':

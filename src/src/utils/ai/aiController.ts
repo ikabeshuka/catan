@@ -32,6 +32,8 @@ interface AIControllerParams {
   boardState: any;
   playerState: any;
   legalActions: LegalActions;
+  selectedScenario?: string;
+  activeExpansion?: string;
 }
 
 export async function runAITurn(params: AIControllerParams): Promise<void> {

@@ -1,5 +1,6 @@
 import React, { Suspense, useRef } from 'react';
 import { useGame } from '../../context/GameContext';
+import { useGameUI } from '../../context/GameUIContext';
 import { TransparentImage } from '../common/TransparentImage';
 import { validateRoadPlacement } from '../../utils/validation/validateRoadPlacement';
 import { validateShipPlacement } from '../../utils/validation/validateShipPlacement';
@@ -30,6 +31,7 @@ export const GameBoard3D: React.FC = () => {
     tiles, 
     vertices, 
     edges, 
+    boardRenderCache,
     is3DMode, 
     setIs3DMode, 
     buildingToast, 
@@ -42,6 +44,8 @@ export const GameBoard3D: React.FC = () => {
     addLog,
     showBuildingCostToast
   } = useGame();
+
+  const { isAlternativeTheme, setIsAlternativeTheme } = useGameUI();
 
   const hasFrameSea = tiles.some(tile => tile.isFrameSea);
 
@@ -249,6 +253,26 @@ export const GameBoard3D: React.FC = () => {
             <div className="absolute bottom-full left-1/2 -translate-x-1/2 border-4 border-transparent border-b-slate-950/95"></div>
           </div>
         </div>
+
+        {/* Theme Toggle Button */}
+        <div className="group relative">
+          <button
+            onClick={() => setIsAlternativeTheme(!isAlternativeTheme)}
+            className={`flex items-center justify-center w-9 h-9 rounded-full transition-all duration-300 shadow-[0_4px_12px_rgba(0,0,0,0.5)] cursor-pointer outline-none active:scale-95
+              ${isAlternativeTheme
+                ? 'bg-amber-500/20 border-amber-500/50 text-amber-400 shadow-[0_0_12px_rgba(245,158,11,0.2)]'
+                : 'bg-slate-950/80 border-slate-800/80 hover:bg-slate-800/80 hover:border-slate-700 text-slate-300'
+              }`}
+            aria-label="החלף ערכת נושא"
+          >
+            🎨
+          </button>
+          {/* Tooltip for Theme */}
+          <div className="absolute top-full mt-2 left-1/2 -translate-x-1/2 whitespace-nowrap bg-slate-950/95 border border-slate-800 text-slate-200 text-[11px] font-bold px-2.5 py-1.5 rounded-lg shadow-2xl pointer-events-none opacity-0 scale-90 group-hover:opacity-100 group-hover:scale-100 transition-all duration-200 z-30" dir="rtl">
+            החלף ערכת נושא
+            <div className="absolute bottom-full left-1/2 -translate-x-1/2 border-4 border-transparent border-b-slate-950/95"></div>
+          </div>
+        </div>
       </div>
 
       {/* Main canvas viewport */}
@@ -280,9 +304,8 @@ export const GameBoard3D: React.FC = () => {
           />
           <Suspense fallback={null}>
             <Board3DScene 
-              tiles={tiles} 
-              vertices={vertices} 
-              edges={edges} 
+              key={`board_${is3DMode}_${isAlternativeTheme}`}
+              boardRenderCache={boardRenderCache}
               players={players}
               currentPlayerIndex={currentPlayerIndex}
               onTileClick={handleTileClick}
@@ -389,7 +412,7 @@ export const GameBoard3D: React.FC = () => {
                       else if (type === 'WHEAT') iconPath = '/wheat1.png';
                       else if (type === 'ORE') iconPath = '/rock1.png';
                       else if (type === 'GOLD_FIELD') iconPath = '/gold1.png';
-                      else if (type === 'WATER') iconPath = '/cea1.png';
+                      else if (type === 'WATER' || type === 'SEA') iconPath = '/sea1.png';
                       else if (type === 'DESERT') return <span className="text-xs leading-none">🏜️</span>;
 
                       return iconPath ? (

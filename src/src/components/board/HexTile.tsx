@@ -1,17 +1,14 @@
 import React from 'react';
 import { useGame } from '../../context/GameContext';
 import { HexTile as HexTileType } from '../../types/hex.types';
-import { cubeToPixel } from '../../utils/hexMath/cubeToPixel';
-import { getHexPointsString } from '../../utils/hexMath/getHexPointsString';
 import { NumberToken } from './NumberToken';
 import { getEligibleRobberyTargets } from '../../utils/gameEngine/robberSteal';
 import { parseEdgeId } from '../../utils/hexMath/parseEdgeId';
+import { getCachedTileGeometry } from '../../utils/hexMath/boardRenderCache';
 
 interface HexTileProps {
   tile: HexTileType;
 }
-
-const HEX_SIZE = 60;
 
 const RESOURCE_COLORS: Record<string, string> = {
   WOOD: '#15803d',   // ירוק כהה בשביל יער
@@ -36,10 +33,11 @@ const RESOURCE_TEXTURES: Record<string, string> = {
 };
 
 export const HexTile: React.FC<HexTileProps> = ({ tile }) => {
-  const { turnSubPhase, setTiles, setTurnSubPhase, players, currentPlayerIndex, addLog, is3DMode, vertices, setRobberyState, activeExpansion, activeRobberType, setActiveRobberType, edges } = useGame();
+  const { turnSubPhase, setTiles, setTurnSubPhase, players, currentPlayerIndex, addLog, is3DMode, vertices, setRobberyState, activeExpansion, activeRobberType, setActiveRobberType, edges, boardRenderCache, selectedScenario } = useGame();
   
-  const center = cubeToPixel(tile.coord, HEX_SIZE);
-  const pointsString = getHexPointsString(center.x, center.y, HEX_SIZE);
+  const tileGeometry = boardRenderCache.tileById.get(tile.id) || getCachedTileGeometry(tile);
+  const center = tileGeometry.center2D;
+  const pointsString = tileGeometry.points2D;
   const tileColor = RESOURCE_TEXTURES[tile.type] || RESOURCE_COLORS[tile.type] || '#ffffff';
 
   // השודד ניתן להזזה רק אם אנחנו בשלב המתאים, וזהו תורו של שחקן אנושי, והשודד לא נמצא שם כבר
@@ -49,6 +47,7 @@ export const HexTile: React.FC<HexTileProps> = ({ tile }) => {
 
     if (activeExpansion === 'SEAFARERS') {
       if (activeRobberType === 'ROBBER') {
+        if (selectedScenario === 'THE_LOST_TRIBE' && (tile.islandId !== 1 || tile.robberStartLocked)) return false;
         return tile.type !== 'WATER' && !tile.hasRobber;
       } else if (activeRobberType === 'PIRATE') {
         return tile.type === 'WATER' && !tile.hasPirate;
@@ -85,24 +84,7 @@ export const HexTile: React.FC<HexTileProps> = ({ tile }) => {
     let eligibleTargets: any[] = [];
 
     if (isPirate) {
-      const tileVertexIds = new Set<string>();
-
-      vertices.forEach(vertex => {
-        for (let i = 0; i < 6; i++) {
-          const angleRad = (Math.PI / 180) * (60 * i - 30);
-          const x = center.x + HEX_SIZE * Math.cos(angleRad);
-          const y = center.y + HEX_SIZE * Math.sin(angleRad);
-
-          const roundedX = Math.round(x * 10) / 10;
-          const roundedY = Math.round(y * 10) / 10;
-          const checkId = `v_${roundedX}_${roundedY}`;
-
-          if (checkId === vertex.id) {
-            tileVertexIds.add(vertex.id);
-            break;
-          }
-        }
-      });
+      const tileVertexIds = new Set(tileGeometry.vertexIds);
 
       const candidatePlayerIds = new Set<string>();
       edges.forEach(edge => {

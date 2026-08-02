@@ -11,8 +11,9 @@ const HEX_SIZE = 60; // גודל קבוע של רדיוס אריח בפיקסל�
  */
 export function generateVertices(tiles: HexTile[], activeExpansion?: string): BoardVertex[] {
   const vertexMap: Record<string, BoardVertex> = {};
+  const boardTiles = tiles.filter(tile => !tile.isFrameSea);
 
-  tiles.forEach((tile) => {
+  boardTiles.forEach((tile) => {
     // 1. מציאת מרכז האריח בפיקסלים
     const center = cubeToPixel(tile.coord, HEX_SIZE);
 
@@ -42,7 +43,7 @@ export function generateVertices(tiles: HexTile[], activeExpansion?: string): Bo
   });
 
   // החלת לוגיקת הנמלים מקצוות לקודקודים המחוברים אליהם
-  const edges = generateEdges(tiles, activeExpansion);
+  const edges = generateEdges(boardTiles, activeExpansion);
   edges.forEach((edge) => {
     if (edge.isHarbor && edge.harborType) {
       const { x1, y1, x2, y2 } = parseEdgeId(edge.id);

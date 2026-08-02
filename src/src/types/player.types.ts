@@ -25,6 +25,8 @@ export interface Player {
     VICTORY_POINT?: number;
   };
   playedDevCardThisTurn?: boolean;
+  unplacedHarbors?: ('WOOD' | 'BRICK' | 'SHEEP' | 'WHEAT' | 'ORE' | 'GENERIC')[];
+  harborReturnSubPhase?: 'BEFORE_ROLL' | 'TRADE_AND_BUILD';
   devCardReturnSubPhase?: 'BEFORE_ROLL' | 'TRADE_AND_BUILD';
   boughtDevCardsThisTurn?: {
     KNIGHT?: number;

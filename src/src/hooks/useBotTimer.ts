@@ -75,14 +75,14 @@ export const useBotTimer = () => {
           return prev;
         }
 
-        if (prev <= 100) {
+        if (prev <= 1000) {
           clearInterval(intervalId);
           forceNextTurn();
           return 0;
         }
-        return prev - 100;
+        return prev - 1000;
       });
-    }, 100);
+    }, 1000);
 
     return () => {
       clearInterval(intervalId);

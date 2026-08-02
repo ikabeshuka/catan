@@ -92,11 +92,18 @@ export function validateSettlementPlacement(
       return false;
     }
 
+    if (activeExpansion === 'SEAFARERS' && selectedScenario === 'THE_LOST_TRIBE') {
+      const borderingLandTiles = borderingTiles.filter(tile => tile.type !== 'WATER');
+      if (borderingLandTiles.length === 0 || borderingLandTiles.some(tile => tile.islandId !== 1)) {
+        return false;
+      }
+    }
+
     // Scenario-specific setup restrictions must never leak into the base map.
     if (activeExpansion === 'SEAFARERS' && (gamePhase === 'SETUP_ROUND_1' || gamePhase === 'SETUP_ROUND_2')) {
       const borderingLandTiles = borderingTiles.filter(tile => tile.type !== 'WATER');
       
-      if (selectedScenario === 'THROUGH_THE_DESERT' || selectedScenario === 'HEADING_FOR_NEW_SHORES') {
+      if (selectedScenario === 'THROUGH_THE_DESERT' || selectedScenario === 'HEADING_FOR_NEW_SHORES' || selectedScenario === 'THE_LOST_TRIBE') {
         const notMainIsland = borderingLandTiles.some(tile => tile.islandId !== 1);
         if (notMainIsland || borderingLandTiles.length === 0) {
           return false;
