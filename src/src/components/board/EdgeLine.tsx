@@ -558,31 +558,46 @@ export const EdgeLine: React.FC<EdgeLineProps> = ({
 
       {edge.isHarbor && (
         <g transform={`translate(${mx}, ${my})`}>
-          <circle r="6" fill="#1e3a8a" stroke="#fbbf24" strokeWidth="1" />
+          <circle r="15" fill="#0f3f73" stroke="#fbbf24" strokeWidth="2" />
+          <circle r="11" fill="#0ea5e9" fillOpacity="0.32" stroke="#e0f2fe" strokeWidth="1" />
+          <image href="/port.png" x="-13" y="-13" width="26" height="26" preserveAspectRatio="xMidYMid meet" />
           <text
-            y="3"
+            y="5"
             textAnchor="middle"
-            fontSize="9"
+            fontSize="15"
             fontWeight="black"
             fill="#fbbf24"
             className="select-none pointer-events-none font-sans"
           >
             ⚓
           </text>
+          <text y="24" textAnchor="middle" fontSize="7" fontWeight="900" fill="#fef3c7" className="select-none pointer-events-none font-sans">
+            {edge.harborType === 'GENERIC' ? '3:1' : '2:1'}
+          </text>
         </g>
       )}
 
       {edge.lostTribeReward && !edge.lostTribeReward.collectedBy && !is3DMode && (
         <g transform={`translate(${mx}, ${my})`} pointerEvents="none">
-          <circle
-            r="9"
-            fill={edge.lostTribeReward.kind === 'VICTORY_POINT' ? '#fbbf24' : edge.lostTribeReward.kind === 'DEV_CARD' ? '#6d28d9' : '#0ea5e9'}
-            stroke="#ffffff"
-            strokeWidth="1.5"
-          />
-          <text y="3.5" textAnchor="middle" fontSize="10" fontWeight="900" fill="#ffffff">
-            {edge.lostTribeReward.kind === 'VICTORY_POINT' ? '★' : edge.lostTribeReward.kind === 'DEV_CARD' ? '?' : '⚓'}
-          </text>
+          {edge.lostTribeReward.kind === 'DEV_CARD' ? (
+            <>
+              <rect x="-11" y="-16" width="22" height="32" rx="3" fill="#312e81" stroke="#ddd6fe" strokeWidth="2" />
+              <rect x="-7" y="-11" width="14" height="22" rx="2" fill="#7c3aed" stroke="#c4b5fd" strokeWidth="1" />
+              <text y="5" textAnchor="middle" fontSize="14" fontWeight="900" fill="#ffffff">✦</text>
+            </>
+          ) : edge.lostTribeReward.kind === 'HARBOR' ? (
+            <>
+              <circle r="15" fill="#075985" stroke="#fbbf24" strokeWidth="2" />
+              <image href="/port.png" x="-13" y="-13" width="26" height="26" preserveAspectRatio="xMidYMid meet" />
+              <text y="5" textAnchor="middle" fontSize="15" fontWeight="900" fill="#fef3c7">⚓</text>
+              <text y="25" textAnchor="middle" fontSize="7" fontWeight="900" fill="#fef3c7">נמל</text>
+            </>
+          ) : (
+            <>
+              <circle r="12" fill="#fbbf24" stroke="#ffffff" strokeWidth="2" />
+              <text y="4" textAnchor="middle" fontSize="14" fontWeight="900" fill="#78350f">★</text>
+            </>
+          )}
         </g>
       )}
 

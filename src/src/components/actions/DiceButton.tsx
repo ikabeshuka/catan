@@ -7,17 +7,24 @@ import { rollDice } from '../../utils/gameEngine/rollDice';
 
 export const DiceButton: React.FC = () => {
   const { currentPlayer, turnSubPhase, isCurrentPlayerBot, handleDiceRoll, isSetupPhase } = useTurnManager();
-  const { isRolling, rollValues, lastRoll, roomId, myPlayerId } = useGame();
+  const { isRolling, rollValues, lastRoll, roomId, myPlayerId, activeExpansion } = useGame();
   const isWrongOnlinePlayer = !!roomId && (!myPlayerId || currentPlayer?.id !== myPlayerId);
 
   const onRollClick = () => {
     if (isRolling || isDisabled || !currentPlayer) return;
 
-    const diceResult = roomId ? null : rollDice();
+    const alchemistDice = currentPlayer.alchemistDice;
+    const alchemistEventDie = currentPlayer.alchemistEventDie;
+    const diceResult = roomId ? null : (alchemistDice ? { dice1: alchemistDice[0], dice2: alchemistDice[1] } : rollDice());
+    const cityDie = activeExpansion === 'CITIES_AND_KNIGHTS' ? (alchemistDice?.[2] || Math.floor(Math.random() * 6) + 1) : undefined;
+    const eventDie = activeExpansion === 'CITIES_AND_KNIGHTS'
+      ? (alchemistEventDie || (['BARBARIAN', 'BARBARIAN', 'BARBARIAN', 'SCIENCE', 'POLITICS', 'TRADE'] as const)[Math.floor(Math.random() * 6)])
+      : undefined;
     dispatchGameAction({
       type: 'ROLL_DICE',
       playerId: currentPlayer.id,
-      diceValues: diceResult ? [diceResult.dice1, diceResult.dice2] : undefined,
+      diceValues: diceResult ? (cityDie ? [diceResult.dice1, diceResult.dice2, cityDie] : [diceResult.dice1, diceResult.dice2]) : undefined,
+      eventDie,
     }, {
       roomId: roomId || undefined,
       isRemote: false,

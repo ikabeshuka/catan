@@ -45,7 +45,8 @@ export function useVertexInteraction() {
     const isOwnedHarbor = vertex.isHarbor && vertex.playerId === currentPlayer?.id;
     const isClickable = ((isValidPlacement || canUpgradeToCity) || (isOwnedHarbor && turnSubPhase === 'TRADE_AND_BUILD')) && !currentPlayer?.isBot && isLocalPlayersTurn;
 
-    return { isValidPlacement, canUpgradeToCity, isOwnedHarbor, isClickable };
+    const isSetupCity = isSetupPhase && activeExpansion === 'CITIES_AND_KNIGHTS' && gamePhase === 'SETUP_ROUND_2';
+    return { isValidPlacement, canUpgradeToCity, isOwnedHarbor, isClickable, isSetupCity };
   };
 
   const handleVertexClick = (vertex: any) => {
@@ -107,7 +108,7 @@ export function useVertexInteraction() {
       }
     }
 
-    const { isValidPlacement, canUpgradeToCity, isOwnedHarbor } = getVertexConfig(vertex);
+    const { isValidPlacement, canUpgradeToCity, isOwnedHarbor, isSetupCity } = getVertexConfig(vertex);
 
     // Harbor trade
     if (isOwnedHarbor && !isSetupPhase && turnSubPhase === 'TRADE_AND_BUILD') {
@@ -119,7 +120,7 @@ export function useVertexInteraction() {
     if (isSetupPhase) {
       if (!isValidPlacement) return;
       dispatchBuildAction({
-        type: 'BUILD_SETTLEMENT',
+        type: isSetupCity ? 'BUILD_CITY' : 'BUILD_SETTLEMENT',
         playerId: currentPlayer.id,
         vertexId: vertex.id,
       });

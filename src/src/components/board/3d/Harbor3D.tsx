@@ -67,7 +67,7 @@ export const Harbor3D: React.FC<Harbor3DProps> = ({
     <group 
       ref={groupRef} 
       rotation={[0, 0, angle]}
-      scale={[1.35, 1.35, 1.35]}
+      scale={[1.65, 1.65, 1.65]}
       onClick={onClick}
       onPointerOver={onPointerOver}
       onPointerOut={onPointerOut}

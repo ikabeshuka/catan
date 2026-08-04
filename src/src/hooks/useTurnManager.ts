@@ -9,14 +9,18 @@ import { Player } from '../types/player.types';
 import { ResourceType, ResourceCards } from '../types/resources.types';
 import { getVictoryPointTarget } from '../config/gameRules';
 import { getVertexIslandIds } from '../utils/gameEngine/getVertexIslandIds';
+import { getLostTribeVillages } from '../utils/gameEngine/lostTribeHelpers';
 import { dispatchGameAction } from '../services/gameDispatcher';
 import { useRef } from 'react';
+import { PIRATE_ISLANDS_FLEET_ROUTE } from '../config/scenarios/pirateIslands';
 
 export function useTurnManager() {
   const {
     tiles,
+    setTiles,
     vertices,
     edges,
+    setVertices,
     players,
     currentPlayerIndex,
     gamePhase,
@@ -43,10 +47,15 @@ export function useTurnManager() {
     setCurrentTurnBuiltShips,
     setHasMovedShipThisTurn,
     setActiveRobberType,
+    setRobberyState,
     roomId,
     myPlayerId,
     resourceBank,
     setResourceBank,
+    commodityBank,
+    setCommodityBank,
+    citiesKnightsState,
+    setCitiesKnightsState,
   } = useGame();
 
   const { devCardDeck, setDevCardDeck, createTurnSnapshot, undoTurnActions } = useGame();
@@ -54,7 +63,7 @@ export function useTurnManager() {
   const ratedWinnerRef = useRef<string | null>(null);
   if (gamePhase === 'LOBBY') ratedWinnerRef.current = null;
   const currentPlayer = players[currentPlayerIndex];
-  const isSetupPhase = gamePhase === 'SETUP_ROUND_1' || gamePhase === 'SETUP_ROUND_2';
+  const isSetupPhase = ['SETUP_ROUND_1', 'SETUP_ROUND_2', 'SETUP_ROUND_3'].includes(gamePhase);
 
   const getNextTurnConfig = (currentIndex: number, currentPhase: GamePhase, playersCount: number) => {
     if (currentPhase === 'SETUP_ROUND_1') {
@@ -68,8 +77,15 @@ export function useTurnManager() {
       if (currentIndex > 0) {
         return { nextIndex: currentIndex - 1, nextPhase: 'SETUP_ROUND_2' as GamePhase };
       } else {
-        return { nextIndex: 0, nextPhase: 'MAIN_GAME' as GamePhase };
+        return selectedScenario === 'CLOTH_FOR_CATAN'
+          ? { nextIndex: 0, nextPhase: 'SETUP_ROUND_3' as GamePhase }
+          : { nextIndex: 0, nextPhase: 'MAIN_GAME' as GamePhase };
       }
+    }
+    if (currentPhase === 'SETUP_ROUND_3') {
+      return currentIndex < playersCount - 1
+        ? { nextIndex: currentIndex + 1, nextPhase: 'SETUP_ROUND_3' as GamePhase }
+        : { nextIndex: 0, nextPhase: 'MAIN_GAME' as GamePhase };
     }
     return { nextIndex: (currentIndex + 1) % playersCount, nextPhase: 'MAIN_GAME' as GamePhase };
   };
@@ -117,7 +133,7 @@ export function useTurnManager() {
   /**
    * הטלת קוביות: אם יוצא 7, עוברים למצב שודד
    */
-  const handleDiceRoll = (fixedValues?: [number, number]) => {
+  const handleDiceRoll = (fixedValues?: [number, number] | [number, number, number], fixedEventDie?: string) => {
     if (isSetupPhase || turnSubPhase !== 'BEFORE_ROLL' || isRolling) return null;
 
     setIsRolling(true);
@@ -134,21 +150,127 @@ export function useTurnManager() {
       const diceResult = fixedValues
         ? { dice1: fixedValues[0], dice2: fixedValues[1], total: fixedValues[0] + fixedValues[1] }
         : rollDice();
+      const cityDie = fixedValues?.[2] || (activeExpansion === 'CITIES_AND_KNIGHTS' ? Math.floor(Math.random() * 6) + 1 : undefined);
+      const eventDie = fixedEventDie || (activeExpansion === 'CITIES_AND_KNIGHTS'
+        ? ['BARBARIAN', 'BARBARIAN', 'BARBARIAN', 'SCIENCE', 'POLITICS', 'TRADE'][Math.floor(Math.random() * 6)]
+        : undefined);
       
       setLastRoll({ d1: diceResult.dice1, d2: diceResult.dice2 });
       setRollValues({ d1: diceResult.dice1, d2: diceResult.dice2 });
       setIsRolling(false);
+      if (activeExpansion === 'CITIES_AND_KNIGHTS' && currentPlayer.alchemistDice) {
+        setPlayers(previous => previous.map(player => player.id === currentPlayer.id
+          ? { ...player, alchemistDice: undefined, alchemistEventDie: undefined }
+          : player));
+      }
 
       addLog(`${currentPlayer.name} הטיל קוביות וקיבל ${diceResult.total}!`);
+
+      let progressDiscardQueue: string[] = [];
+      if (activeExpansion === 'CITIES_AND_KNIGHTS' && cityDie && eventDie) {
+        let lossQueue: string[] = [];
+        setCitiesKnightsState(previous => {
+          const next = { ...previous, lastCityDie: cityDie, lastEventDie: eventDie as any };
+          if (eventDie === 'BARBARIAN') {
+            const position = Math.min(7, (previous.barbarianPosition || 0) + 1);
+            next.barbarianPosition = position;
+            if (position === 7) {
+              const activeStrength = (playerId: string) => vertices.reduce((total, vertex) => total +
+                (vertex.knight?.playerId === playerId && vertex.knight.active ? vertex.knight.level : 0), 0);
+              const totalStrength = players.reduce((total, player) => total + activeStrength(player.id), 0);
+              const totalCities = vertices.filter(vertex => vertex.structure === 'CITY').reduce((total, vertex) => total + 1 + (vertex.metropolis ? 1 : 0), 0);
+              next.barbarianPosition = 0;
+              next.hasBarbarianAttacked = true;
+              if (totalStrength < totalCities) {
+                const eligibleLosers = players.filter(player => vertices.some(vertex => vertex.playerId === player.id && vertex.structure === 'CITY' && !vertex.metropolis));
+                const weakestStrength = Math.min(...eligibleLosers.map(player => activeStrength(player.id)));
+                lossQueue = eligibleLosers.filter(player => activeStrength(player.id) === weakestStrength).map(player => player.id);
+                next.barbarianLossQueue = lossQueue;
+              } else {
+                const strongest = Math.max(...players.map(player => activeStrength(player.id)));
+                const defenders = players.filter(player => activeStrength(player.id) === strongest && strongest > 0);
+                if (defenders.length === 1) setPlayers(previousPlayers => previousPlayers.map(player => player.id === defenders[0].id
+                  ? { ...player, defenderOfCatanPoints: (player.defenderOfCatanPoints || 0) + 1 } : player));
+                next.barbarianLossQueue = [];
+              }
+              setVertices(previousVertices => previousVertices.map(vertex => vertex.knight?.active
+                ? { ...vertex, knight: { ...vertex.knight, active: false, actedThisTurn: false } } : vertex));
+            }
+          } else {
+            const track = eventDie as 'SCIENCE' | 'POLITICS' | 'TRADE';
+            const progressDeck = [...(previous.progressDecks?.[track] || [])];
+            const recipients = players.filter(player => (player.cityImprovements?.[track] || 0) >= cityDie && progressDeck.length > 0)
+              .map(player => ({ playerId: player.id, card: progressDeck.shift()! }));
+            if (recipients.length > 0) {
+              const botDiscardedCards = recipients.filter(entry => {
+                const recipient = players.find(player => player.id === entry.playerId);
+                return Boolean(recipient?.isBot && !['PRINTER', 'CONSTITUTION'].includes(entry.card) && (recipient.progressCards || []).length >= 4);
+              });
+              next.progressDecks = {
+                SCIENCE: [...(previous.progressDecks?.SCIENCE || [])],
+                POLITICS: [...(previous.progressDecks?.POLITICS || [])],
+                TRADE: [...(previous.progressDecks?.TRADE || [])],
+                [track]: [...progressDeck, ...botDiscardedCards.map(entry => entry.card)],
+              };
+              setPlayers(previousPlayers => previousPlayers.map(player => {
+                const received = recipients.find(entry => entry.playerId === player.id);
+                if (!received) return player;
+                if (received.card === 'PRINTER' || received.card === 'CONSTITUTION') {
+                  return { ...player, victoryPoints: (player.victoryPoints || 0) + 1 };
+                }
+                if (botDiscardedCards.some(entry => entry.playerId === player.id)) return player;
+                return { ...player, progressCards: [...(player.progressCards || []), received.card] };
+              }));
+              progressDiscardQueue = players.filter(player => !player.isBot && (() => {
+                const received = recipients.find(entry => entry.playerId === player.id)?.card;
+                return (player.progressCards || []).length + (received && !['PRINTER', 'CONSTITUTION'].includes(received) ? 1 : 0) > 4;
+              })()).map(player => player.id);
+              next.progressDiscardQueue = progressDiscardQueue;
+            }
+          }
+          return next;
+        });
+        if (lossQueue.length) {
+          setTurnSubPhase('BARBARIAN_LOSS');
+          return;
+        }
+      }
+
+      if (selectedScenario === 'PIRATE_ISLANDS') {
+        const currentFleetTile = tiles.find(tile => tile.hasPirate);
+        const currentNumber = Number(currentFleetTile?.id.split('_').pop());
+        const routeIndex = PIRATE_ISLANDS_FLEET_ROUTE.indexOf(currentNumber);
+        const steps = Math.min(diceResult.dice1, diceResult.dice2);
+        const destinationNumber = PIRATE_ISLANDS_FLEET_ROUTE[(Math.max(0, routeIndex) + steps) % PIRATE_ISLANDS_FLEET_ROUTE.length];
+        const destinationId = `hex_pi_${destinationNumber}`;
+        setTiles(previous => previous.map(tile => ({ ...tile, hasPirate: tile.id === destinationId })));
+        addLog(`🏴‍☠️ צי הפיראטים התקדם ${steps} חבלי ים אל אריח ${destinationNumber}.`);
+      }
 
       if (diceResult.total === 7) {
         addLog(`המספר 7 עלה! השודד הופעל.`);
         
-        const anyHumanNeedsToDiscard = players.some(p => !p.isBot && Object.values(p.resources).reduce((a, b) => a + b, 0) > 7);
+        const handSize = (player: Player) => Object.values(player.resources).reduce((a, b) => a + b, 0) +
+          (activeExpansion === 'CITIES_AND_KNIGHTS' ? Object.values(player.commodities || {}).reduce((a, b) => a + b, 0) : 0);
+        const handLimit = (player: Player) => 7 + (activeExpansion === 'CITIES_AND_KNIGHTS'
+          ? 2 * vertices.filter(vertex => vertex.playerId === player.id && vertex.cityWall).length : 0);
+        const robberIsDormant = activeExpansion === 'CITIES_AND_KNIGHTS' && !citiesKnightsState?.hasBarbarianAttacked;
+        const anyHumanNeedsToDiscard = players.some(p => !p.isBot && handSize(p) > handLimit(p));
 
         if (anyHumanNeedsToDiscard) {
           addLog(`השודד הגיע! שחקנים עם מעל 7 קלפים נאלצים לזרוק קלפים לקופה.`);
           setTurnSubPhase('DISCARD_PHASE');
+        } else if (selectedScenario === 'PIRATE_ISLANDS') {
+          const targets = players.filter(player => player.id !== currentPlayer.id && Object.values(player.resources).reduce((sum, count) => sum + count, 0) > 0);
+          if (targets.length) {
+            setRobberyState({ tile: tiles.find(tile => tile.hasPirate) || tiles[0], targets });
+            setTurnSubPhase('ROBBER_STEAL');
+          } else {
+            setTurnSubPhase('TRADE_AND_BUILD');
+          }
+        } else if (robberIsDormant) {
+          addLog('לפני התקפת הברברים הראשונה, גלגול 7 אינו מזיז את השודד.');
+          setTurnSubPhase('TRADE_AND_BUILD');
         } else {
           addLog(`השודד הופעל. יש למקם את השודד באריח חדש.`);
           setTurnSubPhase('ROBBER_PLACEMENT');
@@ -157,12 +279,18 @@ export function useTurnManager() {
         
         // חוק חצי הקלפים: שחקנים עם יותר מ-7 קלפים מאבדים חצי (לוגיקה פשוטה)
         const returnedByBots: ResourceCards = { WOOD: 0, BRICK: 0, SHEEP: 0, WHEAT: 0, ORE: 0 };
+        const returnedCommodities = { COIN: 0, PAPER: 0, CLOTH: 0 };
         players.filter(p => p.isBot).forEach(bot => {
-          const totalCards = Object.values(bot.resources).reduce((sum, amount) => sum + amount, 0);
-          let remainingToDiscard = totalCards > 7 ? Math.floor(totalCards / 2) : 0;
+          const totalCards = handSize(bot);
+          let remainingToDiscard = totalCards > handLimit(bot) ? Math.floor(totalCards / 2) : 0;
           (Object.keys(bot.resources) as (keyof ResourceCards)[]).forEach(resource => {
             const amount = Math.min(bot.resources[resource], remainingToDiscard);
             returnedByBots[resource] += amount;
+            remainingToDiscard -= amount;
+          });
+          (Object.keys(bot.commodities || {}) as ('COIN' | 'PAPER' | 'CLOTH')[]).forEach(commodity => {
+            const amount = Math.min(bot.commodities?.[commodity] || 0, remainingToDiscard);
+            returnedCommodities[commodity] += amount;
             remainingToDiscard -= amount;
           });
         });
@@ -173,13 +301,18 @@ export function useTurnManager() {
           WHEAT: previous.WHEAT + returnedByBots.WHEAT,
           ORE: previous.ORE + returnedByBots.ORE,
         }));
+        setCommodityBank(previous => ({
+          COIN: previous.COIN + returnedCommodities.COIN,
+          PAPER: previous.PAPER + returnedCommodities.PAPER,
+          CLOTH: previous.CLOTH + returnedCommodities.CLOTH,
+        }));
         setPlayers((prevPlayers: Player[]) => prevPlayers.map(p => {
-          const totalCards = Object.values(p.resources).reduce((a, b) => a + b, 0);
-          if (!p.isBot && totalCards > 7) {
+          const totalCards = handSize(p);
+          if (!p.isBot && totalCards > handLimit(p)) {
             // כל שחקן אנושי עם מעל 7 קלפים יזרוק ידנית בשלב ה-DISCARD_PHASE
             return p;
           }
-          if (totalCards > 7) {
+          if (totalCards > handLimit(p)) {
             const toDiscard = Math.floor(totalCards / 2);
             addLog(`שחקן ${p.name} מחזיק ${totalCards} קלפים ונאלץ לזרוק ${toDiscard} קלפים לקופה.`);
             // לצורך פשטות המנוע, נוריד זמנית מהמשאבים הזמינים ביותר שלו
@@ -191,15 +324,23 @@ export function useTurnManager() {
                 discarded++;
               }
             });
-            return { ...p, resources: updatedRes };
+            const updatedCommodities = { ...(p.commodities || { COIN: 0, PAPER: 0, CLOTH: 0 }) };
+            (Object.keys(updatedCommodities) as ('COIN' | 'PAPER' | 'CLOTH')[]).forEach(key => {
+              while (updatedCommodities[key] > 0 && discarded < toDiscard) {
+                updatedCommodities[key]--;
+                discarded++;
+              }
+            });
+            return { ...p, resources: updatedRes, commodities: updatedCommodities };
           }
           return p;
         }));
       } else {
-        const { updatedPlayers, updatedBank, flows, goldSelections } = distributeResources(
-          diceResult.total, tiles, vertices, players, resourceBank
+        const { updatedPlayers, updatedBank, updatedCommodityBank, flows, goldSelections } = distributeResources(
+          diceResult.total, tiles, vertices, players, resourceBank, selectedScenario, activeExpansion, commodityBank
         );
         setResourceBank(updatedBank);
+        if (updatedCommodityBank) setCommodityBank(updatedCommodityBank);
         if (triggerResourceFlow) {
           triggerResourceFlow(flows);
         } else {
@@ -259,6 +400,60 @@ export function useTurnManager() {
         }
 
         setPlayers(updatedPlayers);
+
+        if (selectedScenario === 'CLOTH_FOR_CATAN') {
+          const villageAwards = new Map<string, number>();
+          const activeVillages = getLostTribeVillages(tiles).filter(village =>
+            village.number === diceResult.total && village.clothRemaining > 0 && village.connectedPlayerIds.length > 0
+          );
+          let generalReserve = tiles.find(tile => tile.lostTribeGeneralCloth !== undefined)?.lostTribeGeneralCloth || 0;
+          let generalUsed = 0;
+          const villageUpdates = new Map<string, number>();
+          activeVillages.forEach(village => {
+            const connected = village.connectedPlayerIds;
+            const fromVillage = Math.min(village.clothRemaining, connected.length);
+            const fromReserve = Math.min(generalReserve, connected.length - fromVillage);
+            generalReserve -= fromReserve;
+            generalUsed += fromReserve;
+            villageUpdates.set(village.id, village.clothRemaining - fromVillage);
+            connected.slice(0, fromVillage + fromReserve).forEach(playerId =>
+              villageAwards.set(playerId, (villageAwards.get(playerId) || 0) + 1)
+            );
+          });
+          if (activeVillages.length > 0) {
+            setTiles(previous => previous.map(tile => ({
+              ...tile,
+              lostTribeGeneralCloth: tile.lostTribeGeneralCloth === undefined
+                ? undefined
+                : tile.lostTribeGeneralCloth - generalUsed,
+              lostTribeVillages: tile.lostTribeVillages?.map(village => villageUpdates.has(village.id)
+                ? { ...village, clothRemaining: villageUpdates.get(village.id)! }
+                : village),
+            })));
+            const clothPlayers = updatedPlayers.map(player => ({
+              ...player,
+              clothRolls: (player.clothRolls || 0) + (villageAwards.get(player.id) || 0),
+            }));
+            setPlayers(clothPlayers);
+            clothPlayers.forEach(player => {
+              const rolls = villageAwards.get(player.id) || 0;
+              if (rolls > 0) addLog(`🧵 ${player.name} קיבל/ה ${rolls} גליל/י בד מהשבט האבוד.`);
+            });
+
+            const villagesLeft = getLostTribeVillages(tiles).filter(village =>
+              (villageUpdates.get(village.id) ?? village.clothRemaining) > 0
+            ).length;
+            if (villagesLeft <= 3) {
+              const winner = [...clothPlayers].sort((left, right) => {
+                const vpDifference = getPlayerTotalVP(right, longestRoadPlayerId, largestArmyPlayerId, true, vertices, tiles, selectedScenario)
+                  - getPlayerTotalVP(left, longestRoadPlayerId, largestArmyPlayerId, true, vertices, tiles, selectedScenario);
+                return vpDifference || (right.clothRolls || 0) - (left.clothRolls || 0);
+              })[0];
+              setGamePhase('GAME_OVER');
+              addLog(`הבד בכפרים אזל: ${winner.name} ניצח/ה עם ${getPlayerTotalVP(winner, longestRoadPlayerId, largestArmyPlayerId, true, vertices, tiles, selectedScenario)} נקודות.`);
+            }
+          }
+        }
         
         if (goldSelections && goldSelections.length > 0) {
           setGoldSelectionQueue(goldSelections);
@@ -269,6 +464,7 @@ export function useTurnManager() {
           setTurnSubPhase('TRADE_AND_BUILD');
         }
       }
+      if (progressDiscardQueue.length) setTurnSubPhase('PROGRESS_DISCARD');
     }, 600);
 
     return null;
@@ -303,6 +499,11 @@ export function useTurnManager() {
     } else if (hasGenericHarbor) {
       defaultRatio = 3;
       usedHarborType = 'GENERIC';
+    }
+    if ((citiesKnightsState?.merchant?.playerId === currentPlayer.id && citiesKnightsState.merchant.resource === giveResource) ||
+        currentPlayer.merchantFleetResource === giveResource) {
+      defaultRatio = 2;
+      usedHarborType = 'MERCHANT';
     }
 
     const giveCount = giveAmt !== undefined ? giveAmt : defaultRatio;
@@ -437,7 +638,7 @@ export function useTurnManager() {
         };
       });
 
-      if (gamePhase === 'SETUP_ROUND_2') {
+      if (gamePhase === 'SETUP_ROUND_2' || gamePhase === 'SETUP_ROUND_3') {
         const oldPlayer = players.find(p => p.id === currentPlayer.id);
         const initialDistribution = distributeInitialResources(
           targetId, tiles, players, currentPlayer.id, resourceBank
@@ -501,6 +702,10 @@ export function useTurnManager() {
     }
 
     if (turnSubPhase !== 'TRADE_AND_BUILD') return;
+    if (activeExpansion === 'CITIES_AND_KNIGHTS' && (currentPlayer?.progressCards || []).length > 4) {
+      addLog(`${currentPlayer.name} חייב/ת להשליך קלפי קידמה עד שנותרים ארבעה.`);
+      return;
+    }
     
     // Reset turn variables for ships
     setCurrentTurnBuiltShips([]);
@@ -508,22 +713,33 @@ export function useTurnManager() {
 
     const nextIndex = (currentPlayerIndex + 1) % players.length;
     const nextPlayer = players[nextIndex];
+    setVertices((prev: any[]) => prev.map(vertex => vertex.knight
+      ? { ...vertex, knight: { ...vertex.knight, promotedThisTurn: false } }
+      : vertex));
     setPlayers((prev: Player[]) => prev.map(p => {
       if (p.id === nextPlayer.id) {
         return {
           ...p,
           playedDevCardThisTurn: false,
           boughtDevCardsThisTurn: {},
-          goldTradesThisTurn: 0
+          goldTradesThisTurn: 0,
+          cityImprovementDiscount: 0,
+          freeKnightPromotions: 0,
+          merchantFleetResource: undefined,
         };
       }
-      return p;
+      return { ...p, cityImprovementDiscount: 0, freeKnightPromotions: 0, merchantFleetResource: undefined };
     }));
     setCurrentPlayerIndex(nextIndex);
     setTurnSubPhase('BEFORE_ROLL');
   };
 
   const checkIfGameEnds = (player: Player) => {
+    if (selectedScenario === 'PIRATE_ISLANDS' && !vertices.some(vertex =>
+      vertex.pirateFortress?.playerId === player.id && vertex.pirateFortress.conquered
+    )) {
+      return false;
+    }
     const totalVP = getPlayerTotalVP(player, longestRoadPlayerId, largestArmyPlayerId, true, vertices, tiles, selectedScenario);
     
     const victoryGoal = getVictoryPointTarget(activeExpansion, selectedScenario);

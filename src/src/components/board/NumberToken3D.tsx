@@ -4,6 +4,8 @@ import { HexTile } from '../../types/hex.types';
 
 interface NumberToken3DProps {
   tile: HexTile;
+  value?: number;
+  clothRemaining?: number;
   tileX: number;
   tileY: number;
   position?: [number, number, number];
@@ -16,6 +18,8 @@ interface NumberToken3DProps {
 
 export const NumberToken3D: React.FC<NumberToken3DProps> = ({
   tile,
+  value,
+  clothRemaining,
   tileX,
   tileY,
   position,
@@ -25,9 +29,10 @@ export const NumberToken3D: React.FC<NumberToken3DProps> = ({
   isSelectableForRobber,
   getProbabilityDots3D,
 }) => {
-  if (tile.numberToken === null || tile.numberToken === undefined) return null;
+  const tokenValue = value ?? tile.numberToken;
+  if (tokenValue === null || tokenValue === undefined) return null;
 
-  const isCritical = tile.numberToken === 6 || tile.numberToken === 8;
+  const isCritical = tokenValue === 6 || tokenValue === 8;
   const FONT_URL = typeof window !== 'undefined' ? `${window.location.origin}/fonts/Rubik-Bold.ttf` : '/fonts/Rubik-Bold.ttf';
 
   return (
@@ -68,7 +73,7 @@ export const NumberToken3D: React.FC<NumberToken3DProps> = ({
           onTileClick(tile);
         }}
       >
-        {tile.numberToken.toString()}
+        {tokenValue.toString()}
       </Text>
       <Text
         position={[0, -0.34, 0.04]}
@@ -79,8 +84,21 @@ export const NumberToken3D: React.FC<NumberToken3DProps> = ({
         anchorY="middle"
         font={FONT_URL}
       >
-        {getProbabilityDots3D(tile.numberToken)}
+        {getProbabilityDots3D(tokenValue)}
       </Text>
+      {clothRemaining !== undefined && (
+        <Text
+          position={[0, -0.68, 0.04]}
+          fontSize={0.25}
+          color="#fef3c7"
+          fontWeight="bold"
+          anchorX="center"
+          anchorY="middle"
+          font={FONT_URL}
+        >
+          {`🧵 ${clothRemaining}`}
+        </Text>
+      )}
     </group>
   );
 };

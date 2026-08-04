@@ -11,9 +11,10 @@ import { createStandardDevelopmentDeck } from '../config/gameRules';
 import { createSnapshot, restoreFromSnapshot, TurnSnapshot } from '../utils/gameEngine/turnSnapshots';
 import { calculateLongestRoadForPlayer } from '../utils/gameEngine/checkLongestRoad';
 import { ResourceCards } from '../types/resources.types';
+import { CommodityCards } from '../types/citiesKnights.types';
 import { reserveLostTribeDevelopmentCards } from '../utils/gameEngine/lostTribeHelpers';
 
-export type GamePhase = 'LOBBY' | 'SETUP_ROUND_1' | 'SETUP_ROUND_2' | 'MAIN_GAME' | 'GAME_OVER';
+export type GamePhase = 'LOBBY' | 'SETUP_ROUND_1' | 'SETUP_ROUND_2' | 'SETUP_ROUND_3' | 'MAIN_GAME' | 'GAME_OVER';
 
 export interface GoldSelectionPending {
   playerId: string;
@@ -31,6 +32,7 @@ interface PlayerContextType {
   devCardDeck: string[];
   goldCoins: Record<string, number>;
   resourceBank: ResourceCards;
+  commodityBank: CommodityCards;
   roadBuildingRemaining: number;
   longestRoadPlayerId: string | null;
   largestArmyPlayerId: string | null;
@@ -51,6 +53,7 @@ interface PlayerContextType {
   setDevCardDeck: React.Dispatch<React.SetStateAction<string[]>>;
   setGoldCoins: React.Dispatch<React.SetStateAction<Record<string, number>>>;
   setResourceBank: React.Dispatch<React.SetStateAction<ResourceCards>>;
+  setCommodityBank: React.Dispatch<React.SetStateAction<CommodityCards>>;
   setRoadBuildingRemaining: React.Dispatch<React.SetStateAction<number>>;
   setGoldSelectionQueue: React.Dispatch<React.SetStateAction<GoldSelectionPending[]>>;
   setCurrentTurnBuiltShips: React.Dispatch<React.SetStateAction<string[]>>;
@@ -99,6 +102,7 @@ export const PlayerProvider: React.FC<{ children: ReactNode }> = ({ children }) 
   const [devCardDeck, setDevCardDeck] = useState<string[]>([]);
   const [goldCoins, setGoldCoins] = useState<Record<string, number>>({});
   const [resourceBank, setResourceBank] = useState<ResourceCards>({ WOOD: 19, BRICK: 19, SHEEP: 19, WHEAT: 19, ORE: 19 });
+  const [commodityBank, setCommodityBank] = useState<CommodityCards>({ COIN: 12, PAPER: 12, CLOTH: 12 });
   const [roadBuildingRemaining, setRoadBuildingRemaining] = useState<number>(0);
   const [turnStartSnapshot, setTurnStartSnapshot] = useState<TurnSnapshot | null>(null);
   const [goldSelectionQueue, setGoldSelectionQueue] = useState<GoldSelectionPending[]>([]);
@@ -127,6 +131,10 @@ export const PlayerProvider: React.FC<{ children: ReactNode }> = ({ children }) 
   }, [players]);
 
   const longestRoadPlayerId = useMemo(() => {
+    if (selectedScenario === 'CLOTH_FOR_CATAN' || selectedScenario === 'PIRATE_ISLANDS') {
+      prevLongestRoadRef.current = null;
+      return null;
+    }
     const prevLeader = prevLongestRoadRef.current;
     const roadLengths = players.map(player => ({
       playerId: player.id,
@@ -149,9 +157,13 @@ export const PlayerProvider: React.FC<{ children: ReactNode }> = ({ children }) 
 
     prevLongestRoadRef.current = leaderId;
     return leaderId;
-  }, [edges, vertices, players]);
+  }, [edges, vertices, players, selectedScenario]);
 
   const largestArmyPlayerId = useMemo(() => {
+    if (selectedScenario === 'PIRATE_ISLANDS' || activeExpansion === 'CITIES_AND_KNIGHTS') {
+      prevLargestArmyRef.current = null;
+      return null;
+    }
     let prevLeader = prevLargestArmyRef.current;
     let currentMax = prevLeader ? (players.find(p => p.id === prevLeader)?.knightsPlayed || 0) : 2;
     if (currentMax < 2) currentMax = 2;
@@ -175,7 +187,7 @@ export const PlayerProvider: React.FC<{ children: ReactNode }> = ({ children }) 
 
     prevLargestArmyRef.current = leaderId;
     return leaderId;
-  }, [players]);
+  }, [players, selectedScenario]);
 
   const addLog = (message: string) => {
     setLogs(prev => [...prev, message]);
@@ -382,6 +394,9 @@ export const PlayerProvider: React.FC<{ children: ReactNode }> = ({ children }) 
     if (!presetDeck && selectedScenario === 'THE_LOST_TRIBE') {
       deck = reserveLostTribeDevelopmentCards(deck, newEdges);
     }
+    if (!presetDeck && selectedScenario === 'PIRATE_ISLANDS' && playerCount === 3) {
+      deck = deck.filter(card => card !== 'VICTORY_POINT');
+    }
 
     const initialPlayers: Player[] = [
       {
@@ -390,7 +405,9 @@ export const PlayerProvider: React.FC<{ children: ReactNode }> = ({ children }) 
         color: '#e53935',
         isBot: false,
         playerType: 'HUMAN',
-        victoryPoints: 2,
+        victoryPoints: activeExpansion === 'CITIES_AND_KNIGHTS' ? 3 : 2,
+        clothRolls: 0,
+        lostTribeVillageIds: [],
         resources: { WOOD: 0, BRICK: 0, SHEEP: 0, WHEAT: 0, ORE: 0 },
         developmentCards: { KNIGHT: 0, MONOPOLY: 0, ROAD_BUILDING: 0, YEAR_OF_PLENTY: 0, VICTORY_POINT: 0 },
         knightsPlayed: 0,
@@ -401,7 +418,9 @@ export const PlayerProvider: React.FC<{ children: ReactNode }> = ({ children }) 
         color: '#1e88e5',
         isBot: true,
         playerType: 'LOCAL_BOT',
-        victoryPoints: 2,
+        victoryPoints: activeExpansion === 'CITIES_AND_KNIGHTS' ? 3 : 2,
+        clothRolls: 0,
+        lostTribeVillageIds: [],
         resources: { WOOD: 0, BRICK: 0, SHEEP: 0, WHEAT: 0, ORE: 0 },
         developmentCards: { KNIGHT: 0, MONOPOLY: 0, ROAD_BUILDING: 0, YEAR_OF_PLENTY: 0, VICTORY_POINT: 0 },
         knightsPlayed: 0,
@@ -412,7 +431,9 @@ export const PlayerProvider: React.FC<{ children: ReactNode }> = ({ children }) 
         color: '#fdd835',
         isBot: true,
         playerType: 'LOCAL_BOT',
-        victoryPoints: 2,
+        victoryPoints: activeExpansion === 'CITIES_AND_KNIGHTS' ? 3 : 2,
+        clothRolls: 0,
+        lostTribeVillageIds: [],
         resources: { WOOD: 0, BRICK: 0, SHEEP: 0, WHEAT: 0, ORE: 0 },
         developmentCards: { KNIGHT: 0, MONOPOLY: 0, ROAD_BUILDING: 0, YEAR_OF_PLENTY: 0, VICTORY_POINT: 0 },
         knightsPlayed: 0,
@@ -423,7 +444,9 @@ export const PlayerProvider: React.FC<{ children: ReactNode }> = ({ children }) 
         color: '#43a047',
         isBot: true,
         playerType: 'LOCAL_BOT',
-        victoryPoints: 2,
+        victoryPoints: activeExpansion === 'CITIES_AND_KNIGHTS' ? 3 : 2,
+        clothRolls: 0,
+        lostTribeVillageIds: [],
         resources: { WOOD: 0, BRICK: 0, SHEEP: 0, WHEAT: 0, ORE: 0 },
         developmentCards: { KNIGHT: 0, MONOPOLY: 0, ROAD_BUILDING: 0, YEAR_OF_PLENTY: 0, VICTORY_POINT: 0 },
         knightsPlayed: 0,
@@ -443,6 +466,7 @@ export const PlayerProvider: React.FC<{ children: ReactNode }> = ({ children }) 
       p4: 0,
     });
     setResourceBank({ WOOD: 19, BRICK: 19, SHEEP: 19, WHEAT: 19, ORE: 19 });
+    setCommodityBank({ COIN: 12, PAPER: 12, CLOTH: 12 });
     setPlayers(initialPlayers);
     setGamePhase('SETUP_ROUND_1');
     setTurnSubPhase('BEFORE_ROLL');
@@ -469,6 +493,7 @@ export const PlayerProvider: React.FC<{ children: ReactNode }> = ({ children }) 
         devCardDeck,
         goldCoins,
         resourceBank,
+        commodityBank,
         roadBuildingRemaining,
         longestRoadPlayerId,
         largestArmyPlayerId,
@@ -488,6 +513,7 @@ export const PlayerProvider: React.FC<{ children: ReactNode }> = ({ children }) 
         setDevCardDeck,
         setGoldCoins,
         setResourceBank,
+        setCommodityBank,
         setRoadBuildingRemaining,
         setGoldSelectionQueue,
         setCurrentTurnBuiltShips,

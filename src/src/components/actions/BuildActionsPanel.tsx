@@ -3,6 +3,7 @@ import { useTurnManager } from '../../hooks/useTurnManager';
 import { useGame } from '../../context/GameContext';
 import { getOpenShipsForPlayer } from '../../utils/gameEngine/getOpenShipsForPlayer';
 import { dispatchGameAction } from '../../services/gameDispatcher';
+import { getPirateShippingPath } from '../../utils/gameEngine/pirateIslands';
 import type { DevCardType } from '../../types/gameActions.types';
 const RESOURCE_IMAGES = {
   WOOD: '/wood1.png',
@@ -20,11 +21,16 @@ export const BuildActionsPanel: React.FC = () => {
     isSetupPhase,
     setupState,
     undoTurnActions,
+    endTurn,
   } = useTurnManager();
 
   const { 
     players, 
+    setPlayers,
+    setVertices,
+    setEdges,
     activeExpansion, 
+    selectedScenario,
     currentAction,
     setCurrentAction,
     edges,
@@ -37,6 +43,7 @@ export const BuildActionsPanel: React.FC = () => {
     myPlayerId,
     devCardDeck,
     buyDevelopmentCard,
+    addLog,
   } = useGame();
 
   if (!currentPlayer) return null;
@@ -54,6 +61,32 @@ export const BuildActionsPanel: React.FC = () => {
   const isActionsDisabled = isCurrentPlayerBot || isWrongOnlinePlayer || turnSubPhase !== 'TRADE_AND_BUILD';
   const canBuyDevelopmentCard = !isActionsDisabled && devCardDeck.length > 0 &&
     checkHumanResource('ORE', 1) && checkHumanResource('SHEEP', 1) && checkHumanResource('WHEAT', 1);
+  const pirateFortress = selectedScenario === 'PIRATE_ISLANDS'
+    ? vertices.find(vertex => vertex.pirateFortress?.playerId === currentPlayer.id && !vertex.pirateFortress.conquered)
+    : undefined;
+  const pirateShippingPath = selectedScenario === 'PIRATE_ISLANDS'
+    ? getPirateShippingPath(tiles, vertices, edges, currentPlayer.id)
+    : null;
+  const warshipCount = (pirateShippingPath || []).filter(edge => edge.isWarship).length;
+
+  const attackPirateFortress = () => {
+    if (!pirateFortress || isActionsDisabled) return;
+    dispatchGameAction({ type: 'ATTACK_PIRATE_FORTRESS', playerId: currentPlayer.id, fortressVertexId: pirateFortress.id }, {
+      roomId: roomId || undefined,
+      isRemote: false,
+      myPlayerId: roomId ? myPlayerId : currentPlayer.id,
+      players,
+      vertices,
+      edges,
+      selectedScenario,
+      turnSubPhase,
+      setVertices,
+      setEdges,
+      setPlayers,
+      addLog,
+      endTurn,
+    });
+  };
 
   const handleBuyDevelopmentCard = () => {
     const cardType = devCardDeck[0] as DevCardType | undefined;
@@ -185,6 +218,9 @@ export const BuildActionsPanel: React.FC = () => {
                 if (item.id === 'ship') {
                   return activeExpansion === 'SEAFARERS';
                 }
+                if (item.id === 'devCard') {
+                  return activeExpansion !== 'CITIES_AND_KNIGHTS';
+                }
                 return true;
               })
               .map((item) => {
@@ -256,8 +292,18 @@ export const BuildActionsPanel: React.FC = () => {
               );
             })}
             
+            {pirateFortress && (
+              <button
+                onClick={attackPirateFortress}
+                disabled={isActionsDisabled || !pirateShippingPath || warshipCount === 0}
+                className={`col-span-2 w-full mt-2 py-3 px-4 rounded-xl font-extrabold text-xs border ${isActionsDisabled || !pirateShippingPath || warshipCount === 0 ? 'bg-slate-900/40 text-slate-500 border-slate-800 cursor-not-allowed' : 'bg-rose-700 hover:bg-rose-600 text-white border-rose-400 cursor-pointer'}`}
+              >
+                ⚔️ תקוף את מבצר הפיראטים — {pirateFortress.pirateFortress!.remainingTokens} אסימונים, {warshipCount} ספינות מלחמה
+              </button>
+            )}
+
             {/* כפתור הזזת ספינה פתוחה עבור הרחבת יורדי הים */}
-            {activeExpansion === 'SEAFARERS' && (
+            {activeExpansion === 'SEAFARERS' && selectedScenario !== 'PIRATE_ISLANDS' && (
               <button
                 onClick={() => {
                   if (currentAction === 'MOVE_SHIP_SELECT' || currentAction === 'MOVE_SHIP_PLACE') {

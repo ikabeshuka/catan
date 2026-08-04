@@ -1,4 +1,5 @@
 import { ResourceCards } from './resources.types';
+import { CommodityCards, CityImprovementTrack } from './citiesKnights.types';
 
 export type PlayerType = 'HUMAN' | 'LOCAL_BOT' | 'GEMINI_AI';
 
@@ -17,6 +18,10 @@ export interface Player {
   goldTradesThisTurn?: number;
   resources: ResourceCards; // כמות הכרטיסים שיש לו ביד מכל משאב
   victoryPoints: number; // נקודות הניצחון הנוכחיות שלו
+  /** Cloth rolls collected from Lost Tribe villages. Two rolls are one VP. */
+  clothRolls?: number;
+  /** Village ids to which this player has established a shipping connection. */
+  lostTribeVillageIds?: string[];
   developmentCards: {
     KNIGHT: number;
     MONOPOLY: number;
@@ -38,4 +43,18 @@ export interface Player {
   wagonPosition?: string; // mazahe vertexId
   wagonLevel?: number; // 1-3
   remainingMovementPoints?: number;
+  /** Cities & Knights commodity cards. */
+  commodities?: CommodityCards;
+  /** Levels 0–5 for science, politics, and trade. */
+  cityImprovements?: Record<CityImprovementTrack, number>;
+  /** Progress cards are deliberately separate from the base development deck. */
+  progressCards?: string[];
+  /** Victory points received as Defender of Catan. */
+  defenderOfCatanPoints?: number;
+  /** Temporary Cities & Knights progress-card effects, cleared at turn end. */
+  cityImprovementDiscount?: number;
+  freeKnightPromotions?: number;
+  alchemistDice?: [number, number, number];
+  alchemistEventDie?: 'BARBARIAN' | CityImprovementTrack;
+  merchantFleetResource?: 'WOOD' | 'BRICK' | 'SHEEP' | 'WHEAT' | 'ORE';
 }

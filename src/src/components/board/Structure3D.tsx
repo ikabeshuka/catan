@@ -82,9 +82,11 @@ const PlacedStructure3D: React.FC<Structure3DProps> = ({
   // טעינת מודלי ה-GLB
   const { scene: settlementScene } = useGLTF('/models/settlement.glb');
   const { scene: cityScene } = useGLTF('/models/city.glb');
+  const { scene: wallScene } = useGLTF('/models/wall.glb');
+  const { scene: metropolisScene } = useGLTF('/models/metropolin.glb');
 
   const isSettlement = vertex.structure === 'SETTLEMENT';
-  const activeScene = isSettlement ? settlementScene : cityScene;
+  const activeScene = isSettlement ? settlementScene : (vertex.cityWall ? wallScene : cityScene);
 
   // ביצוע scene.clone() מבוקר כדי למנוע התנגשויות בין שכפולים של מודלים ונרמול מוגדל
   const clonedScene = React.useMemo(() => {
@@ -93,6 +95,7 @@ const PlacedStructure3D: React.FC<Structure3DProps> = ({
     // normalizeAndCenterModel already makes the deep clone required per piece.
     return normalizeAndCenterModel(activeScene, targetSize);
   }, [activeScene, isSettlement]);
+  const metropolisModel = React.useMemo(() => normalizeAndCenterModel(metropolisScene, 0.42), [metropolisScene]);
 
   // מדדי מטרה לאנימציית צמיחה (Scale Animation)
   const appearanceProgress = useRef(0);
@@ -200,6 +203,7 @@ const PlacedStructure3D: React.FC<Structure3DProps> = ({
     >
       <group rotation={[Math.PI / 2, 0, 0]}>
         <ModelWithOutlines object={clonedScene} playerColor={playerColor} showOutline={isHovered || isAppearanceComplete} />
+        {vertex.metropolis && <primitive object={metropolisModel} position={[0, 0, 0.72]} />}
       </group>
     </group>
   );
@@ -215,3 +219,5 @@ export const Structure3D: React.FC<Structure3DProps> = (props) => {
 // Preloading for smooth async loading without lag
 useGLTF.preload('/models/settlement.glb');
 useGLTF.preload('/models/city.glb');
+useGLTF.preload('/models/wall.glb');
+useGLTF.preload('/models/metropolin.glb');

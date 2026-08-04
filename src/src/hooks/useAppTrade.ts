@@ -9,6 +9,7 @@ export const useAppTrade = () => {
     currentPlayerIndex,
     turnSubPhase,
     setPlayers,
+    setEdges,
     setTurnSubPhase,
     addLog,
     edges,
@@ -18,6 +19,7 @@ export const useAppTrade = () => {
     tiles,
     vertices,
     activeExpansion,
+    selectedScenario,
     isTradeModalOpen,
     setIsTradeModalOpen,
     setActiveRobberType,
@@ -48,7 +50,7 @@ export const useAppTrade = () => {
   const [harborGiveRes, setHarborGiveRes] = useState<'WOOD' | 'BRICK' | 'SHEEP' | 'WHEAT' | 'ORE'>('WOOD');
   const [harborReceiveRes, setHarborReceiveRes] = useState<'WOOD' | 'BRICK' | 'SHEEP' | 'WHEAT' | 'ORE'>('BRICK');
 
-  const handlePlayCard = (cardType: 'KNIGHT' | 'MONOPOLY' | 'ROAD_BUILDING' | 'YEAR_OF_PLENTY') => {
+  const handlePlayCard = (cardType: 'KNIGHT' | 'VICTORY_POINT' | 'MONOPOLY' | 'ROAD_BUILDING' | 'YEAR_OF_PLENTY') => {
     if (roomId && (!myPlayerId || activePlayer?.id !== myPlayerId)) return;
     const canPlayInCurrentPhase = turnSubPhase === 'BEFORE_ROLL' || turnSubPhase === 'TRADE_AND_BUILD';
     if (activePlayer?.id !== humanPlayer.id || !canPlayInCurrentPhase) return;
@@ -56,10 +58,15 @@ export const useAppTrade = () => {
       alert("כבר שיחקת קלף פיתוח אחד בתור זה!");
       return;
     }
-    const devCards = humanPlayer.developmentCards || { KNIGHT: 0, MONOPOLY: 0, ROAD_BUILDING: 0, YEAR_OF_PLENTY: 0 };
-    const boughtThisTurn = humanPlayer.boughtDevCardsThisTurn?.[cardType] || 0;
+    const devCards: Record<string, number> = humanPlayer.developmentCards || { KNIGHT: 0, VICTORY_POINT: 0, MONOPOLY: 0, ROAD_BUILDING: 0, YEAR_OF_PLENTY: 0 };
+    const boughtThisTurn = (humanPlayer.boughtDevCardsThisTurn as Record<string, number> | undefined)?.[cardType] || 0;
     if ((devCards[cardType] || 0) - boughtThisTurn <= 0) {
       alert("לא ניתן לשחק קלף פיתוח שנקנה באותו התור!");
+      return;
+    }
+
+    if (selectedScenario === 'PIRATE_ISLANDS' && !['KNIGHT', 'VICTORY_POINT'].includes(cardType)) {
+      alert('באיי הפיראטים אפשר להשתמש רק בקלף אביר כדי להפוך ספינה לספינת מלחמה.');
       return;
     }
 
@@ -78,6 +85,9 @@ export const useAppTrade = () => {
         setTurnSubPhase,
         setActiveRobberType,
         setRoadBuildingRemaining,
+        selectedScenario,
+        edges,
+        setEdges,
         activeExpansion,
         addLog,
       });

@@ -40,6 +40,7 @@ export const GameBoard3D: React.FC = () => {
     currentPlayerIndex, 
     isMovingWagon,
     activeExpansion,
+    citiesKnightsState,
     gamePhase,
     addLog,
     showBuildingCostToast
@@ -320,6 +321,8 @@ export const GameBoard3D: React.FC = () => {
               getVertexConfig={getVertexConfig}
               getEdgeConfig={getEdgeConfig}
               isSelectableForRobber={isSelectableForRobber}
+              activeExpansion={activeExpansion}
+              citiesKnightsState={citiesKnightsState}
             />
           </Suspense>
         </Canvas>

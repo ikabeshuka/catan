@@ -12,9 +12,11 @@ import { Harbor3D } from './3d/Harbor3D';
 import { Dolphin3D } from './3d/Dolphin3D';
 import { SheepGroup3D } from './3d/SheepGroup3D';
 import { Birds3D } from './3d/Birds3D';
+import { Knight3D } from './3d/Knight3D';
+import { BarbarianShip3D } from './3d/BarbarianShip3D';
 import { useBoardTextures } from '../../hooks/useBoardTextures';
 import { BoardRenderCache } from '../../utils/hexMath/boardRenderCache';
-import { getTokenZ } from '../../utils/hexMath/board3DMath';
+import { getTokenZ, getVertex3DCoords } from '../../utils/hexMath/board3DMath';
 
 const HEX_SIZE_2D = 60; // Base size for 2D calculations, remains consistent
 const HEX_HEIGHT_3D = 3.0; // Visual height for 3D hexes
@@ -47,6 +49,8 @@ interface Board3DSceneProps {
   getVertexConfig: (vertex: any) => any;
   getEdgeConfig: (edge: any) => any;
   isSelectableForRobber: (tile: any) => boolean;
+  activeExpansion?: string;
+  citiesKnightsState?: { barbarianPosition?: number };
 }
 
 export const Board3DScene: React.FC<Board3DSceneProps> = ({
@@ -65,6 +69,8 @@ export const Board3DScene: React.FC<Board3DSceneProps> = ({
   getVertexConfig,
   getEdgeConfig,
   isSelectableForRobber,
+  activeExpansion,
+  citiesKnightsState,
 }) => {
   const handleVertexClick = onVertexClick;
 
@@ -118,9 +124,10 @@ export const Board3DScene: React.FC<Board3DSceneProps> = ({
 
       {/* Birds floating over the island */}
       {is3DMode && <Birds3D />}
+      {activeExpansion === 'CITIES_AND_KNIGHTS' && <BarbarianShip3D position={citiesKnightsState?.barbarianPosition || 0} />}
 
       {/* Render Hex Tiles */}
-      {boardRenderCache.tiles.map(({ tile, position3D }, tileIndex) => {
+      {boardRenderCache.tiles.map(({ tile, position3D, vertexIds }, tileIndex) => {
         if (!tile) return null;
         const tileX = position3D.x;
         const tileY = position3D.y;
@@ -196,6 +203,26 @@ export const Board3DScene: React.FC<Board3DSceneProps> = ({
               isSelectableForRobber={isSelectableForRobber}
               getProbabilityDots3D={getProbabilityDots3D}
             />
+
+            {tile.lostTribeVillages?.map(village => {
+              const { vx, vy } = getVertex3DCoords(vertexIds[village.vertexIndex]);
+              return (
+                <NumberToken3D
+                  key={village.id}
+                  tile={tile}
+                  value={village.number}
+                  clothRemaining={village.clothRemaining}
+                  tileX={vx}
+                  tileY={vy}
+                  position={[vx, vy, getTokenZ(tile.type, is3DMode) + 0.12]}
+                  onTileClick={onTileClick}
+                  onTileHover={onTileHover}
+                  onTileLeave={onTileLeave}
+                  isSelectableForRobber={isSelectableForRobber}
+                  getProbabilityDots3D={getProbabilityDots3D}
+                />
+              );
+            })}
 
             {/* Robber */}
             {tile.hasRobber && (
@@ -350,6 +377,28 @@ export const Board3DScene: React.FC<Board3DSceneProps> = ({
               />
             ))}
 
+            {vertex.pirateFortress && !vertex.pirateFortress.conquered && (
+              <group position={[0, 0, 0.18]}>
+                {[0, 1, 2].slice(0, vertex.pirateFortress.remainingTokens).map(level => (
+                  <mesh key={level} position={[0, 0, level * 0.12]} rotation={[Math.PI / 2, 0, 0]}>
+                    <cylinderGeometry args={[0.34, 0.34, 0.1, 20]} />
+                    <meshStandardMaterial color={{ RED: '#dc2626', WHITE: '#f8fafc', BLUE: '#2563eb', ORANGE: '#f97316' }[vertex.pirateFortress!.color]} emissive="#3f1d2e" />
+                  </mesh>
+                ))}
+                <mesh position={[0, 0, 0.48]}>
+                  <coneGeometry args={[0.28, 0.45, 4]} />
+                  <meshStandardMaterial color="#111827" />
+                </mesh>
+              </group>
+            )}
+
+            {vertex.pirateSettlementTarget && vertex.structure === 'NONE' && (
+              <mesh position={[0, 0, 0.16]} rotation={[Math.PI / 2, 0, 0]}>
+                <torusGeometry args={[0.29, 0.045, 10, 24]} />
+                <meshBasicMaterial color={playerById.get(vertex.pirateSettlementTarget)?.color || '#fbbf24'} transparent opacity={0.9} />
+              </mesh>
+            )}
+
             {/* Visual element for unoccupied vertices */}
             {vertex.structure === 'NONE' && (
               <mesh
@@ -402,6 +451,7 @@ export const Board3DScene: React.FC<Board3DSceneProps> = ({
               onHarborHover={onHarborHover}
               onHarborLeave={onHarborLeave}
             />
+            {vertex.knight && <Knight3D knight={vertex.knight} playerColor={playerColor} />}
           </group>
         );
       })}

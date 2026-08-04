@@ -1,7 +1,7 @@
 import type { DevCardType } from '../types/gameActions.types';
 import type { SeafarersScenario } from '../types/game.types';
 
-export type GameExpansion = 'BASE' | 'MERCHANTS_AND_BARBARIANS' | 'SEAFARERS';
+export type GameExpansion = 'BASE' | 'MERCHANTS_AND_BARBARIANS' | 'SEAFARERS' | 'CITIES_AND_KNIGHTS';
 
 export const BASE_VICTORY_POINT_TARGET = 10;
 
@@ -11,12 +11,17 @@ export const SEAFARERS_VICTORY_POINT_TARGETS: Record<SeafarersScenario, number> 
   FOG_ISLAND: 12,
   THROUGH_THE_DESERT: 14,
   THE_LOST_TRIBE: 13,
+  CLOTH_FOR_CATAN: 14,
+  PIRATE_ISLANDS: 10,
 };
 
 export const getVictoryPointTarget = (
   activeExpansion: GameExpansion,
   selectedScenario: SeafarersScenario,
 ): number => {
+  if (activeExpansion === 'CITIES_AND_KNIGHTS') {
+    return 13;
+  }
   if (activeExpansion !== 'SEAFARERS') {
     return BASE_VICTORY_POINT_TARGET;
   }

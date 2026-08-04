@@ -3,9 +3,11 @@ import {
   getAuth, 
   GoogleAuthProvider, 
   signInWithPopup, 
-  signOut
+  signOut,
+  createUserWithEmailAndPassword,
+  signInWithEmailAndPassword
 } from 'firebase/auth';
-import { getFirestore } from 'firebase/firestore';
+import { initializeFirestore } from 'firebase/firestore';
 
 // הפרטים שהעתקת מ-Firebase Console
 const firebaseConfig = {
@@ -22,7 +24,7 @@ const firebaseConfig = {
 // אתחול האפליקציה והשירותים
 const app = initializeApp(firebaseConfig);
 export const auth = getAuth(app);
-export const db = getFirestore(app);
+export const db = initializeFirestore(app, { experimentalAutoDetectLongPolling: true });
 export const googleProvider = new GoogleAuthProvider();
 
 // פונקציית התחברות מהירה עם Google
@@ -39,4 +41,26 @@ export const signInWithGoogle = async () => {
 // פונקציית התנתקות
 export const logoutUser = async () => {
   return await signOut(auth);
+};
+
+// הרשמה עם אימייל וסיסמה
+export const registerWithEmail = async (email: string, pass: string) => {
+  try {
+    const result = await createUserWithEmailAndPassword(auth, email, pass);
+    return result.user;
+  } catch (error) {
+    console.error("Email Registration Error:", error);
+    throw error;
+  }
+};
+
+// התחברות עם אימייל וסיסמה
+export const loginWithEmail = async (email: string, pass: string) => {
+  try {
+    const result = await signInWithEmailAndPassword(auth, email, pass);
+    return result.user;
+  } catch (error) {
+    console.error("Email Login Error:", error);
+    throw error;
+  }
 };

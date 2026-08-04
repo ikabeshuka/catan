@@ -1,6 +1,7 @@
 import { BoardVertex, BoardEdge } from '../../types/boardElements.types';
 import { HexTile } from '../../types/hex.types';
 import { getTileEdgeIds } from './generateEdges';
+import { getClosedLostTribeShipIds } from './lostTribeHelpers';
 
 /**
  * מזהה ומחזירה את כל הספינות הפתוחות של שחקן מסוים, הניתנות להזזה.
@@ -18,10 +19,12 @@ export function getOpenShipsForPlayer(
   const playerShips = edges.filter(
     e => e.hasShip && e.shipPlayerId === playerId && !currentTurnBuiltShips.includes(e.id)
   );
+  const closedLostTribeShips = getClosedLostTribeShipIds(playerId, vertices, edges, tiles);
 
   const openShips: BoardEdge[] = [];
 
   playerShips.forEach(ship => {
+    if (closedLostTribeShips.has(ship.id)) return;
     // חילוץ שני הקודקודים המרכיבים את הצלע
     const parts = ship.id.replace('e_v_', '').split('_v_');
     const v1Id = `v_${parts[0]}`;

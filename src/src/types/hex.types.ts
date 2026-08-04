@@ -30,5 +30,15 @@ export interface HexTile {
     kind: 'VICTORY_POINT' | 'DEV_CARD' | 'HARBOR';
     harborType?: 'WOOD' | 'BRICK' | 'SHEEP' | 'WHEAT' | 'ORE' | 'GENERIC';
   }[];
+  /** Villages of the Lost Tribe used by the Cloth for Catan scenario. */
+  lostTribeVillages?: {
+    id: string;
+    number: number;
+    vertexIndex: number;
+    clothRemaining: number;
+    connectedPlayerIds?: string[];
+  }[];
+  /** The shared reserve of ten cloth rolls for this scenario (stored on one tile). */
+  lostTribeGeneralCloth?: number;
   robberStartLocked?: boolean;
 }

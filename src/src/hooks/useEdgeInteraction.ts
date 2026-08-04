@@ -6,6 +6,7 @@ import { validateShipPlacement } from '../utils/validation/validateShipPlacement
 import { getOpenShipsForPlayer } from '../utils/gameEngine/getOpenShipsForPlayer';
 import { getEdgeVertices, getTileVertexIds } from '../utils/hexMath/boardGeometryHelpers';
 import { dispatchGameAction } from '../services/gameDispatcher';
+import { canExtendPirateShippingLine } from '../utils/gameEngine/pirateIslands';
 import { GameAction } from '../types/gameActions.types';
 import { getEligibleHarborEdges } from '../utils/gameEngine/lostTribeHelpers';
 
@@ -29,6 +30,7 @@ export function useEdgeInteraction() {
     currentPlayerIndex,
     turnSubPhase,
     activeExpansion,
+    selectedScenario,
     setCurrentTurnBuiltShips,
     selectedShipIdToMove,
     setSelectedShipIdToMove,
@@ -207,6 +209,7 @@ export function useEdgeInteraction() {
       vertices,
       edges,
       tiles,
+      setTiles,
       setEdges,
       setPlayers,
       resourceBank,
@@ -217,6 +220,7 @@ export function useEdgeInteraction() {
       roadBuildingRemaining,
       setRoadBuildingRemaining,
       activeExpansion,
+      selectedScenario,
     });
   };
 
@@ -249,6 +253,10 @@ export function useEdgeInteraction() {
   const buildShipOnEdge = (edge: any) => {
     const currentPlayer = players[currentPlayerIndex];
     if (!currentPlayer || currentPlayer.isBot || (roomId && currentPlayer.id !== myPlayerId)) return;
+    if (selectedScenario === 'PIRATE_ISLANDS' && !canExtendPirateShippingLine(tiles || [], vertices, edges, currentPlayer.id, edge)) {
+      addLog('באיי הפיראטים מותר לבנות רק קו ספנות רציף אחד, ללא הסתעפויות ומעבר למבצר.');
+      return;
+    }
     if (isSetupPhase) {
       dispatchBuildAction({ type: 'BUILD_SHIP', playerId: currentPlayer.id, edgeId: edge.id });
       handleRevealFog(edge.id);

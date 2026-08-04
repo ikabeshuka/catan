@@ -42,6 +42,354 @@ test('accepts outcome-free dice requests and rejects client-supplied outcomes', 
   assert.equal(validateActionShape({ type: 'ADMIN_WIN', playerId: 'p1' }).ok, false);
 });
 
+test('Cities & Knights awards commodities instead of a second resource for a commodity city', () => {
+  const state = baseState();
+  state.activeExpansion = 'CITIES_AND_KNIGHTS';
+  state.turnSubPhase = 'BEFORE_ROLL';
+  state.tiles[0].numberToken = 8;
+  state.tiles[0].type = 'WOOD';
+  state.vertices[0].structure = 'CITY';
+  state.players[0].resources.WOOD = 0;
+  state.players[0].cityImprovements = { SCIENCE: 1, POLITICS: 0, TRADE: 0 };
+  const action = { type: 'ROLL_DICE', playerId: 'p1', diceValues: [4, 4, 1], eventDie: 'SCIENCE' };
+  assert.equal(validateGameAction(state, action).ok, true);
+  applyReservedAction(state, action);
+  assert.equal(state.players[0].resources.WOOD, 1);
+  assert.equal(state.players[0].commodities.PAPER, 1);
+  assert.equal(state.players[0].progressCards.length + (state.players[0].victoryPoints || 0), 1);
+  assert.equal(state.citiesKnightsState.progressDecks.SCIENCE.length, 17);
+});
+
+test('Cities & Knights maps pasture cities to cloth and uses a city in second setup', () => {
+  const state = baseState();
+  state.activeExpansion = 'CITIES_AND_KNIGHTS';
+  state.turnSubPhase = 'BEFORE_ROLL';
+  state.tiles[0].numberToken = 8;
+  state.tiles[0].type = 'SHEEP';
+  state.vertices[0].structure = 'CITY';
+  state.players[0].resources.SHEEP = 0;
+  state.players[0].cityImprovements = { SCIENCE: 0, POLITICS: 0, TRADE: 1 };
+  applyReservedAction(state, { type: 'ROLL_DICE', playerId: 'p1', diceValues: [4, 4, 6], eventDie: 'TRADE' });
+  assert.equal(state.players[0].resources.SHEEP, 1);
+  assert.equal(state.players[0].commodities.CLOTH, 1);
+
+  const setup = baseState();
+  setup.activeExpansion = 'CITIES_AND_KNIGHTS';
+  setup.gamePhase = 'SETUP_ROUND_2';
+  setup.vertices.forEach(vertex => { vertex.structure = 'NONE'; delete vertex.playerId; });
+  setup.edges.forEach(edge => { edge.hasRoad = false; });
+  const action = { type: 'BUILD_CITY', playerId: 'p1', vertexId: 'v_52_-30' };
+  assert.equal(validateGameAction(setup, action).ok, true);
+  applyReservedAction(setup, action);
+  assert.equal(setup.vertices[0].structure, 'CITY');
+  assert.equal(setup.players[0].resources.WOOD, 6);
+});
+
+test('Cities & Knights treats commodities as hand cards when discarding on a 7', () => {
+  const state = baseState();
+  state.activeExpansion = 'CITIES_AND_KNIGHTS';
+  state.turnSubPhase = 'DISCARD_PHASE';
+  state.players[0].resources = resources();
+  state.players[0].commodities = { COIN: 8, PAPER: 0, CLOTH: 0 };
+  const action = { type: 'DISCARD_CARDS', playerId: 'p1', resourcesToDiscard: {}, commoditiesToDiscard: { COIN: 4 } };
+  assert.equal(validateGameAction(state, action).ok, true);
+  applyReservedAction(state, action);
+  assert.equal(state.players[0].commodities.COIN, 4);
+  assert.equal(state.commodityBank.COIN, 16);
+  assert.equal(state.turnSubPhase, 'TRADE_AND_BUILD');
+
+  state.players[0].commodities.COIN = 8;
+  state.vertices[0].cityWall = true;
+  state.turnSubPhase = 'DISCARD_PHASE';
+  assert.equal(validateGameAction(state, action).ok, false, 'a city wall increases the safe hand limit by two');
+});
+
+test('Cities & Knights validates and applies a city wall', () => {
+  const state = baseState();
+  state.activeExpansion = 'CITIES_AND_KNIGHTS';
+  state.vertices[0].structure = 'CITY';
+  const action = { type: 'BUILD_CITY_WALL', playerId: 'p1', vertexId: state.vertices[0].id };
+  assert.equal(validateGameAction(state, action).ok, true);
+  applyReservedAction(state, action);
+  assert.equal(state.vertices[0].cityWall, true);
+  assert.equal(state.players[0].resources.BRICK, 3);
+});
+
+test('Cities & Knights allows an active knight to move across its full road network', () => {
+  const state = baseState();
+  state.activeExpansion = 'CITIES_AND_KNIGHTS';
+  state.vertices[0] = { ...state.vertices[0], structure: 'NONE', playerId: undefined, knight: { playerId: 'p1', level: 1, active: true, actedThisTurn: false } };
+  state.edges[1] = { ...state.edges[1], hasRoad: true, playerId: 'p1' };
+  const action = { type: 'MOVE_KNIGHT', playerId: 'p1', fromVertexId: state.vertices[0].id, toVertexId: state.vertices[2].id };
+  assert.equal(validateGameAction(state, action).ok, true);
+  applyReservedAction(state, action);
+  assert.equal(state.vertices[2].knight.playerId, 'p1');
+  assert.equal(state.vertices[2].knight.actedThisTurn, true);
+});
+
+test('Cities & Knights recycles played progress cards and applies Warlord', () => {
+  const state = baseState();
+  state.activeExpansion = 'CITIES_AND_KNIGHTS';
+  state.players[0].progressCards = ['WARLORD'];
+  state.vertices[1].knight = { playerId: 'p1', level: 1, active: false, actedThisTurn: true };
+  const action = { type: 'PLAY_PROGRESS_CARD', playerId: 'p1', cardId: 'WARLORD' };
+  assert.equal(validateGameAction(state, action).ok, true);
+  applyReservedAction(state, action);
+  assert.deepEqual(state.players[0].progressCards, []);
+  assert.equal(state.vertices[1].knight.active, true);
+  assert.equal(state.vertices[1].knight.actedThisTurn, false);
+  assert.equal(state.citiesKnightsState.progressDecks.POLITICS.includes('WARLORD'), true);
+});
+
+test('Cities & Knights Alchemist fixes the next roll and Inventor swaps legal number tokens', () => {
+  const state = baseState();
+  state.activeExpansion = 'CITIES_AND_KNIGHTS';
+  state.turnSubPhase = 'BEFORE_ROLL';
+  state.players[0].progressCards = ['ALCHEMIST'];
+  const alchemist = { type: 'PLAY_PROGRESS_CARD', playerId: 'p1', cardId: 'ALCHEMIST', data: { diceValues: [3, 4, 5], eventDie: 'TRADE' } };
+  assert.equal(validateGameAction(state, alchemist).ok, true);
+  applyReservedAction(state, alchemist);
+  assert.deepEqual(state.players[0].alchemistDice, [3, 4, 5]);
+  applyReservedAction(state, { type: 'ROLL_DICE', playerId: 'p1', diceValues: [3, 4, 5], eventDie: 'TRADE' });
+  assert.equal(state.lastRoll, 7);
+  assert.equal(state.players[0].alchemistDice, undefined);
+
+  state.turnSubPhase = 'TRADE_AND_BUILD';
+  state.tiles = [{ id: 'a', type: 'WOOD', numberToken: 5 }, { id: 'b', type: 'ORE', numberToken: 9 }];
+  state.players[0].progressCards = ['INVENTOR'];
+  const inventor = { type: 'PLAY_PROGRESS_CARD', playerId: 'p1', cardId: 'INVENTOR', data: { tileAId: 'a', tileBId: 'b' } };
+  assert.equal(validateGameAction(state, inventor).ok, true);
+  applyReservedAction(state, inventor);
+  assert.deepEqual(state.tiles.map(tile => tile.numberToken), [9, 5]);
+});
+
+test('Cities & Knights resource and trade monopolies collect resources and commodities', () => {
+  const state = baseState();
+  state.activeExpansion = 'CITIES_AND_KNIGHTS';
+  state.players[0].resources.WOOD = 0;
+  state.players[1].resources.WOOD = 3;
+  state.players[0].commodities = { COIN: 0, PAPER: 0, CLOTH: 0 };
+  state.players[1].commodities = { COIN: 2, PAPER: 0, CLOTH: 0 };
+  state.players[0].progressCards = ['RESOURCE_MONOPOLY', 'TRADE_MONOPOLY'];
+  const resourceMonopoly = { type: 'PLAY_PROGRESS_CARD', playerId: 'p1', cardId: 'RESOURCE_MONOPOLY', data: { resource: 'WOOD' } };
+  assert.equal(validateGameAction(state, resourceMonopoly).ok, true);
+  applyReservedAction(state, resourceMonopoly);
+  assert.equal(state.players[0].resources.WOOD, 3);
+  assert.equal(state.players[1].resources.WOOD, 0);
+  const tradeMonopoly = { type: 'PLAY_PROGRESS_CARD', playerId: 'p1', cardId: 'TRADE_MONOPOLY', data: { resource: 'COIN' } };
+  assert.equal(validateGameAction(state, tradeMonopoly).ok, true);
+  applyReservedAction(state, tradeMonopoly);
+  assert.equal(state.players[0].commodities.COIN, 2);
+  assert.equal(state.players[1].commodities.COIN, 0);
+});
+
+test('Cities & Knights Merchant and Merchant Fleet grant the correct 2:1 bank trade', () => {
+  const state = baseState();
+  state.activeExpansion = 'CITIES_AND_KNIGHTS';
+  state.players[0].progressCards = ['MERCHANT', 'MERCHANT_FLEET'];
+  state.players[0].victoryPoints = 2;
+  const merchant = { type: 'PLAY_PROGRESS_CARD', playerId: 'p1', cardId: 'MERCHANT', data: { tileId: 'land-1' } };
+  assert.equal(validateGameAction(state, merchant).ok, true);
+  applyReservedAction(state, merchant);
+  assert.deepEqual(state.citiesKnightsState.merchant, { playerId: 'p1', resource: 'WOOD' });
+  assert.equal(state.players[0].victoryPoints, 3);
+  const merchantTrade = { type: 'BANK_TRADE', playerId: 'p1', offeredResource: 'WOOD', requestedResource: 'BRICK', ratio: 2 };
+  assert.equal(validateGameAction(state, merchantTrade).ok, true);
+
+  const fleet = { type: 'PLAY_PROGRESS_CARD', playerId: 'p1', cardId: 'MERCHANT_FLEET', data: { resource: 'ORE' } };
+  assert.equal(validateGameAction(state, fleet).ok, true);
+  applyReservedAction(state, fleet);
+  const fleetTrade = { type: 'BANK_TRADE', playerId: 'p1', offeredResource: 'ORE', requestedResource: 'BRICK', ratio: 2 };
+  assert.equal(validateGameAction(state, fleetTrade).ok, true);
+});
+
+test('Cities & Knights Bishop moves the robber and takes one card from every bordering opponent', () => {
+  const state = baseState();
+  state.activeExpansion = 'CITIES_AND_KNIGHTS';
+  state.players[0].progressCards = ['BISHOP'];
+  state.players[0].resources = resources();
+  state.players[0].commodities = { COIN: 0, PAPER: 0, CLOTH: 0 };
+  state.players[1].resources = resources({ WOOD: 1 });
+  state.players[1].commodities = { COIN: 1, PAPER: 0, CLOTH: 0 };
+  state.vertices[0].playerId = 'p2';
+  const action = { type: 'PLAY_PROGRESS_CARD', playerId: 'p1', cardId: 'BISHOP', data: { tileId: 'land-1' } };
+  assert.equal(validateGameAction(state, action).ok, true);
+  applyReservedAction(state, action);
+  assert.equal(state.tiles[0].hasRobber, true);
+  assert.equal(state.players[0].resources.WOOD + state.players[0].commodities.COIN, 1);
+  assert.equal(state.players[1].resources.WOOD + state.players[1].commodities.COIN, 1);
+});
+
+test('Cities & Knights Saboteur queues each leading human player to discard half their hand', () => {
+  const state = baseState();
+  state.activeExpansion = 'CITIES_AND_KNIGHTS';
+  state.players[0].progressCards = ['SABOTEUR'];
+  state.players[0].victoryPoints = 2;
+  state.players[1].victoryPoints = 4;
+  state.players[1].resources = resources({ WOOD: 2, BRICK: 2 });
+  state.players[1].commodities = { COIN: 2, PAPER: 0, CLOTH: 0 };
+  const saboteur = { type: 'PLAY_PROGRESS_CARD', playerId: 'p1', cardId: 'SABOTEUR' };
+  assert.equal(validateGameAction(state, saboteur).ok, true);
+  applyReservedAction(state, saboteur);
+  assert.equal(state.turnSubPhase, 'SABOTEUR_DISCARD');
+  assert.deepEqual(state.citiesKnightsState.sabotageDiscardQueue, [{ playerId: 'p2', amount: 3 }]);
+  const discard = { type: 'DISCARD_CARDS', playerId: 'p2', resourcesToDiscard: { WOOD: 2, BRICK: 1 }, commoditiesToDiscard: {} };
+  assert.equal(validateGameAction(state, discard).ok, true);
+  applyReservedAction(state, discard);
+  assert.equal(state.turnSubPhase, 'TRADE_AND_BUILD');
+  assert.equal(state.players[1].resources.WOOD + state.players[1].resources.BRICK, 1);
+});
+
+test('Cities & Knights Wedding, Deserter, and Commercial Harbor use the required response turns', () => {
+  const weddingState = baseState();
+  weddingState.activeExpansion = 'CITIES_AND_KNIGHTS';
+  weddingState.players[0].progressCards = ['WEDDING'];
+  weddingState.players[0].victoryPoints = 2;
+  weddingState.players[1].victoryPoints = 4;
+  weddingState.players[1].resources = resources({ WOOD: 2 });
+  const wedding = { type: 'PLAY_PROGRESS_CARD', playerId: 'p1', cardId: 'WEDDING' };
+  assert.equal(validateGameAction(weddingState, wedding).ok, true);
+  applyReservedAction(weddingState, wedding);
+  assert.equal(weddingState.turnSubPhase, 'WEDDING_GIVE');
+  const weddingGive = { type: 'GIVE_PROGRESS_CARDS', playerId: 'p2', targetPlayerId: 'p1', resourcesToGive: { WOOD: 2 }, commoditiesToGive: {} };
+  assert.equal(validateGameAction(weddingState, weddingGive).ok, true);
+  applyReservedAction(weddingState, weddingGive);
+  assert.equal(weddingState.players[0].resources.WOOD, 7);
+  assert.equal(weddingState.turnSubPhase, 'TRADE_AND_BUILD');
+
+  const deserterState = baseState();
+  deserterState.activeExpansion = 'CITIES_AND_KNIGHTS';
+  deserterState.players[0].progressCards = ['DESERTER'];
+  deserterState.vertices[1].knight = { playerId: 'p2', level: 2, active: true };
+  deserterState.edges[1] = { ...deserterState.edges[1], hasRoad: true, playerId: 'p1' };
+  const deserter = { type: 'PLAY_PROGRESS_CARD', playerId: 'p1', cardId: 'DESERTER', data: { targetPlayerId: 'p2' } };
+  assert.equal(validateGameAction(deserterState, deserter).ok, true);
+  applyReservedAction(deserterState, deserter);
+  const select = { type: 'SELECT_DESERTER_KNIGHT', playerId: 'p2', vertexId: deserterState.vertices[1].id };
+  assert.equal(validateGameAction(deserterState, select).ok, true);
+  applyReservedAction(deserterState, select);
+  const place = { type: 'PLACE_DESERTER_KNIGHT', playerId: 'p1', vertexId: deserterState.vertices[2].id };
+  assert.equal(validateGameAction(deserterState, place).ok, true);
+  applyReservedAction(deserterState, place);
+  assert.deepEqual(deserterState.vertices[2].knight, { playerId: 'p1', level: 2, active: true, actedThisTurn: false });
+
+  const harborState = baseState();
+  harborState.activeExpansion = 'CITIES_AND_KNIGHTS';
+  harborState.players[0].progressCards = ['COMMERCIAL_HARBOR'];
+  harborState.players[0].resources = resources({ BRICK: 1 });
+  harborState.players[1].resources = resources({ WOOD: 1 });
+  const harbor = { type: 'PLAY_PROGRESS_CARD', playerId: 'p1', cardId: 'COMMERCIAL_HARBOR' };
+  assert.equal(validateGameAction(harborState, harbor).ok, true);
+  applyReservedAction(harborState, harbor);
+  const offer = { type: 'GIVE_PROGRESS_CARDS', playerId: 'p2', targetPlayerId: 'p1', resourcesToGive: { WOOD: 1 }, commoditiesToGive: {} };
+  assert.equal(validateGameAction(harborState, offer).ok, true);
+  applyReservedAction(harborState, offer);
+  const returnCard = { type: 'GIVE_PROGRESS_CARDS', playerId: 'p1', targetPlayerId: 'p2', resourcesToGive: { BRICK: 1 }, commoditiesToGive: {} };
+  assert.equal(validateGameAction(harborState, returnCard).ok, true);
+  applyReservedAction(harborState, returnCard);
+  assert.equal(harborState.players[0].resources.WOOD, 1);
+  assert.equal(harborState.players[1].resources.BRICK, 1);
+  assert.equal(harborState.turnSubPhase, 'TRADE_AND_BUILD');
+});
+
+test('Cities & Knights applies Engineer and Crane progress card discounts', () => {
+  const state = baseState();
+  state.activeExpansion = 'CITIES_AND_KNIGHTS';
+  state.vertices[0].structure = 'CITY';
+  state.players[0].progressCards = ['ENGINEER', 'CRANE'];
+  state.players[0].commodities = { COIN: 0, PAPER: 0, CLOTH: 0 };
+  const engineer = { type: 'PLAY_PROGRESS_CARD', playerId: 'p1', cardId: 'ENGINEER', data: { vertexId: state.vertices[0].id } };
+  assert.equal(validateGameAction(state, engineer).ok, true);
+  applyReservedAction(state, engineer);
+  assert.equal(state.vertices[0].cityWall, true);
+
+  const crane = { type: 'PLAY_PROGRESS_CARD', playerId: 'p1', cardId: 'CRANE' };
+  assert.equal(validateGameAction(state, crane).ok, true);
+  applyReservedAction(state, crane);
+  const improvement = { type: 'UPGRADE_CITY_IMPROVEMENT', playerId: 'p1', track: 'SCIENCE' };
+  assert.equal(validateGameAction(state, improvement).ok, true);
+  applyReservedAction(state, improvement);
+  assert.equal(state.players[0].cityImprovements.SCIENCE, 1);
+  assert.equal(state.players[0].commodities.PAPER, 0);
+});
+
+test('Cities & Knights irrigation pays per distinct adjacent field', () => {
+  const state = baseState();
+  state.activeExpansion = 'CITIES_AND_KNIGHTS';
+  state.tiles[0].type = 'WHEAT';
+  state.vertices[0].structure = 'CITY';
+  state.players[0].resources.WHEAT = 0;
+  state.players[0].progressCards = ['IRRIGATION'];
+  const action = { type: 'PLAY_PROGRESS_CARD', playerId: 'p1', cardId: 'IRRIGATION' };
+  assert.equal(validateGameAction(state, action).ok, true);
+  applyReservedAction(state, action);
+  assert.equal(state.players[0].resources.WHEAT, 2);
+  assert.equal(state.resourceBank.WHEAT, 17);
+});
+
+test('Cities & Knights Medicine upgrades a settlement for the reduced cost', () => {
+  const state = baseState();
+  state.activeExpansion = 'CITIES_AND_KNIGHTS';
+  state.players[0].victoryPoints = 2;
+  state.players[0].resources = resources({ WHEAT: 1, ORE: 2 });
+  state.players[0].progressCards = ['MEDICINE'];
+  const action = { type: 'PLAY_PROGRESS_CARD', playerId: 'p1', cardId: 'MEDICINE', data: { vertexId: state.vertices[0].id } };
+  assert.equal(validateGameAction(state, action).ok, true);
+  applyReservedAction(state, action);
+  assert.equal(state.vertices[0].structure, 'CITY');
+  assert.equal(state.players[0].victoryPoints, 3);
+  assert.deepEqual(state.players[0].resources, resources());
+});
+
+test('Cities & Knights barbarian defeat downgrades only the weakest eligible defenders', () => {
+  const state = baseState();
+  state.activeExpansion = 'CITIES_AND_KNIGHTS';
+  state.turnSubPhase = 'BEFORE_ROLL';
+  state.vertices[0].structure = 'CITY';
+  state.vertices[1] = { ...state.vertices[1], structure: 'CITY', playerId: 'p2' };
+  state.vertices[2] = { ...state.vertices[2], knight: { playerId: 'p1', level: 1, active: true } };
+  state.citiesKnightsState = { barbarianPosition: 6, metropolisOwners: {}, barbarianLossQueue: [] };
+  const action = { type: 'ROLL_DICE', playerId: 'p1', diceValues: [1, 1, 1], eventDie: 'BARBARIAN' };
+  assert.equal(validateGameAction(state, action).ok, true);
+  applyReservedAction(state, action);
+  assert.deepEqual(state.citiesKnightsState.barbarianLossQueue, ['p2']);
+  assert.equal(state.turnSubPhase, 'BARBARIAN_LOSS');
+});
+
+test('Cities & Knights displaces a weaker knight and lets its owner relocate it', () => {
+  const state = baseState();
+  state.activeExpansion = 'CITIES_AND_KNIGHTS';
+  state.vertices[0] = { ...state.vertices[0], structure: 'NONE', playerId: undefined, knight: { playerId: 'p1', level: 2, active: true, actedThisTurn: false } };
+  state.vertices[2] = { ...state.vertices[2], knight: { playerId: 'p2', level: 1, active: true } };
+  state.vertices.push({ id: 'v_0_120', structure: 'NONE' });
+  state.edges[1] = { ...state.edges[1], hasRoad: true, playerId: 'p1' };
+  state.edges.push({ id: 'e_v_0_60_v_0_120', hasRoad: true, playerId: 'p2', hasShip: false });
+  const displace = { type: 'DISPLACE_KNIGHT', playerId: 'p1', fromVertexId: state.vertices[0].id, toVertexId: state.vertices[2].id };
+  assert.equal(validateGameAction(state, displace).ok, true);
+  applyReservedAction(state, displace);
+  assert.equal(state.turnSubPhase, 'KNIGHT_DISPLACEMENT');
+  assert.equal(state.vertices[2].knight.playerId, 'p1');
+  const relocate = { type: 'RELOCATE_DISPLACED_KNIGHT', playerId: 'p2', toVertexId: 'v_0_120' };
+  assert.equal(validateGameAction(state, relocate).ok, true);
+  applyReservedAction(state, relocate);
+  assert.equal(state.vertices.find(vertex => vertex.id === 'v_0_120').knight.playerId, 'p2');
+  assert.equal(state.turnSubPhase, 'TRADE_AND_BUILD');
+});
+
+test('Cities & Knights requires discarding down to four progress cards', () => {
+  const state = baseState();
+  state.activeExpansion = 'CITIES_AND_KNIGHTS';
+  state.turnSubPhase = 'PROGRESS_DISCARD';
+  state.players[0].progressCards = ['ALCHEMIST', 'CRANE', 'ENGINEER', 'INVENTOR', 'IRRIGATION'];
+  state.citiesKnightsState = { barbarianPosition: 0, metropolisOwners: {}, barbarianLossQueue: [], progressDiscardQueue: ['p1'] };
+  const action = { type: 'DISCARD_PROGRESS_CARD', playerId: 'p1', cardId: 'CRANE' };
+  assert.equal(validateGameAction(state, action).ok, true);
+  applyReservedAction(state, action);
+  assert.equal(state.players[0].progressCards.length, 4);
+  assert.equal(state.citiesKnightsState.progressDecks.SCIENCE.includes('CRANE'), true);
+  assert.equal(state.turnSubPhase, 'TRADE_AND_BUILD');
+});
+
 test('collects a Lost Tribe victory chit when a ship is built on its edge', () => {
   const state = baseState();
   state.vertices[1] = { ...state.vertices[1], structure: 'SETTLEMENT', playerId: 'p1' };
@@ -52,6 +400,27 @@ test('collects a Lost Tribe victory chit when a ship is built on its edge', () =
   applyReservedAction(state, action);
   assert.equal(state.players[0].victoryPoints, 3);
   assert.equal(state.edges[1].lostTribeReward.collectedBy, 'p1');
+});
+
+test('server authoritatively resolves a Pirate Islands fortress attack', () => {
+  const state = baseState();
+  state.selectedScenario = 'PIRATE_ISLANDS';
+  state.players[0].victoryPoints = 9;
+  state.vertices[2] = {
+    ...state.vertices[2],
+    pirateFortress: { playerId: 'p1', remainingTokens: 1, conquered: false },
+  };
+  state.vertices[1] = { ...state.vertices[1], pirateSettlementTarget: 'p1' };
+  state.edges[0] = { ...state.edges[0], hasRoad: false, hasShip: true, shipPlayerId: 'p1', isWarship: true };
+  state.edges[1] = { ...state.edges[1], hasShip: true, shipPlayerId: 'p1', isWarship: true };
+  const action = { type: 'ATTACK_PIRATE_FORTRESS', playerId: 'p1', fortressVertexId: state.vertices[2].id, fortressPower: 1 };
+  assert.equal(validateActionShape({ ...action, fortressPower: undefined }).ok, true);
+  assert.equal(validateGameAction(state, action).ok, true);
+  applyReservedAction(state, action);
+  assert.equal(state.vertices[2].pirateFortress.conquered, true);
+  assert.equal(state.vertices[2].structure, 'SETTLEMENT');
+  assert.equal(state.players[0].victoryPoints, 10);
+  assert.equal(action.fortressOutcome, 'CONQUERED');
 });
 
 test('places a stored Lost Tribe harbor only on a legal coastal settlement edge', () => {
@@ -107,6 +476,47 @@ test('enforces the settlement distance rule and connected network', () => {
   assert.equal(connected.ok, true);
 });
 
+test('server awards normal building points and records setup home islands', () => {
+  const state = baseState();
+  state.players[0].victoryPoints = 2;
+  state.vertices[0].structure = 'NONE';
+  const settlement = { type: 'BUILD_SETTLEMENT', playerId: 'p1', vertexId: 'v_52_30' };
+  assert.equal(validateGameAction(state, settlement).ok, true);
+  applyReservedAction(state, settlement);
+  assert.equal(state.players[0].victoryPoints, 3);
+
+  state.gamePhase = 'SETUP_ROUND_1';
+  state.turnSubPhase = 'BEFORE_ROLL';
+  state.vertices[0].structure = 'NONE';
+  state.vertices[1].structure = 'NONE';
+  state.edges[0].hasRoad = false;
+  const setup = { type: 'BUILD_SETTLEMENT', playerId: 'p1', vertexId: 'v_52_-30' };
+  assert.equal(validateGameAction(state, setup).ok, true);
+  applyReservedAction(state, setup);
+  assert.deepEqual(state.players[0].homeIslandIds, [1]);
+});
+
+test('rejects Lost Tribe settlements on a connected small island after setup', () => {
+  const state = baseState();
+  state.selectedScenario = 'THE_LOST_TRIBE';
+  state.tiles[0].islandId = 2;
+  state.vertices[0].structure = 'NONE';
+  const action = { type: 'BUILD_SETTLEMENT', playerId: 'p1', vertexId: 'v_52_30' };
+  assert.equal(validateGameAction(state, action).ok, false);
+});
+
+test('does not distribute Lost Tribe resources from a small island', () => {
+  const state = baseState();
+  state.selectedScenario = 'THE_LOST_TRIBE';
+  state.turnSubPhase = 'BEFORE_ROLL';
+  state.tiles[0] = { ...state.tiles[0], islandId: 2, numberToken: 8 };
+  state.vertices[0] = { ...state.vertices[0], structure: 'CITY', playerId: 'p1' };
+  state.players[0].resources.WOOD = 0;
+  applyReservedAction(state, { type: 'ROLL_DICE', playerId: 'p1', diceValues: [4, 4] });
+  assert.equal(state.players[0].resources.WOOD, 0);
+  assert.equal(state.resourceBank.WOOD, 19);
+});
+
 test('reserves bank and player resources for a bank trade', () => {
   const state = baseState();
   const action = { type: 'BANK_TRADE', playerId: 'p1', offeredResource: 'WOOD', requestedResource: 'ORE', ratio: 4 };
@@ -116,6 +526,14 @@ test('reserves bank and player resources for a bank trade', () => {
   assert.equal(state.players[0].resources.ORE, 6);
   assert.equal(state.resourceBank.WOOD, 23);
   assert.equal(state.resourceBank.ORE, 18);
+});
+
+test('enforces bank trade ratios from the player\'s actual harbor access', () => {
+  const state = baseState();
+  state.vertices[0] = { ...state.vertices[0], isHarbor: true, harborType: 'WOOD' };
+  assert.equal(validateGameAction(state, { type: 'BANK_TRADE', playerId: 'p1', offeredResource: 'WOOD', requestedResource: 'ORE', ratio: 2 }).ok, true);
+  assert.equal(validateGameAction(state, { type: 'BANK_TRADE', playerId: 'p1', offeredResource: 'WOOD', requestedResource: 'ORE', ratio: 3 }).ok, false);
+  assert.equal(validateGameAction(state, { type: 'BANK_TRADE', playerId: 'p1', offeredResource: 'BRICK', requestedResource: 'ORE', ratio: 2 }).ok, false);
 });
 
 test('rejects a development card that is not on top of the shared deck', () => {

@@ -26,7 +26,7 @@ export const useBotTimer = () => {
     if (gamePhase !== 'LOBBY' && activePlayer && activePlayer.isBot) {
       addLog(`[מערכת] תור הבוט ${activePlayer.name} הופסק ידנית או עקב חריגה מזמן התגובה (${botTimeLimit} שניות).`);
       
-      if (gamePhase === 'SETUP_ROUND_1' || gamePhase === 'SETUP_ROUND_2') {
+      if (['SETUP_ROUND_1', 'SETUP_ROUND_2', 'SETUP_ROUND_3'].includes(gamePhase)) {
         endTurn();
       } else {
         const nextIndex = (currentPlayerIndex + 1) % players.length;

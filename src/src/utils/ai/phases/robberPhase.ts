@@ -98,7 +98,7 @@ export function robberPhase({
           let baseScore = buildingValue * numWeight;
           
           // Anti-leader strategy: actively target players with 7+ victory points
-          if (botPlayer.difficulty === 'HARD') {
+          if (botPlayer.difficulty === 'HARD' || botPlayer.difficulty === 'SUPER_HARD') {
             const targetPlayer = players.find(p => p.id === v.playerId);
             if (targetPlayer && targetPlayer.victoryPoints >= 7) {
               baseScore += 50; // Massively prioritize blocking leaders
@@ -148,7 +148,7 @@ export function robberPhase({
           const v2Id = `v_${x2}_${y2}`;
           if (tileVertexIds.has(v1Id) && tileVertexIds.has(v2Id)) {
             let baseScore = 3; // base weight for a ship
-            if (botPlayer.difficulty === 'HARD') {
+            if (botPlayer.difficulty === 'HARD' || botPlayer.difficulty === 'SUPER_HARD') {
               const targetPlayer = players.find(p => p.id === edge.shipPlayerId);
               if (targetPlayer && targetPlayer.victoryPoints >= 7) {
                 baseScore += 50;
@@ -218,7 +218,7 @@ export function robberPhase({
 
         if (eligibleTargets.length > 0) {
           let chosenVictim = eligibleTargets[Math.floor(Math.random() * eligibleTargets.length)];
-          if (botPlayer.difficulty === 'HARD') {
+          if (botPlayer.difficulty === 'HARD' || botPlayer.difficulty === 'SUPER_HARD') {
             const leadingVictims = eligibleTargets.filter(p => p.victoryPoints >= 7);
             if (leadingVictims.length > 0) {
               chosenVictim = leadingVictims.sort((a, b) => Object.values(b.resources).reduce((sum, count) => sum + count, 0) - Object.values(a.resources).reduce((sum, count) => sum + count, 0))[0];
@@ -259,7 +259,7 @@ export function robberPhase({
         const eligibleTargets = getEligibleRobberyTargets(chosenTile, vertices, players, botPlayer.id);
         if (eligibleTargets.length > 0) {
           let chosenVictim = eligibleTargets[Math.floor(Math.random() * eligibleTargets.length)];
-          if (botPlayer.difficulty === 'HARD') {
+          if (botPlayer.difficulty === 'HARD' || botPlayer.difficulty === 'SUPER_HARD') {
             const leadingVictims = eligibleTargets.filter(p => p.victoryPoints >= 7);
             if (leadingVictims.length > 0) {
               chosenVictim = leadingVictims.sort((a, b) => Object.values(b.resources).reduce((sum, count) => sum + count, 0) - Object.values(a.resources).reduce((sum, count) => sum + count, 0))[0];

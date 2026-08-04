@@ -39,6 +39,7 @@ export const TradePanel: React.FC = () => {
     roomId,
     myPlayerId,
     resourceBank,
+    citiesKnightsState,
   } = useGame();
   const { tradeWithBank, turnSubPhase, isCurrentPlayerBot, currentPlayer } = useTurnManager();
   const { evaluateBotTradeDecision } = useAppTrade();
@@ -80,6 +81,9 @@ export const TradePanel: React.FC = () => {
 
   const hasGenericHarbor = ownedHarbors.some(h => h.harborType === 'GENERIC');
   const hasSpecializedHarbor = ownedHarbors.some(h => h.harborType === giveRes);
+  const hasMerchantTrade = citiesKnightsState?.merchant?.playerId === humanPlayer.id && citiesKnightsState.merchant.resource === giveRes;
+  const hasMerchantFleetTrade = humanPlayer.merchantFleetResource === giveRes;
+  const bankTradeRatio = (hasSpecializedHarbor || hasMerchantTrade || hasMerchantFleetTrade) ? 2 : hasGenericHarbor ? 3 : 4;
 
   const isProposeTradeEnabled =
     giveAmt > 0 &&
@@ -91,9 +95,9 @@ export const TradePanel: React.FC = () => {
     turnSubPhase === 'TRADE_AND_BUILD';
 
   const isBankTradeEnabled =
-    giveAmt >= 4 &&
-    giveAmt % 4 === 0 &&
-    receiveAmt === giveAmt / 4 &&
+    giveAmt >= bankTradeRatio &&
+    giveAmt % bankTradeRatio === 0 &&
+    receiveAmt === giveAmt / bankTradeRatio &&
     giveRes !== receiveRes &&
     (humanPlayer.resources[giveRes] || 0) >= giveAmt &&
     !isCurrentPlayerBot &&
@@ -104,13 +108,7 @@ export const TradePanel: React.FC = () => {
     if (giveRes === receiveRes || isCurrentPlayerBot || isWrongOnlinePlayer || turnSubPhase !== 'TRADE_AND_BUILD') return false;
     const playerStock = humanPlayer.resources[giveRes] || 0;
     if (playerStock < giveAmt) return false;
-    if (hasSpecializedHarbor && giveAmt >= 2 && giveAmt % 2 === 0 && receiveAmt === giveAmt / 2) {
-      return true;
-    }
-    if (hasGenericHarbor && giveAmt >= 3 && giveAmt % 3 === 0 && receiveAmt === giveAmt / 3) {
-      return true;
-    }
-    return false;
+    return bankTradeRatio < 4 && giveAmt >= bankTradeRatio && giveAmt % bankTradeRatio === 0 && receiveAmt === giveAmt / bankTradeRatio;
   })();
 
   const handleProposeTradeToPlayers = () => {

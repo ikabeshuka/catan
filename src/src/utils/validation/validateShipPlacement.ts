@@ -29,7 +29,7 @@ export function validateShipPlacement(
   }
 
   // בדיקה של איסור הצבה על/צמוד לערפל בשלבי הקמה
-  if (tiles && (gamePhase === 'SETUP_ROUND_1' || gamePhase === 'SETUP_ROUND_2')) {
+  if (tiles && ['SETUP_ROUND_1', 'SETUP_ROUND_2', 'SETUP_ROUND_3'].includes(gamePhase || '')) {
     const borderingTiles = boardRenderCache?.edgeById.get(edgeId)?.borderingTiles
       || tiles.filter(tile => getTileEdgeIds(tile).includes(edgeId));
     if (borderingTiles.some(tile => tile.type === 'FOG')) {

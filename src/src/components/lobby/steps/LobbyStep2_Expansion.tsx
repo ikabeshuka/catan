@@ -1,9 +1,10 @@
 import React, { useState, useEffect } from 'react';
 import type { SeafarersScenario } from '../../../types/game.types';
+import type { GameExpansion } from '../../../config/gameRules';
 
 interface LobbyStep2ExpansionProps {
-  activeExpansion: 'BASE' | 'MERCHANTS_AND_BARBARIANS' | 'SEAFARERS';
-  setActiveExpansion: (exp: 'BASE' | 'MERCHANTS_AND_BARBARIANS' | 'SEAFARERS') => void;
+  activeExpansion: GameExpansion;
+  setActiveExpansion: (exp: GameExpansion) => void;
   selectedScenario: SeafarersScenario;
   setSelectedScenario: (scen: SeafarersScenario) => void;
   boardType: 'RANDOM' | 'STARTER';
@@ -23,34 +24,27 @@ export const LobbyStep2_Expansion: React.FC<LobbyStep2ExpansionProps> = ({
   onPrev,
 }) => {
   // Local state to allow multiple selections visually, as requested by the user
-  const [selectedExpansions, setSelectedExpansions] = useState<('MERCHANTS_AND_BARBARIANS' | 'SEAFARERS')[]>(() => {
-    if (activeExpansion === 'BASE') return [];
-    return [activeExpansion];
+  const [selectedExpansions, setSelectedExpansions] = useState<('SEAFARERS' | 'CITIES_AND_KNIGHTS')[]>(() => {
+    return activeExpansion === 'SEAFARERS' || activeExpansion === 'CITIES_AND_KNIGHTS' ? [activeExpansion] : [];
   });
 
   // Whenever local selections change, sync with the global context (fallback to BASE if empty)
   useEffect(() => {
-    if (selectedExpansions.includes('SEAFARERS')) {
+    if (selectedExpansions.includes('CITIES_AND_KNIGHTS')) {
+      setActiveExpansion('CITIES_AND_KNIGHTS');
+    } else if (selectedExpansions.includes('SEAFARERS')) {
       setActiveExpansion('SEAFARERS');
-    } else if (selectedExpansions.includes('MERCHANTS_AND_BARBARIANS')) {
-      setActiveExpansion('MERCHANTS_AND_BARBARIANS');
     } else {
       setActiveExpansion('BASE');
     }
   }, [selectedExpansions, setActiveExpansion]);
 
-  const toggleExpansion = (exp: 'MERCHANTS_AND_BARBARIANS' | 'SEAFARERS') => {
-    setSelectedExpansions(prev => {
-      if (prev.includes(exp)) {
-        return prev.filter(item => item !== exp);
-      } else {
-        return [...prev, exp];
-      }
-    });
+  const toggleExpansion = (exp: 'SEAFARERS' | 'CITIES_AND_KNIGHTS') => {
+    setSelectedExpansions(prev => prev.includes(exp) ? [] : [exp]);
   };
 
-  const isMerchantsSelected = selectedExpansions.includes('MERCHANTS_AND_BARBARIANS');
   const isSeafarersSelected = selectedExpansions.includes('SEAFARERS');
+  const isCitiesKnightsSelected = selectedExpansions.includes('CITIES_AND_KNIGHTS');
 
   const selectBoardAndContinue = (type: 'RANDOM' | 'STARTER') => {
     setBoardType(type);
@@ -66,12 +60,9 @@ export const LobbyStep2_Expansion: React.FC<LobbyStep2ExpansionProps> = ({
         {/* סוחרים וברברים */}
         <button
           type="button"
-          onClick={() => toggleExpansion('MERCHANTS_AND_BARBARIANS')}
-          className={`group p-4 rounded-2xl border text-center transition-all duration-300 hover:scale-[1.02] cursor-pointer relative overflow-hidden flex flex-col items-center gap-4 ${
-            isMerchantsSelected
-              ? 'border-amber-500 bg-slate-900/60 shadow-[0_0_30px_rgba(245,158,11,0.15)]'
-              : 'border-slate-800 bg-slate-900/40 hover:border-slate-700'
-          }`}
+          disabled
+          title="הרחבה זו עדיין אינה זמינה עד להשלמת תרחיש רשמי מלא."
+          className="group p-4 rounded-2xl border text-center relative overflow-hidden flex flex-col items-center gap-4 border-slate-800 bg-slate-900/40 opacity-50 cursor-not-allowed"
         >
           <div className="w-full h-40 rounded-xl overflow-hidden relative bg-slate-950 flex items-center justify-center">
             <img 
@@ -80,13 +71,7 @@ export const LobbyStep2_Expansion: React.FC<LobbyStep2ExpansionProps> = ({
               className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-105" 
             />
             <div className="absolute inset-0 bg-gradient-to-t from-slate-950 via-transparent to-transparent opacity-60" />
-            {isMerchantsSelected && (
-              <div className="absolute top-3 right-3 bg-amber-500 text-slate-950 rounded-full p-1 shadow-lg z-10">
-                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M5 13l4 4L19 7" />
-                </svg>
-              </div>
-            )}
+            <span className="absolute top-3 right-3 rounded-full border border-amber-500/30 bg-slate-950/80 px-2 py-1 text-[10px] font-black text-amber-400">בקרוב</span>
           </div>
           <div className="flex flex-col items-center">
             <span className="text-xl font-black text-slate-100">סוחרים וברברים</span>
@@ -131,24 +116,26 @@ export const LobbyStep2_Expansion: React.FC<LobbyStep2ExpansionProps> = ({
 
       </div>
 
-      {/* ערים ואבירים - חסום (טיוטה) */}
+      {/* ערים ואבירים */}
       <div className="w-full max-w-2xl flex justify-center -mt-2">
-        <div 
-          className="p-3 rounded-xl border border-slate-800/80 text-center relative overflow-hidden flex items-center justify-between gap-4 bg-slate-950/40 opacity-50 cursor-not-allowed w-full max-w-md"
+        <button
+          type="button"
+          onClick={() => toggleExpansion('CITIES_AND_KNIGHTS')}
+          className={`group p-4 rounded-2xl border text-center relative overflow-hidden flex flex-col items-center gap-4 w-full max-w-md transition cursor-pointer ${isCitiesKnightsSelected ? 'border-violet-400 bg-violet-950/30 shadow-[0_0_24px_rgba(167,139,250,0.22)]' : 'border-slate-800/80 bg-slate-950/40 hover:border-violet-400/60'}`}
         >
-          <div className="flex items-center gap-3">
-            <span className="text-2xl">⚔️</span>
-            <div className="text-right">
-              <span className="text-sm font-black text-slate-400 block">ערים ואבירים</span>
-              <span className="text-[10px] text-slate-500 leading-none">
-                שדרוג ערים למטרופולינים, אבירים להגנה ותקיפת הברברים.
-              </span>
-            </div>
+          <div className="h-44 w-full overflow-hidden rounded-xl bg-slate-950">
+            <img
+              src="/knightscities.png"
+              alt="Catan ערים ואבירים"
+              className={`h-full w-full object-cover object-center transition-transform duration-500 group-hover:scale-105 ${isCitiesKnightsSelected ? '' : 'grayscale-[20%]'}`}
+            />
           </div>
-          <span className="text-[10px] font-black text-amber-500 bg-amber-500/10 border border-amber-500/20 px-2 py-0.5 rounded-full shrink-0">
-            🔒 בקרוב!
-          </span>
-        </div>
+          <div className="text-center">
+            <span className="block text-xl font-black text-slate-100">ערים ואבירים</span>
+            <span className="mt-1 block text-xs leading-relaxed text-slate-400">שדרוג ערים למטרופולינים, אבירים להגנה ותקיפת הברברים.</span>
+          </div>
+          {isCitiesKnightsSelected && <span className="absolute left-3 top-3 rounded-full bg-violet-400 px-2 py-0.5 text-[10px] font-black text-slate-950">נבחר</span>}
+        </button>
       </div>
 
       {/* ממשק בחירת תרחיש מרהיב עבור יורדי הים */}
@@ -161,6 +148,16 @@ export const LobbyStep2_Expansion: React.FC<LobbyStep2ExpansionProps> = ({
           </div>
           
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4 w-full">
+            <button
+              type="button"
+              onClick={() => setSelectedScenario('PIRATE_ISLANDS')}
+              className={`group/scenario p-3 rounded-xl border text-center transition-all duration-300 hover:scale-[1.02] cursor-pointer flex flex-col items-center gap-2 relative overflow-hidden ${selectedScenario === 'PIRATE_ISLANDS' ? 'border-rose-400 bg-slate-950/80' : 'border-slate-850 bg-slate-950/40 hover:border-slate-700'}`}
+            >
+              {selectedScenario === 'PIRATE_ISLANDS' && <span className="absolute top-2 right-2 text-rose-300">✓</span>}
+              <span className="text-2xl">🏴‍☠️</span>
+              <span className="text-sm font-bold text-slate-100 group-hover/scenario:text-rose-300">איי הפיראטים</span>
+              <span className="text-[10px] text-slate-400 leading-relaxed text-center">הפליגו אל המבצר שלכם, חמשו ספינות מלחמה והדפו את צי הפיראטים.</span>
+            </button>
             {/* אל חופים חדשים */}
             <button
               type="button"
@@ -278,6 +275,20 @@ export const LobbyStep2_Expansion: React.FC<LobbyStep2ExpansionProps> = ({
               <span className="text-[10px] text-slate-400 leading-relaxed text-center">
                 הפליגו אל האיים הקטנים ואספו נקודות, קלפי פיתוח ונמלים עתיקים.
               </span>
+            </button>
+            <button
+              type="button"
+              onClick={() => setSelectedScenario('CLOTH_FOR_CATAN')}
+              className={`group/scenario p-3 rounded-xl border text-center transition-all duration-300 hover:scale-[1.02] cursor-pointer flex flex-col items-center gap-2 relative overflow-hidden ${
+                selectedScenario === 'CLOTH_FOR_CATAN'
+                  ? 'border-indigo-400 bg-slate-950/80 shadow-[0_0_15px_rgba(129,140,248,0.2)]'
+                  : 'border-slate-850 bg-slate-950/40 hover:border-slate-700 hover:bg-slate-950/60'
+              }`}
+            >
+              {selectedScenario === 'CLOTH_FOR_CATAN' && <span className="absolute top-2 right-2 text-indigo-300">✓</span>}
+              <span className="text-2xl">🧵</span>
+              <span className="text-sm font-bold text-slate-100 group-hover/scenario:text-indigo-300">בדים לקטאן</span>
+              <span className="text-[10px] text-slate-400 leading-relaxed text-center">חברו ספינות לכפרים, אספו גלילי בד וצברו נקודות ניצחון.</span>
             </button>
           </div>
         </div>

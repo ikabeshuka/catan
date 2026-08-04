@@ -25,6 +25,7 @@ export function validateSettlementPlacement(
   // 1. בדיקה שהצומת ריק לחלוטין
   const targetVertex = vertices.find(v => v.id === vertexId);
   if (!targetVertex || targetVertex.structure !== 'NONE') return false;
+  if (selectedScenario === 'PIRATE_ISLANDS' && targetVertex.pirateSettlementTarget && targetVertex.pirateSettlementTarget !== playerId) return false;
 
   // הגבלה: לא ניתן לבנות יישוב על נמלים בשלב הפתיחה (בוטל בהתאם לחוקים הרשמיים)
   // if ((gamePhase === 'SETUP_ROUND_1' || gamePhase === 'SETUP_ROUND_2') && targetVertex.isHarbor) {
@@ -88,22 +89,23 @@ export function validateSettlementPlacement(
       return false;
     });
 
+    // The four Lost Tribe islands are villages, not buildable land.
+    if (selectedScenario === 'CLOTH_FOR_CATAN' && borderingTiles.some(tile => (tile.lostTribeVillages?.length || 0) > 0)) {
+      return false;
+    }
+    if (selectedScenario === 'THE_LOST_TRIBE' && borderingTiles.some(tile => tile.type !== 'WATER' && tile.islandId !== 1)) {
+      return false;
+    }
+
     if (borderingTiles.length > 0 && borderingTiles.every(tile => tile.type === 'WATER')) {
       return false;
     }
 
-    if (activeExpansion === 'SEAFARERS' && selectedScenario === 'THE_LOST_TRIBE') {
-      const borderingLandTiles = borderingTiles.filter(tile => tile.type !== 'WATER');
-      if (borderingLandTiles.length === 0 || borderingLandTiles.some(tile => tile.islandId !== 1)) {
-        return false;
-      }
-    }
-
     // Scenario-specific setup restrictions must never leak into the base map.
-    if (activeExpansion === 'SEAFARERS' && (gamePhase === 'SETUP_ROUND_1' || gamePhase === 'SETUP_ROUND_2')) {
+    if (activeExpansion === 'SEAFARERS' && ['SETUP_ROUND_1', 'SETUP_ROUND_2', 'SETUP_ROUND_3'].includes(gamePhase)) {
       const borderingLandTiles = borderingTiles.filter(tile => tile.type !== 'WATER');
       
-      if (selectedScenario === 'THROUGH_THE_DESERT' || selectedScenario === 'HEADING_FOR_NEW_SHORES' || selectedScenario === 'THE_LOST_TRIBE') {
+      if (selectedScenario === 'THROUGH_THE_DESERT' || selectedScenario === 'HEADING_FOR_NEW_SHORES' || selectedScenario === 'THE_LOST_TRIBE' || selectedScenario === 'CLOTH_FOR_CATAN' || selectedScenario === 'PIRATE_ISLANDS') {
         const notMainIsland = borderingLandTiles.some(tile => tile.islandId !== 1);
         if (notMainIsland || borderingLandTiles.length === 0) {
           return false;
@@ -114,13 +116,29 @@ export function validateSettlementPlacement(
           return false;
         }
       }
-      
+
       // איסור בנייה צמוד לערפל בשלבי ההקמה
       const touchesFog = borderingTiles.some(tile => tile.type === 'FOG');
       if (touchesFog) {
         return false;
       }
     }
+  }
+
+  if (selectedScenario === 'PIRATE_ISLANDS' && gamePhase === 'MAIN_GAME' && tiles) {
+    const [, xStr, yStr] = vertexId.split('_');
+    const vX = parseFloat(xStr);
+    const vY = parseFloat(yStr);
+    const touchesPirateIsland = tiles.some(tile => {
+      if (tile.type === 'WATER' || tile.islandId === 1) return false;
+      const center = cubeToPixel(tile.coord, 60);
+      return Array.from({ length: 6 }, (_, i) => {
+        const angle = (Math.PI / 180) * (60 * i - 30);
+        return Math.round((center.x + 60 * Math.cos(angle)) * 10) / 10 === vX &&
+          Math.round((center.y + 60 * Math.sin(angle)) * 10) / 10 === vY;
+      }).some(Boolean);
+    });
+    if (touchesPirateIsland && targetVertex.pirateSettlementTarget !== playerId) return false;
   }
 
   return true;

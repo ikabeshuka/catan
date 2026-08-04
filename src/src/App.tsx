@@ -5,6 +5,7 @@ import { ResourceFlowOverlay } from './components/board/ResourceFlowOverlay';
 import { generateBoard } from './utils/gameEngine/generateBoard';
 import { generateVertices } from './utils/gameEngine/generateVertices';
 import { generateEdges } from './utils/gameEngine/generateEdges';
+import { applyPirateIslandsSetup } from './utils/gameEngine/pirateIslands';
 import { standardCatanConfig } from './config/standardVersion';
 import { socketService } from './services/network/socketService';
 import { ActionSidebar } from './components/actions/ActionSidebar';
@@ -34,6 +35,8 @@ import { getVictoryPointTarget } from './config/gameRules';
 import { dispatchGameAction } from './services/gameDispatcher';
 import { useUser } from './context/UserContext';
 import { RoomParticipant } from './types/rating.types';
+import { AuthModal } from './components/modals/AuthModal';
+import { EMPTY_COMMODITIES, createCitiesKnightsState } from './types/citiesKnights.types';
 
 const GameContent: React.FC = () => {
   const lastProcessedTurnRef = useRef<string>("");
@@ -68,6 +71,7 @@ const GameContent: React.FC = () => {
     longestRoadPlayerId,
     largestArmyPlayerId,
     activeExpansion,
+    setCitiesKnightsState,
     activeRobberType,
     setActiveRobberType,
     selectedScenario,
@@ -78,6 +82,20 @@ const GameContent: React.FC = () => {
     setIsHost,
     myPlayerId,
     buyDevelopmentCard,
+    devCardDeck,
+    resourceBank,
+    setResourceBank,
+    commodityBank,
+    setCommodityBank,
+    goldCoins,
+    setGoldCoins,
+    goldSelectionQueue,
+    setGoldSelectionQueue,
+    setRoadBuildingRemaining,
+    setHasMovedShipThisTurn,
+    hasMovedShipThisTurn,
+    currentTurnBuiltShips,
+    citiesKnightsState,
   } = useGame();
 
   const [activeRightTab, setActiveRightTab] = useState<'DEV_CARDS' | 'TRADE'>('DEV_CARDS');
@@ -317,7 +335,7 @@ const GameContent: React.FC = () => {
         players,
         addLog,
         handleDiceRoll: guard(handleDiceRoll),
-        endTurn: guard((gamePhase === "SETUP_ROUND_1" || gamePhase === "SETUP_ROUND_2") ? endTurn : endTurnForBot),
+        endTurn: guard((["SETUP_ROUND_1", "SETUP_ROUND_2", "SETUP_ROUND_3"].includes(gamePhase)) ? endTurn : endTurnForBot),
         setVertices: guard(setVertices),
         setEdges: guard(setEdges),
         setPlayers: guard(setPlayers),
@@ -338,9 +356,55 @@ const GameContent: React.FC = () => {
         legalActions: {} as any, // Placeholder, will be replaced with actual legal actions
         selectedScenario,
         activeExpansion,
+        resourceBank,
+        commodityBank,
+        goldSelectionQueue,
+        devCardDeck,
+        robberyState,
+        citiesKnightsState,
+        hasMovedShipThisTurn,
+        currentTurnBuiltShips,
+        isOnline: Boolean(roomId),
+        dispatchAction: guard((action) => dispatchGameAction(action, {
+          roomId: roomId || undefined,
+          myPlayerId,
+          allowBotControl: true,
+          gamePhase,
+          turnSubPhase,
+          players,
+          vertices,
+          edges,
+          tiles,
+          setVertices,
+          setEdges,
+          setPlayers,
+          setTiles,
+          setTurnSubPhase,
+          setRobberyState,
+          setActiveRobberType,
+          recordSetupPlacement,
+          handleDiceRoll,
+          buyDevelopmentCard,
+          endTurn,
+          roadBuildingRemaining,
+          setRoadBuildingRemaining,
+          activeExpansion,
+          selectedScenario,
+          resourceBank,
+          setResourceBank,
+          commodityBank,
+          setCommodityBank,
+          citiesKnightsState,
+          setCitiesKnightsState,
+          goldCoins,
+          setGoldCoins,
+          goldSelectionQueue,
+          setGoldSelectionQueue,
+          setHasMovedShipThisTurn,
+        })),
       });
     }
-  }, [roomId, isHost, currentPlayerIndex, turnSubPhase, gamePhase, activePlayer, endTurn, recordSetupPlacement, handleDiceRoll, buyDevelopmentCard, players, addLog, setTiles, setTurnSubPhase, startTurn, tiles, vertices, edges, setPlayers, setVertices, setEdges, setCurrentPlayerIndex, selectedScenario, activeExpansion]);
+  }, [roomId, isHost, currentPlayerIndex, turnSubPhase, gamePhase, activePlayer, endTurn, recordSetupPlacement, handleDiceRoll, buyDevelopmentCard, devCardDeck, players, addLog, setTiles, setTurnSubPhase, startTurn, tiles, vertices, edges, setPlayers, setVertices, setEdges, setCurrentPlayerIndex, selectedScenario, activeExpansion, resourceBank, commodityBank, goldSelectionQueue, robberyState, citiesKnightsState, hasMovedShipThisTurn, currentTurnBuiltShips, myPlayerId, goldCoins, roadBuildingRemaining, setResourceBank, setCommodityBank, setGoldCoins, setGoldSelectionQueue, setRoadBuildingRemaining, setHasMovedShipThisTurn, setCitiesKnightsState, setRobberyState, setActiveRobberType]);
 
   // תצוגת מסך הלובי / פתיחה - תומכת בגלילה פנימית כדי למנוע גלילה גלובלית ביישום
   if (gamePhase === 'LOBBY') {
@@ -360,31 +424,49 @@ const GameContent: React.FC = () => {
 
             // Generate board data
             const newTiles = generateBoard(standardCatanConfig, boardType, activeExpansion, selectedScenario, pCount);
-            const newVertices = generateVertices(newTiles, activeExpansion);
-            const newEdges = generateEdges(newTiles, activeExpansion);
+            let newVertices = generateVertices(newTiles, activeExpansion);
+            let newEdges = generateEdges(newTiles, activeExpansion);
+            if (selectedScenario === 'PIRATE_ISLANDS') {
+              ({ vertices: newVertices, edges: newEdges } = applyPirateIslandsSetup(
+                newTiles, newVertices, newEdges, lobbyP.slice(0, pCount).map(player => player.id)
+              ));
+            }
 
             // Call initNewGame with presets
-            const initialDeck = initNewGame(pCount, newTiles, newVertices, newEdges);
+            const initialDeck = initNewGame(pCount, newTiles, newVertices, newEdges)
+              .filter(card => selectedScenario !== 'PIRATE_ISLANDS' || pCount !== 3 || card !== 'VICTORY_POINT');
 
-            const selectedPlayers = lobbyP.slice(0, pCount).map((p) => {
+            const pirateIslandColors = pCount === 3
+              ? ['#e53935', '#1e88e5', '#f97316']
+              : ['#e53935', '#f8fafc', '#1e88e5', '#f97316'];
+            const selectedPlayers = lobbyP.slice(0, pCount).map((p, index) => {
               const difficulty: 'EASY' | 'MEDIUM' | 'HARD' | 'SUPER_HARD' | undefined = p.isBot ? (p.difficulty === 'קל' ? 'EASY' : p.difficulty === 'קשה' ? 'HARD' : p.difficulty === 'סופר קשה' ? 'SUPER_HARD' : 'MEDIUM') : undefined;
               const archetype: 'BUILDER' | 'DEVELOPER' | undefined = (p.isBot && difficulty === 'HARD') ? (Math.random() < 0.5 ? 'BUILDER' : 'DEVELOPER') : undefined;
 
               return {
                 id: p.id,
                 name: p.name,
-                color: p.color,
+                color: selectedScenario === 'PIRATE_ISLANDS' ? pirateIslandColors[index] : p.color,
                 isBot: p.isBot,
                 playerType: p.playerType,
                 difficulty,
                 ...(archetype ? { archetype } : {}),
-                victoryPoints: 2,
+                victoryPoints: selectedScenario === 'PIRATE_ISLANDS' || activeExpansion === 'CITIES_AND_KNIGHTS' ? 3 : 2,
+                clothRolls: 0,
+                lostTribeVillageIds: [],
                 resources: { WOOD: 0, BRICK: 0, SHEEP: 0, WHEAT: 0, ORE: 0 },
                 developmentCards: { KNIGHT: 0, MONOPOLY: 0, ROAD_BUILDING: 0, YEAR_OF_PLENTY: 0, VICTORY_POINT: 0 },
-                knightsPlayed: 0
+                knightsPlayed: 0,
+                ...(activeExpansion === 'CITIES_AND_KNIGHTS' ? {
+                  commodities: { ...EMPTY_COMMODITIES },
+                  cityImprovements: { SCIENCE: 0, POLITICS: 0, TRADE: 0 },
+                  progressCards: [],
+                  defenderOfCatanPoints: 0,
+                } : {}),
               };
             });
             setPlayers(selectedPlayers);
+            setCitiesKnightsState(createCitiesKnightsState());
 
             // If in an online room as host, broadcast START_GAME!
             if (roomId && isHost) {
@@ -415,6 +497,8 @@ const GameContent: React.FC = () => {
                   goldSelectionQueue: [],
                   currentTurnBuiltShips: [],
                   hasMovedShipThisTurn: false,
+                  commodityBank: { COIN: 12, PAPER: 12, CLOTH: 12 },
+                  citiesKnightsState: createCitiesKnightsState(),
                   activeExpansion,
                   selectedScenario,
                   boardType,
@@ -600,9 +684,10 @@ const GameContent: React.FC = () => {
               <div className="grid grid-cols-1 gap-3">
                 {robberyState.targets.map((target) => {
                   const targetTotalCards = Object.values(target.resources).reduce((sum: number, count: any) => sum + (count as number), 0);
+                  const canStealCloth = selectedScenario === 'CLOTH_FOR_CATAN' && robberyState.tile?.hasPirate && (target.clothRolls || 0) > 0;
                   return (
+                    <React.Fragment key={target.id}>
                     <button
-                      key={target.id}
                       onClick={() => {
                         const stolenResource = roomId
                           ? undefined
@@ -656,6 +741,30 @@ const GameContent: React.FC = () => {
                         {targetTotalCards} קלפים
                       </span>
                     </button>
+                    {canStealCloth && (
+                      <button
+                        onClick={() => dispatchGameAction({
+                          type: 'STEAL_RESOURCE',
+                          playerId: humanPlayer.id,
+                          victimPlayerId: target.id,
+                          stolenResource: roomId ? undefined : 'CLOTH',
+                          stealKind: 'CLOTH',
+                        }, {
+                          roomId: roomId || undefined,
+                          isRemote: false,
+                          myPlayerId: roomId ? myPlayerId : humanPlayer.id,
+                          players,
+                          setPlayers,
+                          setRobberyState,
+                          setTurnSubPhase,
+                          addLog,
+                        })}
+                        className="-mt-2 mr-4 self-end rounded border border-indigo-500/40 bg-indigo-950/50 px-2 py-1 text-xs font-bold text-indigo-200"
+                      >
+                        🧵 גנוב גליל בד
+                      </button>
+                    )}
+                    </React.Fragment>
                   );
                 })}
               </div>
@@ -689,11 +798,13 @@ const GameContent: React.FC = () => {
                 </button>
 
                 <button
+                  disabled={selectedScenario === 'CLOTH_FOR_CATAN' && !(activePlayer.lostTribeVillageIds?.length)}
                   onClick={() => {
+                    if (selectedScenario === 'CLOTH_FOR_CATAN' && !(activePlayer.lostTribeVillageIds?.length)) return;
                     setActiveRobberType('PIRATE');
                     addLog(`[שודד] ${activePlayer.name} בחר להזיז את שודד הים.`);
                   }}
-                  className="flex flex-col items-center gap-2 p-5 rounded-xl border border-slate-850 bg-slate-950/60 hover:bg-indigo-950/10 hover:border-indigo-500/40 text-slate-100 text-sm font-black transition-all active:scale-[0.98] cursor-pointer"
+                  className="flex flex-col items-center gap-2 p-5 rounded-xl border border-slate-850 bg-slate-950/60 hover:bg-indigo-950/10 hover:border-indigo-500/40 text-slate-100 text-sm font-black transition-all active:scale-[0.98] cursor-pointer disabled:cursor-not-allowed disabled:opacity-40"
                 >
                   <span className="text-3xl">🏴‍☠️</span>
                   <span className="text-indigo-400 font-extrabold">הזז את שודד הים</span>
@@ -756,7 +867,7 @@ const GameContent: React.FC = () => {
                     { id: 'MONOPOLY' as const, name: 'מונופול (Monopoly)', desc: 'בחר משאב אחד. כל שחקני המחשב (בוטים) מחויבים למסור לך את כל הקלפים שברשותם מאותו סוג משאב.', img: '/monopoly.png', count: devCards.MONOPOLY || 0, playable: true },
                     { id: 'ROAD_BUILDING' as const, name: 'בניית כבישים (Road Building)', desc: 'מאפשר לך לסלול שני כבישים חדשים על הלוח באופן מיידי וללא עלות משאבים. מסייע בהשגת הדרך הארוכה.', img: '/2_ways.png', count: devCards.ROAD_BUILDING || 0, playable: true },
                     { id: 'YEAR_OF_PLENTY' as const, name: 'שנת שפע (Year of Plenty)', desc: 'קבל שני משאבים חופשיים לבחירתך מהבנק באופן מיידי.', img: '/year_of_plenty.png', count: devCards.YEAR_OF_PLENTY || 0, playable: true },
-                    { id: 'VICTORY_POINT' as const, name: 'קלף נקודת ניצחון (Victory Point)', desc: 'מעניק לך נקודת ניצחון אחת באופן מיידי ופסיבי (נשמר בסוד משאר השחקנים).', img: '/win1.png', count: devCards.VICTORY_POINT || 0, playable: false },
+                    { id: 'VICTORY_POINT' as const, name: 'קלף נקודת ניצחון (Victory Point)', desc: selectedScenario === 'PIRATE_ISLANDS' ? 'באיי הפיראטים הקלף פועל כקלף אביר והופך ספינה לספינת מלחמה.' : 'מעניק לך נקודת ניצחון אחת באופן מיידי ופסיבי (נשמר בסוד משאר השחקנים).', img: '/win1.png', count: devCards.VICTORY_POINT || 0, playable: selectedScenario === 'PIRATE_ISLANDS' },
                   ].map((card) => {
                     const hasCard = card.count > 0;
                     return (
@@ -779,7 +890,7 @@ const GameContent: React.FC = () => {
                               <button
                                 disabled={!isOurTurn || !hasCard}
                                 onClick={() => {
-                                  if (card.id !== 'VICTORY_POINT') {
+                                  if (card.id !== 'VICTORY_POINT' || selectedScenario === 'PIRATE_ISLANDS') {
                                     handlePlayCard(card.id);
                                   }
                                   setIsDevCardsOverlayOpen(false);
@@ -897,6 +1008,7 @@ export default function App() {
       <UpdateNotification />
       <GameProvider>
         <GameContent />
+        <AuthModal />
       </GameProvider>
     </>
   );

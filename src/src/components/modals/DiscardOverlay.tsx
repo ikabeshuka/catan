@@ -1,6 +1,5 @@
 import React, { useState, useEffect } from 'react';
 import { useGame } from '../../context/GameContext';
-import { ResourceCards } from '../../types/resources.types';
 import { dispatchGameAction } from '../../services/gameDispatcher';
 
 const CARD_IMAGES: Record<string, string> = {
@@ -9,6 +8,9 @@ const CARD_IMAGES: Record<string, string> = {
   SHEEP: '/card_sheep.png',
   WHEAT: '/card_wheat.png',
   ORE: '/card_ore.png',
+  COIN: '/commodity_coin.png',
+  PAPER: '/commodity_paper.png',
+  CLOTH: '/commodity_cloth.png',
 };
 
 const CARD_LABELS: Record<string, string> = {
@@ -19,16 +21,21 @@ const CARD_LABELS: Record<string, string> = {
   ORE: 'ברזל',
 };
 
+Object.assign(CARD_LABELS, { COIN: 'מטבע', PAPER: 'נייר', CLOTH: 'בד' });
+
 const CARD_COLORS: Record<string, string> = {
   WOOD: 'border-emerald-500/30 hover:border-emerald-500/50 text-emerald-400',
   BRICK: 'border-orange-500/30 hover:border-orange-500/50 text-orange-400',
   SHEEP: 'border-lime-500/30 hover:border-lime-500/50 text-lime-400',
   WHEAT: 'border-amber-500/30 hover:border-amber-500/50 text-amber-400',
   ORE: 'border-slate-500/30 hover:border-slate-500/50 text-slate-400',
+  COIN: 'border-yellow-500/30 hover:border-yellow-500/50 text-yellow-300',
+  PAPER: 'border-cyan-500/30 hover:border-cyan-500/50 text-cyan-300',
+  CLOTH: 'border-fuchsia-500/30 hover:border-fuchsia-500/50 text-fuchsia-300',
 };
 
 export const DiscardOverlay: React.FC = () => {
-  const { players, setPlayers, setTurnSubPhase, addLog, turnSubPhase, roomId, myPlayerId, setResourceBank } = useGame();
+  const { players, vertices, setPlayers, setTurnSubPhase, addLog, turnSubPhase, roomId, myPlayerId, setResourceBank, setCommodityBank, selectedScenario, activeExpansion, setRobberyState, tiles, citiesKnightsState, setCitiesKnightsState } = useGame();
 
   const [discardCount, setDiscardCount] = useState<Record<string, number>>({
     WOOD: 0,
@@ -36,11 +43,14 @@ export const DiscardOverlay: React.FC = () => {
     SHEEP: 0,
     WHEAT: 0,
     ORE: 0,
+    COIN: 0,
+    PAPER: 0,
+    CLOTH: 0,
   });
   const [hasSubmittedDiscard, setHasSubmittedDiscard] = useState(false);
 
   useEffect(() => {
-    if (turnSubPhase === 'DISCARD_PHASE') {
+    if (['DISCARD_PHASE', 'SABOTEUR_DISCARD', 'WEDDING_GIVE', 'COMMERCIAL_HARBOR_GIVE', 'COMMERCIAL_HARBOR_RETURN'].includes(turnSubPhase)) {
       setHasSubmittedDiscard(false);
       setDiscardCount({
         WOOD: 0,
@@ -48,17 +58,28 @@ export const DiscardOverlay: React.FC = () => {
         SHEEP: 0,
         WHEAT: 0,
         ORE: 0,
+        COIN: 0,
+        PAPER: 0,
+        CLOTH: 0,
       });
     }
   }, [turnSubPhase]);
 
-  if (turnSubPhase !== 'DISCARD_PHASE') return null;
+  if (!['DISCARD_PHASE', 'SABOTEUR_DISCARD', 'WEDDING_GIVE', 'COMMERCIAL_HARBOR_GIVE', 'COMMERCIAL_HARBOR_RETURN'].includes(turnSubPhase)) return null;
 
   const humanPlayer = roomId
     ? players.find(p => p.id === myPlayerId)
     : players.find(p => !p.isBot);
 
   if (!humanPlayer) return null;
+  const sabotageEntry = turnSubPhase === 'SABOTEUR_DISCARD' ? citiesKnightsState.sabotageDiscardQueue?.[0] : null;
+  const weddingEntry = turnSubPhase === 'WEDDING_GIVE' ? citiesKnightsState.weddingGiveQueue?.[0] : null;
+  const harborEntry = turnSubPhase === 'COMMERCIAL_HARBOR_GIVE' ? citiesKnightsState.commercialHarborQueue?.[0] : null;
+  const harborReturn = turnSubPhase === 'COMMERCIAL_HARBOR_RETURN' ? citiesKnightsState.commercialHarborOffer : null;
+  if ((turnSubPhase === 'SABOTEUR_DISCARD' && sabotageEntry?.playerId !== humanPlayer.id) ||
+      (turnSubPhase === 'WEDDING_GIVE' && weddingEntry?.playerId !== humanPlayer.id)) return null;
+  if ((turnSubPhase === 'COMMERCIAL_HARBOR_GIVE' && harborEntry?.playerId !== humanPlayer.id) ||
+      (turnSubPhase === 'COMMERCIAL_HARBOR_RETURN' && harborReturn?.playerId !== humanPlayer.id)) return null;
 
   if (hasSubmittedDiscard) {
     return (
@@ -72,9 +93,11 @@ export const DiscardOverlay: React.FC = () => {
     );
   }
 
-  const totalCards = Object.values(humanPlayer.resources).reduce((a, b) => a + b, 0);
-  if (totalCards <= 7) return null;
-  const toDiscard = Math.floor(totalCards / 2);
+  const totalCards = Object.values(humanPlayer.resources).reduce((a, b) => a + b, 0) +
+    (activeExpansion === 'CITIES_AND_KNIGHTS' ? Object.values(humanPlayer.commodities || {}).reduce((a, b) => a + b, 0) : 0);
+  const handLimit = 7 + (activeExpansion === 'CITIES_AND_KNIGHTS' ? 2 * vertices.filter(vertex => vertex.playerId === humanPlayer.id && vertex.cityWall).length : 0);
+  if (!sabotageEntry && !weddingEntry && !harborEntry && !harborReturn && totalCards <= handLimit) return null;
+  const toDiscard = harborEntry || harborReturn ? 1 : weddingEntry?.amount ?? sabotageEntry?.amount ?? Math.floor(totalCards / 2);
 
   if (toDiscard <= 0) return null;
 
@@ -82,9 +105,8 @@ export const DiscardOverlay: React.FC = () => {
   const remaining = toDiscard - chosenTotal;
 
   const handleIncrement = (type: string) => {
-    const key = type as keyof ResourceCards;
     const currentSelected = discardCount[type] || 0;
-    const available = humanPlayer.resources[key] || 0;
+    const available = (humanPlayer.resources as any)[type] || (humanPlayer.commodities as any)?.[type] || 0;
 
     if (currentSelected < available && chosenTotal < toDiscard) {
       setDiscardCount(prev => ({
@@ -108,24 +130,39 @@ export const DiscardOverlay: React.FC = () => {
   const handleConfirm = () => {
     if (chosenTotal !== toDiscard) return;
 
-    dispatchGameAction({
-      type: 'DISCARD_CARDS' as any,
-      playerId: humanPlayer.id,
-      resourcesToDiscard: discardCount
-    } as any, {
+    const resourceCards = Object.fromEntries(Object.entries(discardCount).filter(([key]) => ['WOOD', 'BRICK', 'SHEEP', 'WHEAT', 'ORE'].includes(key)));
+    const commodityCards = Object.fromEntries(Object.entries(discardCount).filter(([key]) => ['COIN', 'PAPER', 'CLOTH'].includes(key)));
+    dispatchGameAction((weddingEntry || harborEntry || harborReturn ? {
+      type: 'GIVE_PROGRESS_CARDS', playerId: humanPlayer.id, targetPlayerId: weddingEntry?.recipientId || harborEntry?.recipientId || harborReturn!.recipientId,
+      resourcesToGive: resourceCards, commoditiesToGive: commodityCards,
+    } : {
+      type: 'DISCARD_CARDS', playerId: humanPlayer.id, resourcesToDiscard: resourceCards, commoditiesToDiscard: commodityCards,
+    }) as any, {
       roomId: roomId || undefined,
       isRemote: false,
       myPlayerId: roomId ? myPlayerId : humanPlayer.id,
       players,
       setPlayers,
       setResourceBank,
+      setCommodityBank,
       setTurnSubPhase,
+      citiesKnightsState,
+      setCitiesKnightsState,
+      activeExpansion,
+      selectedScenario,
+      setRobberyState,
+      tiles,
       addLog
     });
     setHasSubmittedDiscard(true);
   };
 
-  const resourceKeys: ('WOOD' | 'BRICK' | 'SHEEP' | 'WHEAT' | 'ORE')[] = ['WOOD', 'BRICK', 'SHEEP', 'WHEAT', 'ORE'];
+  const resourceKeys = activeExpansion === 'CITIES_AND_KNIGHTS'
+    ? ['WOOD', 'BRICK', 'SHEEP', 'WHEAT', 'ORE', 'COIN', 'PAPER', 'CLOTH']
+    : ['WOOD', 'BRICK', 'SHEEP', 'WHEAT', 'ORE'];
+  const selectableKeys = harborReturn
+    ? resourceKeys.filter(key => harborReturn.category === 'RESOURCE' ? ['WOOD', 'BRICK', 'SHEEP', 'WHEAT', 'ORE'].includes(key) : ['COIN', 'PAPER', 'CLOTH'].includes(key))
+    : resourceKeys;
 
   return (
     <div className="fixed inset-0 bg-slate-950/90 backdrop-blur-md z-50 flex flex-col items-center justify-center p-6 text-white overflow-y-auto select-none">
@@ -143,8 +180,8 @@ export const DiscardOverlay: React.FC = () => {
 
         {/* Resources Grid */}
         <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-6 w-full mb-10">
-          {resourceKeys.map(key => {
-            const available = humanPlayer.resources[key] || 0;
+          {selectableKeys.map(key => {
+            const available = (humanPlayer.resources as any)[key] || (humanPlayer.commodities as any)?.[key] || 0;
             const selected = discardCount[key] || 0;
             const label = CARD_LABELS[key];
             const bgImage = CARD_IMAGES[key];

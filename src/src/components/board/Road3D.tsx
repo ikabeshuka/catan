@@ -1,7 +1,7 @@
 import React from 'react';
 import { BoardEdge } from '../../types/boardElements.types';
 import { useGame } from '../../context/GameContext';
-import { useGLTF, Outlines } from '@react-three/drei';
+import { useGLTF, useTexture, Outlines } from '@react-three/drei';
 import * as THREE from 'three';
 import { stretchAndCenterModel } from '../../utils/hexMath/normalizeModel';
 
@@ -92,6 +92,8 @@ export const Road3D: React.FC<Road3DProps> = ({
   // טעינת מודלי GLB
   const { scene: roadScene } = useGLTF('/models/road.glb');
   const { scene: shipScene } = useGLTF('/models/ship.glb');
+  const { scene: warshipScene } = useGLTF('/models/‏‏ship_fight.glb');
+  const portRewardTexture = useTexture('/port.png');
 
   // פונקציית עזר ליצירת שכפול מתוח/מנורמל של הסצנה לצלעות (ללא דריסת צבע חומרים)
   const createStretchedClone = React.useCallback((baseScene: THREE.Group, targetX: number, targetY: number, targetZ: number) => {
@@ -108,8 +110,8 @@ export const Road3D: React.FC<Road3DProps> = ({
 
   const shipModel = React.useMemo(() => {
     if ((!edge.hasShip && !hasShip) || !is3DMode) return null;
-    return createStretchedClone(shipScene, length * 0.9, 0.45, 0.35);
-  }, [edge.hasShip, hasShip, shipScene, length, is3DMode, createStretchedClone]);
+    return createStretchedClone(edge.isWarship ? warshipScene : shipScene, length * 0.9, 0.45, 0.35);
+  }, [edge.hasShip, edge.isWarship, hasShip, shipScene, warshipScene, length, is3DMode, createStretchedClone]);
 
   const isShipMode = currentAction === 'BUILD_SHIP' || currentAction === 'MOVE_SHIP_PLACE';
   const isHarborMode = currentAction === 'PLACE_HARBOR';
@@ -196,15 +198,52 @@ export const Road3D: React.FC<Road3DProps> = ({
       </mesh>
 
       {edge.lostTribeReward && !edge.lostTribeReward.collectedBy && (
-        <group position={[0, 0, is3DMode ? 0.55 : 0.35]} renderOrder={8}>
+        <group
+          position={[0, 0, is3DMode ? 0.7 : 0.45]}
+          scale={is3DMode ? [1.55, 1.55, 1.55] : [1.3, 1.3, 1.3]}
+          renderOrder={8}
+        >
           {edge.lostTribeReward.kind === 'DEV_CARD' ? (
-            <mesh rotation={[0.12, 0, 0]}>
-              <boxGeometry args={[0.42, 0.58, 0.07]} />
-              <meshStandardMaterial color="#6d28d9" emissive="#2e1065" roughness={0.45} />
-            </mesh>
+            <group rotation={[0.12, 0, 0]}>
+              <mesh position={[0.05, -0.05, -0.03]}>
+                <boxGeometry args={[0.66, 0.92, 0.08]} />
+                <meshStandardMaterial color="#312e81" emissive="#1e1b4b" roughness={0.4} />
+              </mesh>
+              <mesh position={[0, 0, 0.04]}>
+                <boxGeometry args={[0.66, 0.92, 0.08]} />
+                <meshStandardMaterial color="#7c3aed" emissive="#3b0764" roughness={0.35} />
+              </mesh>
+              <mesh position={[0, 0, 0.09]}>
+                <boxGeometry args={[0.48, 0.66, 0.025]} />
+                <meshStandardMaterial color="#c4b5fd" emissive="#6d28d9" roughness={0.3} />
+              </mesh>
+            </group>
+          ) : edge.lostTribeReward.kind === 'HARBOR' ? (
+            <group scale={[1.35, 1.35, 1.35]}>
+              <mesh rotation={[Math.PI / 2, 0, 0]}>
+                <cylinderGeometry args={[0.39, 0.39, 0.09, 32]} />
+                <meshStandardMaterial color="#0f766e" emissive="#0c4a6e" roughness={0.32} />
+              </mesh>
+              <mesh position={[0, 0, 0.08]}>
+                <boxGeometry args={[0.7, 0.22, 0.08]} />
+                <meshStandardMaterial color="#d97706" emissive="#78350f" roughness={0.6} />
+              </mesh>
+              <mesh position={[0.18, 0, 0.17]}>
+                <cylinderGeometry args={[0.04, 0.04, 0.3, 10]} />
+                <meshStandardMaterial color="#fef3c7" emissive="#92400e" roughness={0.4} />
+              </mesh>
+              <mesh position={[-0.18, 0, 0.17]}>
+                <cylinderGeometry args={[0.04, 0.04, 0.3, 10]} />
+                <meshStandardMaterial color="#fef3c7" emissive="#92400e" roughness={0.4} />
+              </mesh>
+              <mesh position={[0, 0, 0.23]}>
+                <planeGeometry args={[0.82, 0.82]} />
+                <meshBasicMaterial map={portRewardTexture} transparent alphaTest={0.05} depthWrite />
+              </mesh>
+            </group>
           ) : (
             <mesh rotation={[Math.PI / 2, 0, 0]}>
-              <cylinderGeometry args={[0.26, 0.26, 0.08, 24]} />
+              <cylinderGeometry args={[0.32, 0.32, 0.09, 24]} />
               <meshStandardMaterial
                 color={edge.lostTribeReward.kind === 'VICTORY_POINT' ? '#fbbf24' : '#0ea5e9'}
                 emissive={edge.lostTribeReward.kind === 'VICTORY_POINT' ? '#78350f' : '#0c4a6e'}
@@ -377,3 +416,4 @@ export const Road3D: React.FC<Road3DProps> = ({
 // Preloading for smooth async loading without lag
 useGLTF.preload('/models/road.glb');
 useGLTF.preload('/models/ship.glb');
+useGLTF.preload('/models/‏‏ship_fight.glb');

@@ -22,6 +22,8 @@ const SCENARIO_NAMES: Record<SeafarersScenario, string> = {
   FOG_ISLAND: 'אי הערפל',
   THROUGH_THE_DESERT: 'דרך המדבר',
   THE_LOST_TRIBE: 'השבט האבוד',
+  CLOTH_FOR_CATAN: 'בדים לקטאן',
+  PIRATE_ISLANDS: 'איי הפיראטים',
 };
 
 const SCENARIO_RULES: Record<SeafarersScenario, React.ReactNode> = {
@@ -65,6 +67,22 @@ const SCENARIO_RULES: Record<SeafarersScenario, React.ReactNode> = {
       <li>יעד הניצחון הוא 13 נקודות, ורק השחקן שזהו תורו יכול לנצח.</li>
     </>
   ),
+  CLOTH_FOR_CATAN: (
+    <>
+      <li>בנו קו ספנות בין יישוב שלכם לכפר של השבט האבוד כדי ליצור קשר מסחר.</li>
+      <li>כל כפר מתחיל עם חמישה גלילי בד; הקופה הכללית מכילה עשרה נוספים.</li>
+      <li>שני גלילי בד שווים נקודת ניצחון אחת. הדרך הארוכה ביותר אינה בשימוש.</li>
+      <li>המשחק מסתיים ב־14 נקודות, או כאשר נשאר בד בשלושה כפרים בלבד.</li>
+    </>
+  ),
+  PIRATE_ISLANDS: (
+    <>
+      <li>כל שחקן מתחיל עם יישוב וספינה על החוף המזרחי, ולאחר שלב ההקמה יש לו שלושה יישובים באי המזרחי.</li>
+      <li>אפשר לבנות קו ספנות יחיד וקצר אל המבצר התואם לצבע. אביר הופך את הספינה הראשונה בקו לספינת מלחמה.</li>
+      <li>צי הפיראטים מתקדם לפני חלוקת משאבים במסלול הקבוע. מנצחים רק לאחר כיבוש המבצר וב־10 נקודות ניצחון לפחות.</li>
+      <li>אין שודד או שודד ים בתרחיש זה; בתוצאה 7 משליכים כרגיל וגונבים משחקן נבחר.</li>
+    </>
+  ),
 };
 
 const RuleSection: React.FC<RuleSectionProps> = ({ id, title, icon, isExpanded, onToggle, children }) => (
@@ -94,6 +112,7 @@ export const GameRulesModal: React.FC<GameRulesModalProps> = ({ isOpen, onClose 
   const { activeExpansion, selectedScenario } = useGame();
   const [expandedSections, setExpandedSections] = useState<Set<string>>(() => new Set(['base']));
   const isSeafarers = activeExpansion === 'SEAFARERS';
+  const isCitiesKnights = activeExpansion === 'CITIES_AND_KNIGHTS';
 
   useEffect(() => {
     if (!isOpen) return;
@@ -180,6 +199,36 @@ export const GameRulesModal: React.FC<GameRulesModalProps> = ({ isOpen, onClose 
               </ul>
             </RuleSection>
           )}
+
+          {isCitiesKnights && (
+            <RuleSection id="cities-knights" title="ערים ואבירים" icon="⚔️" isExpanded={expandedSections.has('cities-knights')} onToggle={() => toggleSection('cities-knights')}>
+              <ul className="list-disc space-y-2 pr-5 marker:text-violet-400">
+                <li>ההקמה כוללת יישוב וכביש בסבב הראשון, ועיר וכביש בסבב השני. כל שחקן מתחיל עם 3 נקודות ניצחון.</li>
+                <li>עיר הצמודה להפקת עץ, לבנים או צמר מקבלת משאב אחד וסחורה אחת: נייר, מטבע או בד בהתאמה. יישוב מקבל משאב בלבד.</li>
+                <li>משדרגים את מדע, פוליטיקה ומסחר בעזרת נייר, מטבע ובד. מחיר שדרוג הוא מספר הסחורות של הרמה החדשה; ברמה 3 ומעלה ניתן לזכות במטרופולין.</li>
+                <li>אביר עולה צמר וברזל, מופעל בחיטה ומשודרג בצמר וברזל. אבירים פעילים מגנים מפני הברברים; כוחם הכולל נמדד לפי דרגותיהם.</li>
+                <li>קוביית האירוע מקדמת את ספינת הברברים או מחלקת קלף קידמה לשחקנים ברמה המתאימה. כשמגיעה הספינה, אם כוח הברברים גדול מכוח האבירים הפעילים, ערים של שחקנים לא מוגנים יורדות ליישובים.</li>
+                <li>חומת עיר עולה שתי לבנים, אפשר לבנות עד שלוש, וכל חומה מוסיפה שתי ידיים למגבלת הקלפים בעת 7.</li>
+                <li>במשחק זה אין דרך ארוכה ביותר או צבא גדול ביותר. קלפי קידמה אינם קלפי פיתוח רגילים, ומותר להחזיק לכל היותר ארבעה מהם בסוף התור.</li>
+                <li>יעד הניצחון הוא 13 נקודות. יש להכריז על ניצחון בתור שלך.</li>
+              </ul>
+            </RuleSection>
+          )}
+
+          {isCitiesKnights && (
+            <RuleSection id="progress-cards" title="קלפי קידמה" icon="🃏" isExpanded={expandedSections.has('progress-cards')} onToggle={() => toggleSection('progress-cards')}>
+              <ul className="list-disc space-y-2 pr-5 marker:text-fuchsia-400">
+                <li><strong>מדע:</strong> אלכימאי, ממציא, מנוף, מהנדס, השקיה, כרייה, רפואה, בונה דרכים ונפח מחזקים פיתוח, בנייה והפקה.</li>
+                <li><strong>פוליטיקה:</strong> בישוף, עריק, דיפלומט, תככים, מחבל, מרגל, מצביא וחתונה משפיעים על אבירים, דרכים ויריבים.</li>
+                <li><strong>מסחר:</strong> נמל מסחרי, מונופול סחורות, סוחר, צי סוחר, סוחר ראשי ומונופול משאבים משפרים מסחר ושליטה במשאבים.</li>
+                <li>ניתן לשחק קלף קידמה בכל שלב שמותר לפי תיאורו. אחרי השימוש הוא מוחזר לתחתית החפיסה של הצבע שלו.</li>
+              </ul>
+            </RuleSection>
+          )}
+
+          <RuleSection id="traders-barbarians-status" title="סוחרים וברברים" icon="🐪" isExpanded={expandedSections.has('traders-barbarians-status')} onToggle={() => toggleSection('traders-barbarians-status')}>
+            <p>הרחבה זו עדיין אינה זמינה לבחירה, משום שחמשת התרחישים הרשמיים שלה אינם מיושמים במלואם. כשהיא תתווסף, ההוראות המלאות יופיעו כאן יחד עם התרחיש הפעיל.</p>
+          </RuleSection>
         </div>
       </div>
     </div>

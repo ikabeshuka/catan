@@ -48,6 +48,7 @@ export const HexTile: React.FC<HexTileProps> = ({ tile }) => {
     if (activeExpansion === 'SEAFARERS') {
       if (activeRobberType === 'ROBBER') {
         if (selectedScenario === 'THE_LOST_TRIBE' && (tile.islandId !== 1 || tile.robberStartLocked)) return false;
+        if (selectedScenario === 'CLOTH_FOR_CATAN' && tile.islandId !== 1) return false;
         return tile.type !== 'WATER' && !tile.hasRobber;
       } else if (activeRobberType === 'PIRATE') {
         return tile.type === 'WATER' && !tile.hasPirate;
@@ -142,6 +143,19 @@ export const HexTile: React.FC<HexTileProps> = ({ tile }) => {
       {tile.numberToken !== null && (
         <NumberToken centerX={center.x} centerY={center.y} value={tile.numberToken} is3DMode={is3DMode} />
       )}
+
+      {tile.lostTribeVillages?.map(village => {
+        const vertexId = tileGeometry.vertexIds[village.vertexIndex];
+        const [, x, y] = vertexId.split('_');
+        return (
+          <g key={village.id} className="pointer-events-none">
+            <NumberToken centerX={Number(x)} centerY={Number(y)} value={village.number} is3DMode={is3DMode} />
+            <text x={Number(x)} y={Number(y) + 34} textAnchor="middle" fontSize="13" fontWeight="800" fill="#fef3c7">
+              🧵 {village.clothRemaining}
+            </text>
+          </g>
+        );
+      })}
 
       {tile.hasRobber && (
         <g transform={`translate(${center.x}, ${center.y + 13})`} className="drop-shadow-lg filter pointer-events-none">

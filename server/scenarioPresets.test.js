@@ -230,53 +230,60 @@ test('Through the Desert selects dedicated official 3- and 4-player presets', as
   }
 });
 
-test('The Lost Tribe uses the supplied 6-7-8-9-8-7-6 map and all 18 gifts', async () => {
+test('Cloth for Catan uses the supplied 5-6-7-8-7-6-5 map, villages, ports, and markers', async () => {
   await modulesReady;
   for (const playerCount of [3, 4]) {
-    const tiles = board('THE_LOST_TRIBE', playerCount);
-    assert.equal(playableTiles(tiles).length, 51);
+    const tiles = board('CLOTH_FOR_CATAN', playerCount);
+    assert.equal(playableTiles(tiles).length, 44);
     assert.deepEqual(
       [...playableTiles(tiles).reduce((rows, tile) => rows.set(tile.coord.r, (rows.get(tile.coord.r) || 0) + 1), new Map()).values()],
-      [6, 7, 8, 9, 8, 7, 6]
+      [5, 6, 7, 8, 7, 6, 5]
     );
-    assert.equal(tiles.filter(tile => tile.islandId === 1).length, 18);
-    assert.equal(tiles.find(tile => tile.hasPirate)?.id, 'hex_lt_3');
-    assert.equal(tiles.find(tile => tile.hasRobber)?.type, 'DESERT');
-
-    const rewardEdges = generateEdges(tiles, 'SEAFARERS').filter(edge => edge.lostTribeReward);
-    assert.equal(rewardEdges.filter(edge => edge.lostTribeReward.kind === 'VICTORY_POINT').length, 8);
-    assert.equal(rewardEdges.filter(edge => edge.lostTribeReward.kind === 'DEV_CARD').length, 4);
-    assert.equal(rewardEdges.filter(edge => edge.lostTribeReward.kind === 'HARBOR').length, 6);
-    assert.deepEqual(
-      rewardEdges.filter(edge => edge.lostTribeReward.kind === 'HARBOR')
-        .map(edge => edge.lostTribeReward.harborType).sort(),
-      ['BRICK', 'GENERIC', 'ORE', 'SHEEP', 'WHEAT', 'WOOD']
-    );
+    assert.equal(tiles.filter(tile => tile.islandId === 1).length, 20);
+    assert.equal(tiles.find(tile => tile.hasPirate)?.id, 'hex_cfc_26');
+    assert.equal(tiles.find(tile => tile.hasRobber)?.id, 'hex_cfc_12');
+    assert.equal(activeHarborCount(tiles), 9);
+    const villages = tiles.flatMap(tile => tile.lostTribeVillages || []);
+    assert.equal(villages.length, 8);
+    assert.deepEqual(villages.map(village => village.number).sort((a, b) => a - b), [3, 4, 5, 6, 8, 9, 10, 11]);
+    assert.ok(villages.every(village => village.clothRemaining === 5));
+    assert.equal(tiles.find(tile => tile.lostTribeGeneralCloth !== undefined)?.lostTribeGeneralCloth, 10);
   }
 });
 
-test('The Lost Tribe advanced setup keeps strong numbers off the three rightmost main-island hexes', async () => {
+test('Cloth for Catan advanced setup only shuffles the two main islands', async () => {
   await modulesReady;
   for (let iteration = 0; iteration < 30; iteration++) {
-    const tiles = generateBoard({}, 'RANDOM', 'SEAFARERS', 'THE_LOST_TRIBE', 4);
-    for (const tileId of ['hex_lt_19', 'hex_lt_28', 'hex_lt_36']) {
-      assert.equal([5, 6, 8, 9].includes(tiles.find(tile => tile.id === tileId)?.numberToken), false, tileId);
-    }
+    const tiles = generateBoard({}, 'RANDOM', 'SEAFARERS', 'CLOTH_FOR_CATAN', 4);
+    assert.deepEqual(tiles.find(tile => tile.id === 'hex_cfc_15')?.lostTribeVillages?.map(village => village.number), [11, 8]);
+    assert.deepEqual(tiles.find(tile => tile.id === 'hex_cfc_30')?.lostTribeVillages?.map(village => village.number), [6, 3]);
   }
 });
 
-test('The Lost Tribe reserves exactly four shuffled development cards on gift edges', async () => {
+test('The Lost Tribe keeps its original 6-7-8-9-8-7-6 map and all 18 gifts', async () => {
   await modulesReady;
-  const edges = generateEdges(board('THE_LOST_TRIBE', 4), 'SEAFARERS');
-  const deck = ['KNIGHT', 'MONOPOLY', 'ROAD_BUILDING', 'YEAR_OF_PLENTY', 'VICTORY_POINT'];
-  const remaining = reserveLostTribeDevelopmentCards(deck, edges);
-  assert.deepEqual(remaining, ['VICTORY_POINT']);
+  const tiles = board('THE_LOST_TRIBE', 4);
+  assert.equal(playableTiles(tiles).length, 51);
+  assert.deepEqual([...playableTiles(tiles).reduce((rows, tile) => rows.set(tile.coord.r, (rows.get(tile.coord.r) || 0) + 1), new Map()).values()], [6, 7, 8, 9, 8, 7, 6]);
+  const rewardEdges = generateEdges(tiles, 'SEAFARERS').filter(edge => edge.lostTribeReward);
+  assert.equal(rewardEdges.filter(edge => edge.lostTribeReward.kind === 'VICTORY_POINT').length, 8);
+  assert.equal(rewardEdges.filter(edge => edge.lostTribeReward.kind === 'DEV_CARD').length, 4);
+  assert.equal(rewardEdges.filter(edge => edge.lostTribeReward.kind === 'HARBOR').length, 6);
+});
+
+test('Pirate Islands has its fixed 51-tile layout, eight ports, and no robber', async () => {
+  await modulesReady;
+  const tiles = board('PIRATE_ISLANDS', 4);
+  assert.equal(playableTiles(tiles).length, 51);
   assert.deepEqual(
-    edges.filter(edge => edge.lostTribeReward?.kind === 'DEV_CARD')
-      .sort((left, right) => left.lostTribeReward.id.localeCompare(right.lostTribeReward.id))
-      .map(edge => edge.lostTribeReward.devCardType),
-    deck.slice(0, 4)
+    [...playableTiles(tiles).reduce((rows, tile) => rows.set(tile.coord.r, (rows.get(tile.coord.r) || 0) + 1), new Map()).values()],
+    [6, 7, 8, 9, 8, 7, 6]
   );
+  assert.equal(tiles.filter(tile => tile.hasRobber).length, 0);
+  assert.equal(tiles.find(tile => tile.hasPirate)?.id, 'hex_pi_49');
+  assert.equal(activeHarborCount(tiles), 8);
+  assert.equal(tiles.find(tile => tile.id === 'hex_pi_36')?.numberToken, null);
+  assert.equal(tiles.find(tile => tile.id === 'hex_pi_39')?.numberToken, null);
 });
 
 test('random Seafarers generation preserves every preset inventory and legal marker terrain', async () => {

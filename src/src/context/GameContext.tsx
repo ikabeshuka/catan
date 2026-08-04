@@ -34,15 +34,22 @@ export const getPlayerTotalVP = (
   selectedScenario?: SeafarersScenario
 ): number => {
   let vp = player.victoryPoints || 0;
-  if (longestRoadPlayerId === player.id) {
+  // Cities & Knights replaces both the Longest Road and Largest Army awards
+  // with city improvements, progress cards, and Defender of Catan points.
+  const disablesTrophies = selectedScenario === 'CLOTH_FOR_CATAN' || selectedScenario === 'PIRATE_ISLANDS' || Boolean(player.cityImprovements);
+  if (!disablesTrophies && longestRoadPlayerId === player.id) {
     vp += 2;
   }
-  if (largestArmyPlayerId === player.id) {
+  if (!disablesTrophies && largestArmyPlayerId === player.id) {
     vp += 2;
   }
-  if (includeHidden) {
+  if (includeHidden && selectedScenario !== 'PIRATE_ISLANDS' && !player.cityImprovements) {
     vp += player.developmentCards?.VICTORY_POINT || 0;
   }
+  if (selectedScenario === 'CLOTH_FOR_CATAN') {
+    vp += Math.floor((player.clothRolls || 0) / 2);
+  }
+  vp += player.defenderOfCatanPoints || 0;
 
   // A foreign island is relative to the player's own setup island, not a
   // globally hard-coded island number.

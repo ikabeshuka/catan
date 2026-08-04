@@ -54,6 +54,7 @@ export function useBoardInteraction() {
   } = useEdgeInteraction();
 
   const isSelectableForRobber = (tile: any) => {
+    if (selectedScenario === 'PIRATE_ISLANDS') return false;
     if (turnSubPhase !== 'ROBBER_PLACEMENT') return false;
     if (players[currentPlayerIndex]?.isBot) return false;
     if (roomId && players[currentPlayerIndex]?.id !== myPlayerId) return false;
@@ -61,6 +62,7 @@ export function useBoardInteraction() {
     if (activeExpansion === 'SEAFARERS') {
       if (activeRobberType === 'ROBBER') {
         if (selectedScenario === 'THE_LOST_TRIBE' && (tile.islandId !== 1 || tile.robberStartLocked)) return false;
+        if (selectedScenario === 'CLOTH_FOR_CATAN' && tile.islandId !== 1) return false;
         return tile.type !== 'WATER' && !tile.hasRobber;
       } else if (activeRobberType === 'PIRATE') {
         return tile.type === 'WATER' && !tile.hasPirate;
@@ -96,7 +98,7 @@ export function useBoardInteraction() {
       eligibleTargets = players.filter(p => {
         if (!candidatePlayerIds.has(p.id)) return false;
         const totalCards = Object.values(p.resources).reduce((sum, count) => sum + (count as number), 0);
-        return totalCards > 0;
+        return totalCards > 0 || (selectedScenario === 'CLOTH_FOR_CATAN' && (p.clothRolls || 0) > 0);
       });
     } else {
       eligibleTargets = getEligibleRobberyTargets(tile, vertices, players, currentPlayingPlayer.id);

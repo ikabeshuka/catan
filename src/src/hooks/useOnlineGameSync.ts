@@ -23,6 +23,8 @@ export const useOnlineGameSync = ({ roomId, isHost, setBotTimeLimit }: UseOnline
     if (Array.isArray(snapshot.players)) game.setPlayers(snapshot.players);
     if (Array.isArray(snapshot.devCardDeck)) game.setDevCardDeck(snapshot.devCardDeck);
     if (snapshot.resourceBank) game.setResourceBank(snapshot.resourceBank);
+    if (snapshot.commodityBank) game.setCommodityBank(snapshot.commodityBank);
+    if (snapshot.citiesKnightsState) game.setCitiesKnightsState(snapshot.citiesKnightsState);
     if (snapshot.goldCoins) game.setGoldCoins(snapshot.goldCoins);
     if (Array.isArray(snapshot.goldSelectionQueue)) game.setGoldSelectionQueue(snapshot.goldSelectionQueue);
     if (Array.isArray(snapshot.currentTurnBuiltShips)) game.setCurrentTurnBuiltShips(snapshot.currentTurnBuiltShips);
@@ -35,6 +37,15 @@ export const useOnlineGameSync = ({ roomId, isHost, setBotTimeLimit }: UseOnline
     if (snapshot.activeExpansion) game.setActiveExpansion(snapshot.activeExpansion);
     if (snapshot.selectedScenario) game.setSelectedScenario(snapshot.selectedScenario);
     if (snapshot.boardType) game.setBoardType(snapshot.boardType);
+    if (snapshot.selectedScenario === 'PIRATE_ISLANDS' && snapshot.turnSubPhase === 'ROBBER_STEAL') {
+      const activePlayer = snapshot.players?.[snapshot.currentPlayerIndex];
+      const targets = (snapshot.players || []).filter((player: any) => player.id !== activePlayer?.id &&
+        Object.values(player.resources || {}).reduce((sum: number, amount: any) => sum + Number(amount), 0) > 0);
+      game.setRobberyState(targets.length ? { tile: snapshot.tiles?.find((tile: any) => tile.hasPirate) || snapshot.tiles?.[0], targets } : null);
+      if (!targets.length) game.setTurnSubPhase('TRADE_AND_BUILD');
+    } else {
+      game.setRobberyState(null);
+    }
     if (becameHost !== undefined) game.setIsHost(becameHost);
   };
   const applySnapshotRef = useRef(applySnapshot);
@@ -114,6 +125,10 @@ export const useOnlineGameSync = ({ roomId, isHost, setBotTimeLimit }: UseOnline
         selectedScenario: game.selectedScenario,
         resourceBank: game.resourceBank,
         setResourceBank: game.setResourceBank,
+        commodityBank: game.commodityBank,
+        setCommodityBank: game.setCommodityBank,
+        citiesKnightsState: game.citiesKnightsState,
+        setCitiesKnightsState: game.setCitiesKnightsState,
         goldCoins: game.goldCoins,
         setGoldCoins: game.setGoldCoins,
         goldSelectionQueue: game.goldSelectionQueue,

@@ -3,7 +3,7 @@ import { useGame } from '../../context/GameContext';
 import { CardIcon } from '../common/Icons';
 
 interface DevelopmentCardsPanelProps {
-  handlePlayCard: (cardType: 'KNIGHT' | 'MONOPOLY' | 'ROAD_BUILDING' | 'YEAR_OF_PLENTY') => void;
+  handlePlayCard: (cardType: 'KNIGHT' | 'VICTORY_POINT' | 'MONOPOLY' | 'ROAD_BUILDING' | 'YEAR_OF_PLENTY') => void;
   isCollapsed: boolean;
   onToggle: () => void;
   onTrophyClick?: (type: 'longest_road' | 'largest_army') => void;
@@ -19,7 +19,7 @@ export const DevelopmentCardsPanel: React.FC<DevelopmentCardsPanelProps> = ({
   onHeaderClick,
   onOfferTradeClick: _onOfferTradeClick,
 }) => {
-  const { players, currentPlayerIndex, turnSubPhase, longestRoadPlayerId, largestArmyPlayerId, roomId, myPlayerId } = useGame();
+  const { players, currentPlayerIndex, turnSubPhase, longestRoadPlayerId, largestArmyPlayerId, roomId, myPlayerId, selectedScenario } = useGame();
   const [hoveredIdx, setHoveredIdx] = React.useState<number | null>(null);
   const humanPlayer = roomId
     ? players.find((p) => p.id === myPlayerId)
@@ -92,7 +92,7 @@ export const DevelopmentCardsPanel: React.FC<DevelopmentCardsPanelProps> = ({
       desc: 'מעניק 1 נקודת ניצחון אוטומטית',
       img: '/win1.png',
       count: devCards.VICTORY_POINT || 0,
-      playable: false,
+      playable: selectedScenario === 'PIRATE_ISLANDS',
     },
   ];
 
@@ -321,7 +321,7 @@ export const DevelopmentCardsPanel: React.FC<DevelopmentCardsPanelProps> = ({
                     onMouseLeave={() => setHoveredIdx(null)}
                     onClick={(e) => {
                       e.stopPropagation();
-                      if (card.id !== 'VICTORY_POINT' && card.playable && isOurTurn) {
+                      if (card.playable && isOurTurn) {
                         handlePlayCard(card.id);
                       } else {
                         onHeaderClick?.();

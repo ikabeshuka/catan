@@ -1,6 +1,7 @@
 const express = require('express');
 const http = require('http');
 const crypto = require('crypto');
+const cors = require('cors');
 const { Server } = require('socket.io');
 const { validateActionShape, validateGameAction, applyReservedAction, DEV_CARD_TYPES, RESOURCE_TYPES } = require('./gameRules');
 
@@ -10,7 +11,7 @@ const DISCONNECTED_TURN_PAUSE_MS = Number(process.env.DISCONNECTED_TURN_PAUSE_MS
 const MAX_PAYLOAD_BYTES = 512 * 1024;
 const ROOM_ID_PATTERN = /^CATAN-[A-Z0-9]{4,12}$/;
 const SLOT_STATUSES = new Set(['OPEN', 'LOCKED_BOT']);
-const ALLOWED_ORIGINS = (process.env.ALLOWED_ORIGINS || 'https://catan-32o1.onrender.com,http://localhost:5173,http://127.0.0.1:5173')
+const ALLOWED_ORIGINS = (process.env.ALLOWED_ORIGINS || 'https://catan-32o1.onrender.com,http://localhost:5173,http://127.0.0.1:5173,https://catan-tau.vercel.app,https://catan-tau.vercel.app/')
   .split(',').map(value => value.trim()).filter(Boolean);
 
 const isPlainObject = value => Boolean(value) && typeof value === 'object' && !Array.isArray(value);
@@ -25,7 +26,7 @@ const validateRuntimeGameState = (state, room) => {
   if (!isPlainObject(state) || !Array.isArray(state.players) || state.players.length < 2 || state.players.length > room.maxPlayers ||
       !Array.isArray(state.tiles) || !Array.isArray(state.vertices) || !Array.isArray(state.edges) ||
       !Number.isInteger(state.currentPlayerIndex) || state.currentPlayerIndex < 0 || state.currentPlayerIndex >= state.players.length ||
-      !['SETUP_ROUND_1', 'SETUP_ROUND_2', 'MAIN_GAME', 'GAME_OVER'].includes(state.gamePhase) ||
+      !['SETUP_ROUND_1', 'SETUP_ROUND_2', 'SETUP_ROUND_3', 'MAIN_GAME', 'GAME_OVER'].includes(state.gamePhase) ||
       !isPlainObject(state.resourceBank) || !Array.isArray(state.devCardDeck)) return false;
   const playerIds = state.players.map(player => player?.id);
   if (new Set(playerIds).size !== playerIds.length || playerIds.some((id, index) => id !== `p${index + 1}`)) return false;
@@ -37,7 +38,8 @@ const validateRuntimeGameState = (state, room) => {
 };
 const validateInitialGameState = (state, room) => {
   const isLostTribe = state.selectedScenario === 'THE_LOST_TRIBE';
-  const expectedDeckLength = isLostTribe ? 21 : 25;
+  const isThreePlayerPirateIslands = state.selectedScenario === 'PIRATE_ISLANDS' && state.players?.length === 3;
+  const expectedDeckLength = isLostTribe ? 21 : isThreePlayerPirateIslands ? 20 : 25;
   if (!validateRuntimeGameState(state, room) || !['SETUP_ROUND_1', 'SETUP_ROUND_2'].includes(state.gamePhase) || state.devCardDeck.length !== expectedDeckLength) return false;
   const playerIds = state.players.map(player => player?.id);
   if (new Set(playerIds).size !== playerIds.length || playerIds.some((id, index) => id !== `p${index + 1}`)) return false;
@@ -56,11 +58,19 @@ const validateInitialGameState = (state, room) => {
     if (reservedCards.length !== 4 || reservedCards.some(card => !DEV_CARD_TYPES.includes(card))) return false;
     reservedCards.forEach(card => { deckCounts[card] += 1; });
   }
-  return DEV_CARD_TYPES.every(type => deckCounts[type] === STANDARD_DEV_COUNTS[type]);
+  return DEV_CARD_TYPES.every(type => deckCounts[type] ===
+    (isThreePlayerPirateIslands && type === 'VICTORY_POINT' ? 0 : STANDARD_DEV_COUNTS[type]));
 };
 
 function createCatanServer({ disconnectedTurnPauseMs = DISCONNECTED_TURN_PAUSE_MS } = {}) {
   const app = express();
+  app.use(cors({
+    origin(origin, callback) {
+      if (!origin || ALLOWED_ORIGINS.includes(origin)) return callback(null, true);
+      return callback(new Error('Origin is not allowed'));
+    },
+    methods: ['GET', 'POST'],
+  }));
   const httpServer = http.createServer(app);
   const io = new Server(httpServer, {
     cors: {
@@ -371,9 +381,24 @@ function createCatanServer({ disconnectedTurnPauseMs = DISCONNECTED_TURN_PAUSE_M
       if (!shape.ok) { callback?.({ success: false, code: 'INVALID_ACTION', message: shape.message }); return; }
       const approvedAction = clone(payload.action);
       if (approvedAction.type === 'ROLL_DICE') {
-        approvedAction.diceValues = [crypto.randomInt(1, 7), crypto.randomInt(1, 7)];
+        const rollingPlayer = room.gameState?.players?.find(candidate => candidate.id === approvedAction.playerId);
+        const alchemistDice = rollingPlayer?.alchemistDice;
+        const alchemistEventDie = rollingPlayer?.alchemistEventDie;
+        approvedAction.diceValues = alchemistDice ? [...alchemistDice] : [crypto.randomInt(1, 7), crypto.randomInt(1, 7)];
+        if (room.gameState?.activeExpansion === 'CITIES_AND_KNIGHTS') {
+          if (!alchemistDice) approvedAction.diceValues.push(crypto.randomInt(1, 7));
+          approvedAction.eventDie = alchemistEventDie || ['BARBARIAN', 'BARBARIAN', 'BARBARIAN', 'SCIENCE', 'POLITICS', 'TRADE'][crypto.randomInt(0, 6)];
+        }
+      } else if (approvedAction.type === 'ATTACK_PIRATE_FORTRESS') {
+        approvedAction.fortressPower = crypto.randomInt(1, 7);
       } else if (approvedAction.type === 'STEAL_RESOURCE') {
         const victim = room.gameState?.players?.find(candidate => candidate.id === approvedAction.victimPlayerId);
+        if (approvedAction.stealKind === 'CLOTH') {
+          if (room.gameState?.selectedScenario !== 'CLOTH_FOR_CATAN' || (victim?.clothRolls || 0) <= 0) {
+            callback?.({ success: false, code: 'ILLEGAL_ACTION', message: 'The victim has no cloth' }); return;
+          }
+          approvedAction.stolenResource = 'CLOTH';
+        } else {
         const availableCards = [];
         RESOURCE_TYPES.forEach(resource => {
           for (let count = 0; count < (victim?.resources?.[resource] || 0); count += 1) availableCards.push(resource);
@@ -382,6 +407,7 @@ function createCatanServer({ disconnectedTurnPauseMs = DISCONNECTED_TURN_PAUSE_M
           callback?.({ success: false, code: 'ILLEGAL_ACTION', message: 'The victim has no resource cards' }); return;
         }
         approvedAction.stolenResource = availableCards[crypto.randomInt(availableCards.length)];
+        }
       }
       const legality = validateGameAction(room.gameState, approvedAction);
       if (!legality.ok) { callback?.({ success: false, code: 'ILLEGAL_ACTION', message: legality.message }); return; }

@@ -1,3 +1,5 @@
+import type { CityImprovementTrack, KnightPiece } from './citiesKnights.types';
+
 export type VertexStructure = 'NONE' | 'SETTLEMENT' | 'CITY';
 
 export interface BoardVertex {
@@ -6,6 +8,12 @@ export interface BoardVertex {
   structure: VertexStructure;  // מה בנוי כאן (כלום, יישוב או עיר)
   isHarbor: boolean;           // האם יש כאן נמל?
   harborType?: 'GENERIC' | 'WOOD' | 'BRICK' | 'SHEEP' | 'WHEAT' | 'ORE';
+  pirateFortress?: { color: 'RED' | 'WHITE' | 'BLUE' | 'ORANGE'; playerId?: string; remainingTokens: number; conquered: boolean; };
+  pirateSettlementTarget?: string;
+  /** Cities & Knights additions. A city wall replaces the normal city model. */
+  cityWall?: boolean;
+  metropolis?: CityImprovementTrack;
+  knight?: KnightPiece;
 }
 
 export interface BoardEdge {
@@ -17,6 +25,7 @@ export interface BoardEdge {
   harborAngle?: number;
   hasShip?: boolean;           // האם בנויה כאן ספינה?
   shipPlayerId?: string | null; // מזהה השחקן שבנה את הספינה
+  isWarship?: boolean;
   lostTribeReward?: {
     id: string;
     kind: 'VICTORY_POINT' | 'DEV_CARD' | 'HARBOR';

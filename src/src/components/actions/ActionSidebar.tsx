@@ -10,6 +10,7 @@ import { SettlementIcon, RoadIcon } from '../common/Icons';
 import { socketService } from '../../services/network/socketService';
 import { dispatchGameAction } from '../../services/gameDispatcher';
 import { GameRulesModal } from '../modals/GameRulesModal';
+import { CitiesKnightsPanel } from './CitiesKnightsPanel';
 
 interface ChatMessage {
   text: string;
@@ -49,6 +50,7 @@ export const ActionSidebar: React.FC = () => {
   const humanPlayer = roomId
     ? players?.find(p => p.id === myPlayerId)
     : players?.find(p => !p.isBot) || currentPlayer;
+  const lostTribeGeneralCloth = tiles.find(tile => tile.lostTribeGeneralCloth !== undefined)?.lostTribeGeneralCloth || 0;
 
   // האזנה להודעות צ'אט נכנסות ברשת
   useEffect(() => {
@@ -195,6 +197,13 @@ export const ActionSidebar: React.FC = () => {
           <span className="text-sm font-black text-amber-400 font-mono">🏆 {activePlayerVP}</span>
         </div>
 
+        {selectedScenario === 'CLOTH_FOR_CATAN' && (
+          <div className="flex items-center justify-between bg-indigo-950/35 px-3 py-2 rounded-xl border border-indigo-400/20">
+            <span className="text-[11px] text-indigo-200 font-bold">גלילי בד</span>
+            <span className="text-sm font-black text-indigo-200 font-mono">🧵 {currentPlayer.clothRolls || 0} · {Math.floor((currentPlayer.clothRolls || 0) / 2)} נק׳ · קופה {lostTribeGeneralCloth}</span>
+          </div>
+        )}
+
         <p className="font-sans text-[11px] text-slate-400 font-medium leading-relaxed border-t border-slate-800/50 pt-2">
           {getGuideText()}
         </p>
@@ -276,6 +285,8 @@ export const ActionSidebar: React.FC = () => {
       {activeExpansion === 'MERCHANTS_AND_BARBARIANS' && (
         <WagonUpgradePanel />
       )}
+
+      {activeExpansion === 'CITIES_AND_KNIGHTS' && <CitiesKnightsPanel />}
 
       {/* פאנל הצעות לבנייה */}
       <BuildActionsPanel />

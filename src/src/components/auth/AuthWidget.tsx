@@ -2,13 +2,19 @@ import React from 'react';
 import { useUser } from '../../context/UserContext';
 
 export const AuthWidget: React.FC = () => {
-  const { currentUser, isAuthLoading, loginWithGoogle, logout, playerStats } = useUser();
+  const { 
+    currentUser, 
+    isAuthLoading, 
+    logout, 
+    playerStats,
+    setIsAuthModalOpen 
+  } = useUser();
 
   if (isAuthLoading) {
     return (
-      <div className="flex items-center justify-center p-3 bg-slate-900/40 border border-slate-800/40 rounded-xl" dir="rtl">
-        <div className="w-5 h-5 border-2 border-amber-500 border-t-transparent rounded-full animate-spin"></div>
-        <span className="mr-2 text-sm text-slate-400">טוען...</span>
+      <div className="flex items-center justify-center p-2 bg-slate-900/40 border border-slate-800/40 rounded-xl" dir="rtl">
+        <div className="w-4 h-4 border-2 border-amber-500 border-t-transparent rounded-full animate-spin"></div>
+        <span className="mr-2 text-xs text-slate-400">טוען...</span>
       </div>
     );
   }
@@ -17,11 +23,11 @@ export const AuthWidget: React.FC = () => {
     return (
       <div className="w-full" dir="rtl">
         <button
-          onClick={loginWithGoogle}
-          className="w-full flex items-center justify-center gap-2 px-4 py-2.5 bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-400 hover:to-orange-400 text-slate-950 font-bold text-sm rounded-lg shadow-md hover:shadow-amber-500/20 transition-all duration-300"
+          onClick={() => setIsAuthModalOpen(true)}
+          className="w-full flex items-center justify-center gap-2 px-4 py-2 bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-400 hover:to-orange-400 text-slate-950 font-extrabold text-xs rounded-xl shadow-md hover:shadow-amber-500/10 transition-all duration-300"
         >
           <span>🔑</span>
-          <span>התחבר עם Google</span>
+          <span>התחברות / הרשמה למשחק</span>
         </button>
       </div>
     );
@@ -30,23 +36,34 @@ export const AuthWidget: React.FC = () => {
   const displayName = currentUser.displayName || currentUser.email?.split('@')[0] || 'משתמש';
 
   return (
-    <div className="flex flex-col gap-2 p-3 bg-slate-900/80 border border-slate-800 rounded-xl shadow-lg w-full" dir="rtl">
-      <div className="flex items-center justify-between gap-4">
-        <div className="flex flex-col min-w-0 text-right">
-          <span className="text-sm font-bold text-slate-200 truncate">{displayName}</span>
-          <span className="text-xs text-slate-400 truncate">{currentUser.email}</span>
+    <div className="flex items-center justify-between gap-3 p-2 bg-slate-900/80 border border-slate-800/80 rounded-xl shadow-md w-full" dir="rtl">
+      {/* User Info */}
+      <div className="flex items-center gap-2 min-w-0">
+        <div className="w-7 h-7 rounded-full bg-amber-500/10 border border-amber-500/30 flex items-center justify-center font-bold text-xs text-amber-500 shrink-0">
+          {displayName.slice(0, 1).toUpperCase()}
         </div>
-        <div className="flex flex-col items-end shrink-0 text-left">
-          <span className="text-[10px] text-amber-400 font-semibold uppercase tracking-wider">ניקוד דירוג</span>
-          <span className="text-sm font-bold text-amber-500">{playerStats.ratingPoints} XP</span>
+        <div className="flex flex-col min-w-0 text-right">
+          <span className="text-xs font-bold text-slate-200 truncate">{displayName}</span>
+          <span className="text-[10px] text-slate-400 truncate">{currentUser.email}</span>
         </div>
       </div>
-      <button
-        onClick={logout}
-        className="w-full px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-red-400 hover:text-red-300 border border-slate-700/50 hover:border-red-500/30 font-medium text-xs rounded-lg transition-all duration-200"
-      >
-        התנתק
-      </button>
+
+      {/* Stats & Actions */}
+      <div className="flex items-center gap-2 shrink-0">
+        <div className="bg-amber-500/10 border border-amber-500/20 px-2 py-1 rounded-lg text-center shrink-0">
+          <span className="text-xs font-black text-amber-500">🏆 {playerStats.ratingPoints} XP</span>
+        </div>
+        
+        {/* Logout Button */}
+        <button
+          onClick={logout}
+          title="התנתק"
+          className="p-1.5 bg-slate-800 hover:bg-slate-700 hover:text-red-400 text-slate-400 border border-slate-700/50 rounded-lg transition-all duration-200"
+          aria-label="התנתק"
+        >
+          🚪
+        </button>
+      </div>
     </div>
   );
 };

@@ -2,7 +2,7 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import { User, onAuthStateChanged } from 'firebase/auth';
 import { doc, getDoc, setDoc } from 'firebase/firestore';
-import { auth, db, signInWithGoogle, logoutUser } from '../services/firebase';
+import { auth, db, signInWithGoogle, logoutUser, registerWithEmail, loginWithEmail } from '../services/firebase';
 import { GeneralPlayerStats, PlayerRatingStats, RoomParticipant, RatingCalculationResult } from '../types/rating.types';
 import { calculateGameRating } from '../utils/ai/rating/ratingCalculator';
 
@@ -37,6 +37,8 @@ interface UserContextType {
   currentUser: User | null;
   isAuthLoading: boolean;
   loginWithGoogle: () => Promise<User | void>;
+  loginWithEmail: (email: string, pass: string) => Promise<User | void>;
+  registerWithEmail: (email: string, pass: string) => Promise<User | void>;
   logout: () => Promise<void>;
   playerStats: PlayerRatingStats;
   playerName: string;
@@ -52,6 +54,8 @@ interface UserContextType {
   ) => RatingCalculationResult;
   isStatsModalOpen: boolean;
   setIsStatsModalOpen: (open: boolean) => void;
+  isAuthModalOpen: boolean;
+  setIsAuthModalOpen: (open: boolean) => void;
 }
 
 const UserContext = createContext<UserContextType | undefined>(undefined);
@@ -65,6 +69,7 @@ export const UserProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [generalStats, setGeneralStats] = useState<GeneralPlayerStats[]>([]);
   const [lastRatingResult, setLastRatingResult] = useState<RatingCalculationResult | null>(null);
   const [isStatsModalOpen, setIsStatsModalOpen] = useState(false);
+  const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
 
   // 1. מאזין להתחברות/התנתקות ב-Firebase Auth
   useEffect(() => {
@@ -251,6 +256,33 @@ export const UserProvider: React.FC<{ children: React.ReactNode }> = ({ children
       return user;
     } catch (err) {
       console.error('Google Sign-In failed:', err);
+      throw err;
+    }
+  };
+
+  const loginWithEmailHandler = async (email: string, pass: string) => {
+    try {
+      const user = await loginWithEmail(email, pass);
+      if (user) {
+        await loadUserDataFromFirestore(user);
+      }
+      return user;
+    } catch (err) {
+      console.error('Email Login failed:', err);
+      throw err;
+    }
+  };
+
+  const registerWithEmailHandler = async (email: string, pass: string) => {
+    try {
+      const user = await registerWithEmail(email, pass);
+      if (user) {
+        await loadUserDataFromFirestore(user);
+      }
+      return user;
+    } catch (err) {
+      console.error('Email Registration failed:', err);
+      throw err;
     }
   };
 
@@ -265,6 +297,8 @@ export const UserProvider: React.FC<{ children: React.ReactNode }> = ({ children
         currentUser,
         isAuthLoading,
         loginWithGoogle: loginWithGoogleHandler,
+        loginWithEmail: loginWithEmailHandler,
+        registerWithEmail: registerWithEmailHandler,
         logout: logoutHandler,
         playerStats,
         playerName,
@@ -276,6 +310,8 @@ export const UserProvider: React.FC<{ children: React.ReactNode }> = ({ children
         updateRatingAfterGame,
         isStatsModalOpen,
         setIsStatsModalOpen,
+        isAuthModalOpen,
+        setIsAuthModalOpen,
       }}
     >
       {children}

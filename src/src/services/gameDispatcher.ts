@@ -4,12 +4,15 @@ import { cubeToPixel } from '../utils/hexMath/cubeToPixel';
 import type { ResourceCards } from '../types/resources.types';
 import { validateSettlementPlacement } from '../utils/validation/validateSettlementPlacement';
 import { getEdgeVertices } from '../utils/hexMath/boardGeometryHelpers';
-import { claimLostTribeReward, getEligibleHarborEdges, getLostTribeRewardLog } from '../utils/gameEngine/lostTribeHelpers';
+import { claimLostTribeReward, getEligibleHarborEdges, getLostTribeRewardLog, getReachedLostTribeVillageIds } from '../utils/gameEngine/lostTribeHelpers';
+import { getPirateShippingLine, getPirateShippingPath } from '../utils/gameEngine/pirateIslands';
 
 export interface DispatcherContext {
   roomId?: string;
   isRemote?: boolean;
   myPlayerId?: string | null;
+  /** The room host is allowed to submit actions on behalf of server-owned bots. */
+  allowBotControl?: boolean;
   gamePhase?: string;
   turnSubPhase?: string;
   players?: any[];
@@ -20,7 +23,7 @@ export interface DispatcherContext {
 showBuildingCostToast?: (type: any, success: boolean, free?: boolean, errorMessage?: string) => void;
   addLog?: (message: string) => void;
   recordSetupPlacement?: (type: any, id: string) => void;
-  handleDiceRoll?: (fixedValues?: [number, number]) => void;
+  handleDiceRoll?: (fixedValues?: [number, number] | [number, number, number], eventDie?: string) => void;
   buyDevelopmentCard?: (forcedCardType?: string, targetPlayerId?: string) => boolean;
   endTurn?: () => void;
   roadBuildingRemaining?: number;
@@ -52,7 +55,8 @@ export function dispatchGameAction(action: GameAction, context?: DispatcherConte
   // A local online action may only be issued for this client's assigned player.
   // Remote actions intentionally belong to another player and must be replayed
   // locally in order to keep every client on the same game state.
-  if (!context.isRemote && action.playerId !== context.myPlayerId) {
+  const controlsBot = Boolean(context.allowBotControl && context.players?.some((player: any) => player.id === action.playerId && player.isBot));
+  if (!context.isRemote && action.playerId !== context.myPlayerId && !controlsBot) {
     console.warn(`Local action security block: action.playerId (${action.playerId}) does not match myPlayerId (${context.myPlayerId})`);
     return;
   }
@@ -61,7 +65,10 @@ export function dispatchGameAction(action: GameAction, context?: DispatcherConte
   // to every client, including the sender. Only that approved echo is applied.
   if (context.roomId && !context.isRemote) {
     const requestAction = { ...action } as GameAction;
-    if (requestAction.type === 'ROLL_DICE') delete requestAction.diceValues;
+    if (requestAction.type === 'ROLL_DICE') {
+      delete requestAction.diceValues;
+      delete requestAction.eventDie;
+    }
     if (requestAction.type === 'STEAL_RESOURCE') delete requestAction.stolenResource;
     if (requestAction.type === 'MOVE_ROBBER') {
       delete requestAction.hasEligibleVictims;
@@ -77,21 +84,27 @@ export function dispatchGameAction(action: GameAction, context?: DispatcherConte
     // --- 1. הטלת קוביות סנכרונית ---
     case 'ROLL_DICE': {
       if (context.handleDiceRoll && action.diceValues) {
-        context.handleDiceRoll(action.diceValues);
+        context.handleDiceRoll(action.diceValues, action.eventDie);
       }
       break;
     }
 
     case 'DISCARD_CARDS': {
-      const { resourcesToDiscard } = action;
+      const { resourcesToDiscard, commoditiesToDiscard = {} } = action;
       const player = context.players?.find((p: any) => p.id === playerId);
       if (!player) return;
       const entries = Object.entries(resourcesToDiscard);
-      const handSize = Object.values(player.resources).reduce((sum: number, count: any) => sum + Number(count || 0), 0);
-      const selectedCount = entries.reduce((sum, [, amount]) => sum + Number(amount), 0);
-      if (handSize <= 7 || selectedCount !== Math.floor(handSize / 2) || entries.some(([resource, amount]) =>
+      const handSize = Object.values(player.resources).reduce((sum: number, count: any) => sum + Number(count || 0), 0) +
+        (context.activeExpansion === 'CITIES_AND_KNIGHTS' ? Object.values(player.commodities || {}).reduce((sum: number, count: any) => sum + Number(count || 0), 0) : 0);
+      const handLimit = 7 + (context.activeExpansion === 'CITIES_AND_KNIGHTS'
+        ? 2 * (context.vertices || []).filter((vertex: any) => vertex.playerId === playerId && vertex.cityWall).length : 0);
+      const sabotageEntry = context.turnSubPhase === 'SABOTEUR_DISCARD'
+        ? context.citiesKnightsState?.sabotageDiscardQueue?.[0] : null;
+      const selectedCount = entries.reduce((sum, [, amount]) => sum + Number(amount), 0) + Object.values(commoditiesToDiscard).reduce((sum: number, amount: any) => sum + Number(amount), 0);
+      const requiredDiscard = sabotageEntry?.amount ?? Math.floor(handSize / 2);
+      if ((sabotageEntry && sabotageEntry.playerId !== playerId) || (!sabotageEntry && handSize <= handLimit) || selectedCount !== requiredDiscard || entries.some(([resource, amount]) =>
         !Number.isInteger(amount) || amount < 0 || amount > (player.resources[resource] || 0)
-      )) return;
+      ) || Object.entries(commoditiesToDiscard).some(([commodity, amount]) => !Number.isInteger(amount) || amount < 0 || amount > (player.commodities?.[commodity] || 0))) return;
 
       context.setPlayers?.((prev: any[]) => {
         const updatedPlayers = prev.map(p => {
@@ -100,7 +113,11 @@ export function dispatchGameAction(action: GameAction, context?: DispatcherConte
             Object.entries(resourcesToDiscard).forEach(([res, amt]) => {
               updatedRes[res] = Math.max(0, (updatedRes[res] || 0) - (amt as number));
             });
-            return { ...p, resources: updatedRes };
+            const updatedCommodities = { ...(p.commodities || {}) };
+            Object.entries(commoditiesToDiscard).forEach(([commodity, amount]) => {
+              updatedCommodities[commodity] = Math.max(0, (updatedCommodities[commodity] || 0) - (amount as number));
+            });
+            return { ...p, resources: updatedRes, commodities: updatedCommodities };
           }
           return p;
         });
@@ -109,9 +126,15 @@ export function dispatchGameAction(action: GameAction, context?: DispatcherConte
           !p.isBot && Object.values(p.resources).reduce((sum: number, count: any) => sum + (count as number), 0) > 7
         );
 
-        if (!othersStillNeedToDiscard && context.setTurnSubPhase) {
+        if (!sabotageEntry && !othersStillNeedToDiscard && context.setTurnSubPhase) {
           context.addLog?.(`כל השחקנים סיימו לזרוק קלפים. השודד הופעל! יש למקם את השודד באריח חדש.`);
-          context.setTurnSubPhase('ROBBER_PLACEMENT');
+          if (context.selectedScenario === 'PIRATE_ISLANDS') {
+            const targets = updatedPlayers.filter(candidate => candidate.id !== playerId && Object.values(candidate.resources).reduce((sum: number, amount: any) => sum + Number(amount), 0) > 0);
+            context.setRobberyState?.(targets.length ? { tile: context.tiles?.find((tile: any) => tile.hasPirate) || context.tiles?.[0], targets } : null);
+            context.setTurnSubPhase(targets.length ? 'ROBBER_STEAL' : 'TRADE_AND_BUILD');
+          } else {
+            context.setTurnSubPhase('ROBBER_PLACEMENT');
+          }
         }
 
         return updatedPlayers;
@@ -124,6 +147,16 @@ export function dispatchGameAction(action: GameAction, context?: DispatcherConte
         });
         return next;
       });
+      context.setCommodityBank?.((previous: any) => {
+        const next = { ...previous };
+        Object.entries(commoditiesToDiscard).forEach(([commodity, amount]) => { next[commodity] = (next[commodity] || 0) + Number(amount); });
+        return next;
+      });
+      if (sabotageEntry) {
+        const queueLength = context.citiesKnightsState?.sabotageDiscardQueue?.length || 0;
+        context.setCitiesKnightsState?.((previous: any) => ({ ...previous, sabotageDiscardQueue: (previous.sabotageDiscardQueue || []).slice(1) }));
+        if (queueLength <= 1) context.setTurnSubPhase?.('TRADE_AND_BUILD');
+      }
 
       const resourceLabelsHE: Record<string, string> = {
         WOOD: 'עץ',
@@ -141,11 +174,51 @@ export function dispatchGameAction(action: GameAction, context?: DispatcherConte
       context.addLog?.(`שחקן ${player.name} זרק קלפים לקופה: ${discardedItemsLog || 'ללא קלפים'}.`);
       break;
     }
+    case 'GIVE_PROGRESS_CARDS': {
+      const wedding = context.turnSubPhase === 'WEDDING_GIVE' ? context.citiesKnightsState?.weddingGiveQueue?.[0] : null;
+      const harbor = context.turnSubPhase === 'COMMERCIAL_HARBOR_GIVE' ? context.citiesKnightsState?.commercialHarborQueue?.[0] : null;
+      const returnOffer = context.turnSubPhase === 'COMMERCIAL_HARBOR_RETURN' ? context.citiesKnightsState?.commercialHarborOffer : null;
+      const entry = wedding || harbor || returnOffer;
+      const recipientId = action.targetPlayerId;
+      const resourcesToGive = action.resourcesToGive || {};
+      const commoditiesToGive = action.commoditiesToGive || {};
+      const amount = Object.values(resourcesToGive).reduce((sum: number, value: any) => sum + Number(value || 0), 0) +
+        Object.values(commoditiesToGive).reduce((sum: number, value: any) => sum + Number(value || 0), 0);
+      const requiredAmount = (harbor || returnOffer) ? 1 : wedding?.amount;
+      if (!entry || entry.playerId !== playerId || entry.recipientId !== recipientId || amount !== requiredAmount) return;
+      const giver = context.players?.find((candidate: any) => candidate.id === playerId);
+      if (!giver || Object.entries(resourcesToGive).some(([key, value]: [string, any]) => (giver.resources?.[key] || 0) < value) ||
+          Object.entries(commoditiesToGive).some(([key, value]: [string, any]) => (giver.commodities?.[key] || 0) < value)) return;
+      context.setPlayers?.((previous: any[]) => previous.map(candidate => {
+        if (candidate.id !== playerId && candidate.id !== recipientId) return candidate;
+        const isGiver = candidate.id === playerId;
+        return {
+          ...candidate,
+          resources: Object.fromEntries(Object.entries(candidate.resources || {}).map(([key, value]) => [key, Number(value) + (isGiver ? -Number((resourcesToGive as any)[key] || 0) : Number((resourcesToGive as any)[key] || 0))])),
+          commodities: Object.fromEntries(Object.entries(candidate.commodities || {}).map(([key, value]) => [key, Number(value) + (isGiver ? -Number((commoditiesToGive as any)[key] || 0) : Number((commoditiesToGive as any)[key] || 0))])),
+        };
+      }));
+      if (context.turnSubPhase === 'WEDDING_GIVE') {
+        const queueLength = context.citiesKnightsState?.weddingGiveQueue?.length || 0;
+        context.setCitiesKnightsState?.((previous: any) => ({ ...previous, weddingGiveQueue: (previous.weddingGiveQueue || []).slice(1) }));
+        if (queueLength <= 1) context.setTurnSubPhase?.('TRADE_AND_BUILD');
+      } else if (context.turnSubPhase === 'COMMERCIAL_HARBOR_GIVE') {
+        const category = Object.values(resourcesToGive).some(value => Number(value || 0) > 0) ? 'RESOURCE' : 'COMMODITY';
+        context.setCitiesKnightsState?.((previous: any) => ({ ...previous, commercialHarborOffer: { playerId: recipientId, recipientId: playerId, category } }));
+        context.setTurnSubPhase?.('COMMERCIAL_HARBOR_RETURN');
+      } else if (context.turnSubPhase === 'COMMERCIAL_HARBOR_RETURN') {
+        const queueLength = context.citiesKnightsState?.commercialHarborQueue?.length || 0;
+        context.setCitiesKnightsState?.((previous: any) => ({ ...previous, commercialHarborQueue: (previous.commercialHarborQueue || []).slice(1), commercialHarborOffer: undefined }));
+        context.setTurnSubPhase?.(queueLength <= 1 ? 'TRADE_AND_BUILD' : 'COMMERCIAL_HARBOR_GIVE');
+      }
+      break;
+    }
 
     // --- 2. בניית יישוב ---
     case 'BUILD_SETTLEMENT': {
       const { vertexId } = action;
-      const isSetupPhase = context.gamePhase === 'SETUP_ROUND_1' || context.gamePhase === 'SETUP_ROUND_2';
+      const isSetupPhase = ['SETUP_ROUND_1', 'SETUP_ROUND_2', 'SETUP_ROUND_3'].includes(context.gamePhase || '');
+      if (context.activeExpansion === 'CITIES_AND_KNIGHTS' && context.gamePhase === 'SETUP_ROUND_2') return;
       const player = context.players?.find((p: any) => p.id === playerId);
       if (!player) return;
       const targetVertex = context.vertices?.find((vertex: any) => vertex.id === vertexId);
@@ -281,6 +354,18 @@ export function dispatchGameAction(action: GameAction, context?: DispatcherConte
       const player = context.players?.find((p: any) => p.id === playerId);
       if (!player) return;
       const cityTarget = context.vertices?.find((vertex: any) => vertex.id === vertexId);
+      const isSetupCity = context.activeExpansion === 'CITIES_AND_KNIGHTS' && context.gamePhase === 'SETUP_ROUND_2';
+      if (isSetupCity) {
+        if (!cityTarget || cityTarget.structure !== 'NONE' || !context.setVertices || !validateSettlementPlacement(
+          vertexId, playerId, context.gamePhase as any, context.vertices || [], context.edges || [], context.tiles,
+          context.selectedScenario, context.activeExpansion
+        )) return;
+        context.setVertices(prev => prev.map(v => v.id === vertexId ? { ...v, structure: 'CITY', playerId } : v));
+        context.showBuildingCostToast?.('CITY', true, true);
+        context.addLog?.(`${player.name} בנה עיר בשלב ההקמה (חינם).`);
+        context.recordSetupPlacement?.('SETTLEMENT', vertexId);
+        break;
+      }
       if (!cityTarget || cityTarget.structure !== 'SETTLEMENT' || cityTarget.playerId !== playerId ||
           context.turnSubPhase !== 'TRADE_AND_BUILD' || player.resources.WHEAT < 2 || player.resources.ORE < 3) return;
 
@@ -308,7 +393,7 @@ export function dispatchGameAction(action: GameAction, context?: DispatcherConte
     // --- 4. בניית כביש ---
     case 'BUILD_ROAD': {
       const { edgeId } = action;
-      const isSetupPhase = context.gamePhase === 'SETUP_ROUND_1' || context.gamePhase === 'SETUP_ROUND_2';
+      const isSetupPhase = ['SETUP_ROUND_1', 'SETUP_ROUND_2', 'SETUP_ROUND_3'].includes(context.gamePhase || '');
       const player = context.players?.find((p: any) => p.id === playerId);
       if (!player) return;
       const roadTarget = context.edges?.find((edge: any) => edge.id === edgeId);
@@ -358,7 +443,7 @@ export function dispatchGameAction(action: GameAction, context?: DispatcherConte
     // --- 5. בניית ספינה ---
     case 'BUILD_SHIP': {
       const { edgeId } = action;
-      const isSetupPhase = context.gamePhase === 'SETUP_ROUND_1' || context.gamePhase === 'SETUP_ROUND_2';
+      const isSetupPhase = ['SETUP_ROUND_1', 'SETUP_ROUND_2', 'SETUP_ROUND_3'].includes(context.gamePhase || '');
       const player = context.players?.find((p: any) => p.id === playerId);
       if (!player) return;
       const shipTarget = context.edges?.find((edge: any) => edge.id === edgeId);
@@ -376,7 +461,7 @@ export function dispatchGameAction(action: GameAction, context?: DispatcherConte
       const harborGiftCanBePlaced = shipTarget.lostTribeReward?.kind === 'HARBOR' &&
         getEligibleHarborEdges(playerId, context.vertices || [], context.edges || [], context.tiles || []).length > 0;
 
-      context.setEdges((prev: any[]) => prev.map(e =>
+      const nextEdges = (context.edges || []).map((e: any) =>
         e.id === edgeId ? {
           ...e,
           hasShip: true,
@@ -385,7 +470,39 @@ export function dispatchGameAction(action: GameAction, context?: DispatcherConte
             ? { ...e.lostTribeReward, collectedBy: playerId }
             : e.lostTribeReward,
         } : e
-      ));
+      );
+      context.setEdges(nextEdges);
+
+      // Reaching a village by a continuous ship route establishes a permanent
+      // trade connection and immediately takes one roll from that village.
+      const newlyReachedVillageIds = context.selectedScenario === 'CLOTH_FOR_CATAN'
+        ? getReachedLostTribeVillageIds(playerId, context.vertices || [], nextEdges, context.tiles || [])
+            .filter(villageId => !(player.lostTribeVillageIds || []).includes(villageId))
+        : [];
+      if (newlyReachedVillageIds.length > 0) {
+        const grantedVillageIds = new Set(
+          (context.tiles || []).flatMap((tile: any) => tile.lostTribeVillages || [])
+            .filter((village: any) => newlyReachedVillageIds.includes(village.id) && village.clothRemaining > 0)
+            .map((village: any) => village.id)
+        );
+        context.setTiles?.((previous: any[]) => previous.map(tile => ({
+          ...tile,
+          lostTribeVillages: tile.lostTribeVillages?.map((village: any) => {
+            if (!newlyReachedVillageIds.includes(village.id)) return village;
+            const connectedPlayerIds = [...new Set([...(village.connectedPlayerIds || []), playerId])];
+            if (village.clothRemaining > 0) {
+              return { ...village, clothRemaining: village.clothRemaining - 1, connectedPlayerIds };
+            }
+            return { ...village, connectedPlayerIds };
+          }),
+        })));
+        context.setPlayers?.((previous: any[]) => previous.map(candidate => candidate.id === playerId ? {
+          ...candidate,
+          lostTribeVillageIds: [...new Set([...(candidate.lostTribeVillageIds || []), ...newlyReachedVillageIds])],
+          clothRolls: (candidate.clothRolls || 0) + grantedVillageIds.size,
+        } : candidate));
+        context.addLog?.(`🧵 ${player.name} יצר קשר מסחר עם ${newlyReachedVillageIds.length} כפר/ים וקיבל ${grantedVillageIds.size} גליל/י בד.`);
+      }
 
       if (isSetupPhase) {
         context.showBuildingCostToast?.('SHIP', true, true);
@@ -471,8 +588,27 @@ export function dispatchGameAction(action: GameAction, context?: DispatcherConte
       const player = context.players?.find((p: any) => p.id === playerId);
       if (!player) return;
       const availableCardCount = (player.developmentCards?.[cardType] || 0) - (player.boughtDevCardsThisTurn?.[cardType] || 0);
-      if (cardType === 'VICTORY_POINT' || availableCardCount <= 0 || player.playedDevCardThisTurn ||
+      if ((cardType === 'VICTORY_POINT' && context.selectedScenario !== 'PIRATE_ISLANDS') || availableCardCount <= 0 || player.playedDevCardThisTurn ||
           !['BEFORE_ROLL', 'TRADE_AND_BUILD'].includes(context.turnSubPhase || '')) return;
+
+      if (context.selectedScenario === 'PIRATE_ISLANDS' && (cardType === 'KNIGHT' || cardType === 'VICTORY_POINT')) {
+        const warshipTarget = getPirateShippingLine(context.tiles || [], context.vertices || [], context.edges || [], playerId)
+          ?.find((edge: any) => !edge.isWarship);
+        if (!warshipTarget) {
+          context.addLog?.('יש לבנות תחילה ספינה רגילה כדי להפוך אותה לספינת מלחמה.');
+          return;
+        }
+        context.setEdges?.((previous: any[]) => previous.map(edge =>
+          edge.id === warshipTarget.id ? { ...edge, isWarship: true } : edge
+        ));
+        context.setPlayers?.((previous: any[]) => previous.map(p => p.id === playerId ? {
+          ...p,
+          playedDevCardThisTurn: true,
+          developmentCards: { ...p.developmentCards, [cardType]: Math.max(0, (p.developmentCards[cardType] || 0) - 1) },
+        } : p));
+        context.addLog?.(`⚔️ ${player.name} הפך ספינה לספינת מלחמה.`);
+        break;
+      }
 
       const resourceLabels: Record<string, string> = {
         WOOD: 'עץ', BRICK: 'לבנה', SHEEP: 'כבש', WHEAT: 'חיטה', ORE: 'ברזל'
@@ -566,6 +702,39 @@ export function dispatchGameAction(action: GameAction, context?: DispatcherConte
     }
 
     // --- 7. הזזת שודד וגניבה ---
+    case 'ATTACK_PIRATE_FORTRESS': {
+      const fortress = context.vertices?.find((vertex: any) => vertex.id === action.fortressVertexId);
+      const player = context.players?.find((candidate: any) => candidate.id === playerId);
+      if (!fortress?.pirateFortress || fortress.pirateFortress.playerId !== playerId || fortress.pirateFortress.conquered || !player) return;
+      const path = getPirateShippingPath(context.tiles || [], context.vertices || [], context.edges || [], playerId);
+      const warships = (path || []).filter((edge: any) => edge.isWarship);
+      if (warships.length === 0) return;
+      const fortressPower = action.fortressPower ?? Math.floor(Math.random() * 6) + 1;
+      if (warships.length > fortressPower) {
+        const remainingTokens = Math.max(0, fortress.pirateFortress.remainingTokens - 1);
+        context.setVertices?.((previous: any[]) => previous.map(vertex => vertex.id !== fortress.id ? vertex : {
+          ...vertex,
+          structure: remainingTokens === 0 ? 'SETTLEMENT' : vertex.structure,
+          playerId: remainingTokens === 0 ? playerId : vertex.playerId,
+          pirateFortress: { ...vertex.pirateFortress, remainingTokens, conquered: remainingTokens === 0 },
+        }));
+        if (remainingTokens === 0) context.setPlayers?.((previous: any[]) => previous.map(candidate => candidate.id === playerId
+          ? { ...candidate, victoryPoints: (candidate.victoryPoints || 0) + 1 } : candidate));
+        context.addLog?.(`⚔️ כוח המבצר היה ${fortressPower}; ${player.name} ניצח${remainingTokens === 0 ? ' וכבש את המבצר!' : ' ולקח אסימון קטאן.'}`);
+      } else {
+        const losses = warships.length === fortressPower ? 1 : 2;
+        const removedEdgeIds = (path || []).slice(-losses).map((edge: any) => edge.id);
+        context.setEdges?.((previous: any[]) => previous.map(edge => removedEdgeIds.includes(edge.id)
+          ? { ...edge, hasShip: false, shipPlayerId: undefined, isWarship: false } : edge));
+        context.addLog?.(`⚔️ כוח המבצר היה ${fortressPower}; ${player.name} איבד ${removedEdgeIds.length} ספינות.`);
+      }
+      if ((context.vertices || []).filter((vertex: any) => vertex.pirateFortress).every((vertex: any) => vertex.pirateFortress.conquered || vertex.id === fortress.id && fortress.pirateFortress.remainingTokens === 1 && warships.length > fortressPower)) {
+        context.setTiles?.((previous: any[]) => previous.map(tile => ({ ...tile, hasPirate: false })));
+      }
+      context.endTurn?.();
+      break;
+    }
+
     case 'MOVE_ROBBER': {
       const { tileId, hasEligibleVictims, eligibleVictimPlayerIds } = action;
       const targetTile = context.tiles?.find((t: any) => t.id === tileId);
@@ -615,6 +784,8 @@ export function dispatchGameAction(action: GameAction, context?: DispatcherConte
 
       context.setPlayers?.((prevPlayers: any[]) => prevPlayers.map(p => {
         if (p.id === victimPlayerId) {
+          if (stolenResource === 'CLOTH' && context.activeExpansion !== 'CITIES_AND_KNIGHTS') return { ...p, clothRolls: Math.max(0, (p.clothRolls || 0) - 1) };
+          if (['COIN', 'PAPER', 'CLOTH'].includes(stolenResource)) return { ...p, commodities: { ...p.commodities, [stolenResource]: Math.max(0, (p.commodities?.[stolenResource] || 0) - 1) } };
           return {
             ...p,
             resources: {
@@ -624,6 +795,8 @@ export function dispatchGameAction(action: GameAction, context?: DispatcherConte
           };
         }
         if (p.id === playerId) {
+          if (stolenResource === 'CLOTH' && context.activeExpansion !== 'CITIES_AND_KNIGHTS') return { ...p, devCardReturnSubPhase: undefined, clothRolls: (p.clothRolls || 0) + 1 };
+          if (['COIN', 'PAPER', 'CLOTH'].includes(stolenResource)) return { ...p, devCardReturnSubPhase: undefined, commodities: { ...p.commodities, [stolenResource]: (p.commodities?.[stolenResource] || 0) + 1 } };
           return {
             ...p,
             devCardReturnSubPhase: undefined,
@@ -636,7 +809,7 @@ export function dispatchGameAction(action: GameAction, context?: DispatcherConte
         return p;
       }));
 
-      context.addLog?.(`[שודד] ${stealer.name} שדד קלף ${stolenResource} מ-${victim.name}.`);
+      context.addLog?.(`[שודד] ${stealer.name} שדד ${stolenResource === 'CLOTH' ? 'גליל בד' : `קלף ${stolenResource}`} מ-${victim.name}.`);
       context.setRobberyState?.(null);
       context.setTurnSubPhase?.(returnSubPhase);
       break;
@@ -646,12 +819,58 @@ export function dispatchGameAction(action: GameAction, context?: DispatcherConte
     case 'MOVE_SHIP': {
       const { fromEdgeId, toEdgeId } = action;
       const player = context.players?.find((p: any) => p.id === playerId);
+      const shipTarget = context.edges?.find((edge: any) => edge.id === toEdgeId);
+      const rewardLog = player && shipTarget ? getLostTribeRewardLog(player.name, shipTarget) : null;
+      const harborGiftCanBePlaced = !!(player && shipTarget?.lostTribeReward?.kind === 'HARBOR' &&
+        getEligibleHarborEdges(playerId, context.vertices || [], context.edges || [], context.tiles || []).length > 0);
 
-      context.setEdges?.((prev: any[]) => prev.map(e => {
+      const nextEdges = (context.edges || []).map((e: any) => {
         if (e.id === fromEdgeId) return { ...e, hasShip: false, shipPlayerId: undefined };
-        if (e.id === toEdgeId) return { ...e, hasShip: true, shipPlayerId: playerId };
+        if (e.id === toEdgeId) return {
+          ...e,
+          hasShip: true,
+          shipPlayerId: playerId,
+          lostTribeReward: e.lostTribeReward && !e.lostTribeReward.collectedBy
+            ? { ...e.lostTribeReward, collectedBy: playerId }
+            : e.lostTribeReward,
+        };
         return e;
-      }));
+      });
+      context.setEdges?.(nextEdges);
+
+      if (player && shipTarget?.lostTribeReward && !shipTarget.lostTribeReward.collectedBy) {
+        context.setPlayers?.((previous: any[]) => previous.map(candidate => {
+          if (candidate.id !== playerId) return candidate;
+          const claimed = claimLostTribeReward(candidate, shipTarget);
+          return harborGiftCanBePlaced ? {
+            ...claimed,
+            harborReturnSubPhase: context.turnSubPhase === 'BEFORE_ROLL' ? 'BEFORE_ROLL' : 'TRADE_AND_BUILD',
+          } : claimed;
+        }));
+        if (rewardLog) context.addLog?.(rewardLog);
+        if (harborGiftCanBePlaced) context.setTurnSubPhase?.('HARBOR_PLACEMENT');
+      }
+
+      if (context.selectedScenario === 'CLOTH_FOR_CATAN' && player) {
+        const newlyReachedVillageIds = getReachedLostTribeVillageIds(playerId, context.vertices || [], nextEdges, context.tiles || [])
+          .filter(villageId => !(player.lostTribeVillageIds || []).includes(villageId));
+        if (newlyReachedVillageIds.length) {
+          const granted = new Set((context.tiles || []).flatMap((tile: any) => tile.lostTribeVillages || [])
+            .filter((village: any) => newlyReachedVillageIds.includes(village.id) && village.clothRemaining > 0)
+            .map((village: any) => village.id));
+          context.setTiles?.((previous: any[]) => previous.map(tile => ({
+            ...tile,
+            lostTribeVillages: tile.lostTribeVillages?.map((village: any) => newlyReachedVillageIds.includes(village.id)
+              ? { ...village, connectedPlayerIds: [...new Set([...(village.connectedPlayerIds || []), playerId])], clothRemaining: Math.max(0, village.clothRemaining - (granted.has(village.id) ? 1 : 0)) }
+              : village),
+          })));
+          context.setPlayers?.((previous: any[]) => previous.map(candidate => candidate.id === playerId ? {
+            ...candidate,
+            clothRolls: (candidate.clothRolls || 0) + granted.size,
+            lostTribeVillageIds: [...new Set([...(candidate.lostTribeVillageIds || []), ...newlyReachedVillageIds])],
+          } : candidate));
+        }
+      }
 
       context.setHasMovedShipThisTurn?.(true);
       context.addLog?.(`⛵ ${player?.name || 'שחקן'} העביר ספינה פתוחה למיקום חדש.`);
@@ -818,6 +1037,384 @@ export function dispatchGameAction(action: GameAction, context?: DispatcherConte
       } : candidate));
       if (payment === 'RESOURCES') context.setResourceBank?.(previous => ({ ...previous, WOOD: previous.WOOD + 1, ORE: previous.ORE + 1 }));
       else context.setGoldCoins?.(previous => ({ ...previous, [playerId]: previous[playerId] - 3 }));
+      break;
+    }
+
+    // --- Cities & Knights ---
+    case 'BUILD_KNIGHT': {
+      context.setVertices?.((previous: any[]) => previous.map(vertex => vertex.id === action.vertexId
+        ? { ...vertex, knight: { playerId, level: 1, active: false, actedThisTurn: false } }
+        : vertex));
+      context.setPlayers?.((previous: any[]) => previous.map(player => player.id === playerId ? {
+        ...player,
+        resources: { ...player.resources, SHEEP: player.resources.SHEEP - 1, ORE: player.resources.ORE - 1 },
+      } : player));
+      context.setResourceBank?.(bank => ({ ...bank, SHEEP: bank.SHEEP + 1, ORE: bank.ORE + 1 }));
+      context.addLog?.('נבנה אביר בסיסי.');
+      break;
+    }
+    case 'ACTIVATE_KNIGHT': {
+      context.setVertices?.((previous: any[]) => previous.map(vertex => vertex.id === action.vertexId && vertex.knight
+        ? { ...vertex, knight: { ...vertex.knight, active: true, actedThisTurn: false } } : vertex));
+      context.setPlayers?.((previous: any[]) => previous.map(player => player.id === playerId ? {
+        ...player, resources: { ...player.resources, WHEAT: player.resources.WHEAT - 1 },
+      } : player));
+      context.setResourceBank?.(bank => ({ ...bank, WHEAT: bank.WHEAT + 1 }));
+      break;
+    }
+    case 'UPGRADE_KNIGHT': {
+      const player = context.players?.find((candidate: any) => candidate.id === playerId);
+      const isFreePromotion = (player?.freeKnightPromotions || 0) > 0;
+      context.setVertices?.((previous: any[]) => previous.map(vertex => vertex.id === action.vertexId && vertex.knight
+        ? { ...vertex, knight: { ...vertex.knight, level: Math.min(3, vertex.knight.level + 1), promotedThisTurn: true } } : vertex));
+      context.setPlayers?.((previous: any[]) => previous.map(player => player.id === playerId ? {
+        ...player,
+        freeKnightPromotions: isFreePromotion ? Math.max(0, (player.freeKnightPromotions || 0) - 1) : player.freeKnightPromotions,
+        resources: isFreePromotion ? player.resources : { ...player.resources, SHEEP: player.resources.SHEEP - 1, ORE: player.resources.ORE - 1 },
+      } : player));
+      if (!isFreePromotion) context.setResourceBank?.(bank => ({ ...bank, SHEEP: bank.SHEEP + 1, ORE: bank.ORE + 1 }));
+      break;
+    }
+    case 'MOVE_KNIGHT': {
+      const source = context.vertices?.find((vertex: any) => vertex.id === action.fromVertexId);
+      if (!source?.knight) return;
+      context.setVertices?.((previous: any[]) => previous.map(vertex => {
+        if (vertex.id === action.fromVertexId) { const { knight, ...rest } = vertex; return rest; }
+        if (vertex.id === action.toVertexId) return { ...vertex, knight: { ...source.knight, actedThisTurn: true } };
+        return vertex;
+      }));
+      break;
+    }
+    case 'DISPLACE_KNIGHT': {
+      const source = context.vertices?.find((vertex: any) => vertex.id === action.fromVertexId);
+      const target = context.vertices?.find((vertex: any) => vertex.id === action.toVertexId);
+      if (!source?.knight || !target?.knight) return;
+      context.setCitiesKnightsState?.((previous: any) => ({
+        ...previous,
+        pendingDisplacedKnight: { ownerId: target.knight.playerId, knight: { ...target.knight }, originVertexId: action.toVertexId },
+      }));
+      context.setVertices?.((previous: any[]) => previous.map(vertex => {
+        if (vertex.id === action.fromVertexId) { const { knight, ...rest } = vertex; return rest; }
+        if (vertex.id === action.toVertexId) return { ...vertex, knight: { ...source.knight, actedThisTurn: true } };
+        return vertex;
+      }));
+      context.setTurnSubPhase?.('KNIGHT_DISPLACEMENT');
+      break;
+    }
+    case 'RELOCATE_DISPLACED_KNIGHT': {
+      const pending = context.citiesKnightsState?.pendingDisplacedKnight;
+      if (!pending) return;
+      if (action.toVertexId) context.setVertices?.((previous: any[]) => previous.map(vertex => vertex.id === action.toVertexId ? { ...vertex, knight: { ...pending.knight } } : vertex));
+      context.setCitiesKnightsState?.((previous: any) => ({ ...previous, pendingDisplacedKnight: undefined }));
+      context.setTurnSubPhase?.('TRADE_AND_BUILD');
+      break;
+    }
+    case 'SELECT_DESERTER_KNIGHT': {
+      const target = context.vertices?.find((vertex: any) => vertex.id === action.vertexId);
+      const pending = context.citiesKnightsState?.deserterPending;
+      if (!target?.knight || pending?.targetPlayerId !== playerId || context.turnSubPhase !== 'DESERTER_SELECT') return;
+      context.setVertices?.((previous: any[]) => previous.map(vertex => vertex.id === action.vertexId ? { ...vertex, knight: undefined } : vertex));
+      context.setCitiesKnightsState?.((previous: any) => ({ ...previous, deserterPending: { ...previous.deserterPending, knight: { ...target.knight } } }));
+      context.setTurnSubPhase?.('DESERTER_PLACE');
+      break;
+    }
+    case 'PLACE_DESERTER_KNIGHT': {
+      const pending = context.citiesKnightsState?.deserterPending;
+      if (!pending?.knight || pending.actorId !== playerId || context.turnSubPhase !== 'DESERTER_PLACE') return;
+      context.setVertices?.((previous: any[]) => previous.map(vertex => vertex.id === action.vertexId ? { ...vertex, knight: { ...pending.knight, playerId, actedThisTurn: false } } : vertex));
+      context.setCitiesKnightsState?.((previous: any) => ({ ...previous, deserterPending: undefined }));
+      context.setTurnSubPhase?.('TRADE_AND_BUILD');
+      break;
+    }
+    case 'BUILD_CITY_WALL': {
+      context.setVertices?.((previous: any[]) => previous.map(vertex => vertex.id === action.vertexId ? { ...vertex, cityWall: true } : vertex));
+      context.setPlayers?.((previous: any[]) => previous.map(player => player.id === playerId ? {
+        ...player, resources: { ...player.resources, BRICK: player.resources.BRICK - 2 },
+      } : player));
+      context.setResourceBank?.(bank => ({ ...bank, BRICK: bank.BRICK + 2 }));
+      break;
+    }
+    case 'UPGRADE_CITY_IMPROVEMENT': {
+      const player = context.players?.find((candidate: any) => candidate.id === playerId);
+      const current = player?.cityImprovements?.[action.track] || 0;
+      const commodity = { SCIENCE: 'PAPER', POLITICS: 'COIN', TRADE: 'CLOTH' }[action.track];
+      const cost = Math.max(0, current + 1 - (player?.cityImprovementDiscount || 0));
+      context.setPlayers?.((previous: any[]) => previous.map(candidate => candidate.id === playerId ? {
+        ...candidate,
+        commodities: { ...candidate.commodities, [commodity]: candidate.commodities[commodity] - cost },
+        cityImprovements: { ...candidate.cityImprovements, [action.track]: current + 1 },
+        cityImprovementDiscount: 0,
+      } : candidate));
+      context.setCommodityBank?.((bank: any) => ({ ...bank, [commodity]: bank[commodity] + cost }));
+      if (current + 1 >= 4) {
+        const incumbentId = context.citiesKnightsState?.metropolisOwners?.[action.track];
+        const incumbentLevel = incumbentId ? context.players?.find((candidate: any) => candidate.id === incumbentId)?.cityImprovements?.[action.track] || 0 : 0;
+        if (!incumbentId || current + 1 > incumbentLevel) {
+          context.setVertices?.((previous: any[]) => {
+            const target = previous.find(vertex => vertex.playerId === playerId && vertex.structure === 'CITY');
+            return previous.map(vertex => vertex.metropolis === action.track
+              ? { ...vertex, metropolis: undefined }
+              : vertex.id === target?.id ? { ...vertex, metropolis: action.track } : vertex);
+          });
+          context.setCitiesKnightsState?.((previous: any) => ({
+            ...previous, metropolisOwners: { ...(previous.metropolisOwners || {}), [action.track]: playerId },
+          }));
+          context.setPlayers?.((previous: any[]) => previous.map(candidate => {
+            if (candidate.id === playerId) return { ...candidate, victoryPoints: (candidate.victoryPoints || 0) + 2 };
+            if (candidate.id === incumbentId) return { ...candidate, victoryPoints: Math.max(0, (candidate.victoryPoints || 0) - 2) };
+            return candidate;
+          }));
+        }
+      }
+      break;
+    }
+    case 'DOWNGRADE_CITY': {
+      context.setVertices?.((previous: any[]) => previous.map(vertex => vertex.id === action.vertexId ? { ...vertex, structure: 'SETTLEMENT', cityWall: false } : vertex));
+      context.setPlayers?.((previous: any[]) => previous.map(player => player.id === playerId ? { ...player, victoryPoints: Math.max(0, (player.victoryPoints || 0) - 1) } : player));
+      context.setCitiesKnightsState?.((previous: any) => {
+        const queue = (previous.barbarianLossQueue || []).slice(1);
+        return { ...previous, barbarianLossQueue: queue };
+      });
+      if ((context.citiesKnightsState?.barbarianLossQueue || []).length <= 1) context.setTurnSubPhase?.('TRADE_AND_BUILD');
+      break;
+    }
+    case 'PLAY_PROGRESS_CARD': {
+      const player = context.players?.find((candidate: any) => candidate.id === playerId);
+      if (!player?.progressCards?.includes(action.cardId)) return;
+      const track = {
+        ALCHEMIST: 'SCIENCE', INVENTOR: 'SCIENCE', BISHOP: 'POLITICS', SABOTEUR: 'POLITICS', WEDDING: 'POLITICS', DESERTER: 'POLITICS', DIPLOMAT: 'POLITICS', INTRIGUE: 'POLITICS', WARLORD: 'POLITICS', ROAD_BUILDING: 'SCIENCE', CRANE: 'SCIENCE', SMITH: 'SCIENCE', ENGINEER: 'SCIENCE', IRRIGATION: 'SCIENCE', MINING: 'SCIENCE', MEDICINE: 'SCIENCE', RESOURCE_MONOPOLY: 'TRADE', TRADE_MONOPOLY: 'TRADE', COMMERCIAL_HARBOR: 'TRADE', MASTER_MERCHANT: 'TRADE', SPY: 'POLITICS', MERCHANT: 'TRADE', MERCHANT_FLEET: 'TRADE',
+      }[action.cardId] as 'SCIENCE' | 'POLITICS' | 'TRADE' | undefined;
+      if (!track) return;
+      context.setPlayers?.((previous: any[]) => previous.map(candidate => candidate.id === playerId
+        ? { ...candidate, progressCards: candidate.progressCards.filter((card: string, index: number) => card !== action.cardId || index !== candidate.progressCards.indexOf(action.cardId)) }
+        : candidate));
+      context.setCitiesKnightsState?.((previous: any) => ({
+        ...previous,
+        progressDecks: { ...previous.progressDecks, [track]: [...(previous.progressDecks?.[track] || []), action.cardId] },
+      }));
+      if (action.cardId === 'WARLORD') {
+        context.setVertices?.((previous: any[]) => previous.map(vertex => vertex.knight?.playerId === playerId && !vertex.knight.active
+          ? { ...vertex, knight: { ...vertex.knight, active: true, actedThisTurn: false } } : vertex));
+      } else if (action.cardId === 'ROAD_BUILDING') {
+        context.setRoadBuildingRemaining?.((previous: number) => previous + 2);
+      } else if (action.cardId === 'ALCHEMIST' && action.data?.diceValues && action.data.eventDie) {
+        context.setPlayers?.((previous: any[]) => previous.map(candidate => candidate.id === playerId ? {
+          ...candidate, alchemistDice: action.data!.diceValues, alchemistEventDie: action.data!.eventDie,
+        } : candidate));
+      } else if (action.cardId === 'INVENTOR' && action.data?.tileAId && action.data?.tileBId) {
+        context.setTiles?.((previous: any[]) => {
+          const tileA = previous.find(tile => tile.id === action.data!.tileAId);
+          const tileB = previous.find(tile => tile.id === action.data!.tileBId);
+          if (!tileA || !tileB) return previous;
+          return previous.map(tile => tile.id === tileA.id ? { ...tile, numberToken: tileB.numberToken }
+            : tile.id === tileB.id ? { ...tile, numberToken: tileA.numberToken } : tile);
+        });
+      } else if ((action.cardId === 'RESOURCE_MONOPOLY' || action.cardId === 'TRADE_MONOPOLY') && action.data?.resource) {
+        const field = action.cardId === 'RESOURCE_MONOPOLY' ? 'resources' : 'commodities';
+        const key = action.data.resource;
+        context.setPlayers?.((previous: any[]) => {
+          const received = previous.filter(candidate => candidate.id !== playerId).reduce((total, candidate) => total + (candidate[field]?.[key] || 0), 0);
+          return previous.map(candidate => candidate.id === playerId
+            ? { ...candidate, [field]: { ...candidate[field], [key]: (candidate[field]?.[key] || 0) + received } }
+            : { ...candidate, [field]: { ...candidate[field], [key]: 0 } });
+        });
+      } else if (action.cardId === 'MASTER_MERCHANT' && action.data?.targetPlayerId && action.data.selectedCards?.length === 2) {
+        context.setPlayers?.((previous: any[]) => previous.map(candidate => {
+          if (candidate.id !== playerId && candidate.id !== action.data!.targetPlayerId) return candidate;
+          const isTarget = candidate.id === action.data!.targetPlayerId;
+          return action.data!.selectedCards!.reduce((next, card) => {
+            const field = ['WOOD', 'BRICK', 'SHEEP', 'WHEAT', 'ORE'].includes(card) ? 'resources' : 'commodities';
+            return { ...next, [field]: { ...next[field], [card]: (next[field]?.[card] || 0) + (isTarget ? -1 : 1) } };
+          }, candidate);
+        }));
+      } else if (action.cardId === 'SPY' && action.data?.targetPlayerId && action.data.targetCardId) {
+        context.setPlayers?.((previous: any[]) => previous.map(candidate => candidate.id === playerId
+          ? { ...candidate, progressCards: [...(candidate.progressCards || []), action.data!.targetCardId] }
+          : candidate.id === action.data!.targetPlayerId
+            ? { ...candidate, progressCards: (candidate.progressCards || []).filter((card: string, index: number) => card !== action.data!.targetCardId || index !== candidate.progressCards.indexOf(action.data!.targetCardId)) }
+            : candidate));
+        if ((player.progressCards || []).length > 4) {
+          context.setCitiesKnightsState?.((previous: any) => ({ ...previous, progressDiscardQueue: [playerId] }));
+          context.setTurnSubPhase?.('PROGRESS_DISCARD');
+        }
+      } else if (action.cardId === 'MERCHANT' && action.data?.tileId) {
+        const tile = (context.tiles || []).find((candidate: any) => candidate.id === action.data!.tileId);
+        if (!tile) return;
+        const formerOwner = context.citiesKnightsState?.merchant?.playerId;
+        context.setCitiesKnightsState?.((previous: any) => ({ ...previous, merchant: { playerId, resource: tile.type } }));
+        if (formerOwner !== playerId) context.setPlayers?.((previous: any[]) => previous.map(candidate => candidate.id === playerId
+          ? { ...candidate, victoryPoints: (candidate.victoryPoints || 0) + 1 }
+          : candidate.id === formerOwner ? { ...candidate, victoryPoints: Math.max(0, (candidate.victoryPoints || 0) - 1) } : candidate));
+      } else if (action.cardId === 'MERCHANT_FLEET' && action.data?.resource) {
+        context.setPlayers?.((previous: any[]) => previous.map(candidate => candidate.id === playerId
+          ? { ...candidate, merchantFleetResource: action.data!.resource } : candidate));
+      } else if (action.cardId === 'BISHOP' && action.data?.tileId) {
+        const targetTile = (context.tiles || []).find((candidate: any) => candidate.id === action.data!.tileId);
+        if (!targetTile) return;
+        const center = cubeToPixel(targetTile.coord, 60);
+        const vertexIds = new Set(Array.from({ length: 6 }, (_, index) => {
+          const angle = (Math.PI / 180) * (60 * index - 30);
+          return `v_${Math.round((center.x + 60 * Math.cos(angle)) * 10) / 10}_${Math.round((center.y + 60 * Math.sin(angle)) * 10) / 10}`;
+        }));
+        const victimIds = (context.vertices || []).filter((vertex: any) => vertexIds.has(vertex.id) && vertex.playerId && vertex.playerId !== playerId && vertex.structure !== 'NONE')
+          .map((vertex: any) => vertex.playerId).filter((id: string, index: number, all: string[]) => all.indexOf(id) === index);
+        context.setTiles?.((previous: any[]) => previous.map(tile => ({ ...tile, hasRobber: tile.id === targetTile.id })));
+        context.setPlayers?.((previous: any[]) => {
+          const next = previous.map(candidate => ({ ...candidate, resources: { ...candidate.resources }, commodities: { ...candidate.commodities } }));
+          const recipient = next.find(candidate => candidate.id === playerId);
+          victimIds.forEach((victimId: string) => {
+            const victim = next.find(candidate => candidate.id === victimId);
+            const resource = ['WOOD', 'BRICK', 'SHEEP', 'WHEAT', 'ORE'].find(key => (victim.resources?.[key] || 0) > 0);
+            const commodity = ['COIN', 'PAPER', 'CLOTH'].find(key => (victim.commodities?.[key] || 0) > 0);
+            const card = resource || commodity;
+            if (!card) return;
+            const field = resource ? 'resources' : 'commodities';
+            victim[field][card] -= 1;
+            recipient[field][card] += 1;
+          });
+          return next;
+        });
+      } else if (action.cardId === 'SABOTEUR') {
+        const leadingPoints = Math.max(...(context.players || []).filter(candidate => candidate.id !== playerId).map(candidate => candidate.victoryPoints || 0));
+        const targets = (context.players || []).filter(candidate => candidate.id !== playerId && (candidate.victoryPoints || 0) === leadingPoints);
+        const queue = targets.filter(candidate => !candidate.isBot).map(candidate => {
+          const cards = Object.values(candidate.resources || {}).reduce((total: number, amount: any) => total + amount, 0) + Object.values(candidate.commodities || {}).reduce((total: number, amount: any) => total + amount, 0);
+          return { playerId: candidate.id, amount: Math.floor(cards / 2) };
+        }).filter(entry => entry.amount > 0);
+        const botLosses = new Map<string, { resources: Record<string, number>; commodities: Record<string, number> }>();
+        const botReturns = { resources: {} as Record<string, number>, commodities: {} as Record<string, number> };
+        targets.filter(candidate => candidate.isBot).forEach(candidate => {
+          let remaining = Math.floor((Object.values(candidate.resources || {}).reduce((total: number, amount: any) => total + amount, 0) + Object.values(candidate.commodities || {}).reduce((total: number, amount: any) => total + amount, 0)) / 2);
+          const loss = { resources: {} as Record<string, number>, commodities: {} as Record<string, number> };
+          ['WOOD', 'BRICK', 'SHEEP', 'WHEAT', 'ORE'].forEach(resource => { const amount = Math.min(candidate.resources?.[resource] || 0, remaining); loss.resources[resource] = amount; botReturns.resources[resource] = (botReturns.resources[resource] || 0) + amount; remaining -= amount; });
+          ['COIN', 'PAPER', 'CLOTH'].forEach(commodity => { const amount = Math.min(candidate.commodities?.[commodity] || 0, remaining); loss.commodities[commodity] = amount; botReturns.commodities[commodity] = (botReturns.commodities[commodity] || 0) + amount; remaining -= amount; });
+          botLosses.set(candidate.id, loss);
+        });
+        context.setPlayers?.((previous: any[]) => previous.map(candidate => {
+          const loss = botLosses.get(candidate.id);
+          return !loss ? candidate : {
+            ...candidate,
+            resources: Object.fromEntries(Object.entries(candidate.resources || {}).map(([key, amount]) => [key, (amount as number) - (loss.resources[key] || 0)])),
+            commodities: Object.fromEntries(Object.entries(candidate.commodities || {}).map(([key, amount]) => [key, (amount as number) - (loss.commodities[key] || 0)])),
+          };
+        }));
+        context.setResourceBank?.((previous: any) => ({ ...previous, ...Object.fromEntries(Object.entries(botReturns.resources).map(([key, amount]) => [key, (previous[key] || 0) + amount])) }));
+        context.setCommodityBank?.((previous: any) => ({ ...previous, ...Object.fromEntries(Object.entries(botReturns.commodities).map(([key, amount]) => [key, (previous[key] || 0) + amount])) }));
+        context.setCitiesKnightsState?.((previous: any) => ({ ...previous, sabotageDiscardQueue: queue }));
+        if (queue.length) context.setTurnSubPhase?.('SABOTEUR_DISCARD');
+      } else if (action.cardId === 'DESERTER' && action.data?.targetPlayerId) {
+        const target = context.players?.find((candidate: any) => candidate.id === action.data!.targetPlayerId);
+        const knightVertex = target?.isBot ? context.vertices?.find((vertex: any) => vertex.knight?.playerId === target.id) : undefined;
+        context.setCitiesKnightsState?.((previous: any) => ({ ...previous, deserterPending: { actorId: playerId, targetPlayerId: action.data!.targetPlayerId, ...(knightVertex ? { knight: { ...knightVertex.knight } } : {}) } }));
+        if (knightVertex) context.setVertices?.((previous: any[]) => previous.map(vertex => vertex.id === knightVertex.id ? { ...vertex, knight: undefined } : vertex));
+        context.setTurnSubPhase?.(knightVertex ? 'DESERTER_PLACE' : 'DESERTER_SELECT');
+      } else if (action.cardId === 'WEDDING') {
+        const winnerPoints = player.victoryPoints || 0;
+        const recipients = (context.players || []).filter(candidate => candidate.id !== playerId && (candidate.victoryPoints || 0) > winnerPoints);
+        const queue = recipients.filter(candidate => !candidate.isBot).map(candidate => ({
+          playerId: candidate.id,
+          recipientId: playerId,
+          amount: Math.min(2, Object.values(candidate.resources || {}).reduce((sum: number, amount: any) => sum + Number(amount || 0), 0) + Object.values(candidate.commodities || {}).reduce((sum: number, amount: any) => sum + Number(amount || 0), 0)),
+        })).filter(entry => entry.amount > 0);
+        context.setPlayers?.((previous: any[]) => {
+          const next = previous.map(candidate => ({ ...candidate, resources: { ...candidate.resources }, commodities: { ...candidate.commodities } }));
+          const receiving = next.find(candidate => candidate.id === playerId);
+          next.filter(candidate => candidate.isBot && recipients.some(recipient => recipient.id === candidate.id)).forEach(candidate => {
+            let remaining = Math.min(2, Object.values(candidate.resources || {}).reduce((sum: number, amount: any) => sum + Number(amount || 0), 0) + Object.values(candidate.commodities || {}).reduce((sum: number, amount: any) => sum + Number(amount || 0), 0));
+            ['WOOD', 'BRICK', 'SHEEP', 'WHEAT', 'ORE'].forEach(key => { const taken = Math.min(candidate.resources[key] || 0, remaining); candidate.resources[key] -= taken; receiving.resources[key] = (receiving.resources[key] || 0) + taken; remaining -= taken; });
+            ['COIN', 'PAPER', 'CLOTH'].forEach(key => { const taken = Math.min(candidate.commodities[key] || 0, remaining); candidate.commodities[key] -= taken; receiving.commodities[key] = (receiving.commodities[key] || 0) + taken; remaining -= taken; });
+          });
+          return next;
+        });
+        context.setCitiesKnightsState?.((previous: any) => ({ ...previous, weddingGiveQueue: queue }));
+        if (queue.length) context.setTurnSubPhase?.('WEDDING_GIVE');
+      } else if (action.cardId === 'COMMERCIAL_HARBOR') {
+        const queue = (context.players || []).filter(candidate => candidate.id !== playerId && !candidate.isBot &&
+          Object.values(candidate.resources || {}).reduce((sum: number, value: any) => sum + Number(value || 0), 0) + Object.values(candidate.commodities || {}).reduce((sum: number, value: any) => sum + Number(value || 0), 0) > 0)
+          .map(candidate => ({ playerId: candidate.id, recipientId: playerId }));
+        context.setPlayers?.((previous: any[]) => {
+          const next = previous.map(candidate => ({ ...candidate, resources: { ...candidate.resources }, commodities: { ...candidate.commodities } }));
+          const receiving = next.find(candidate => candidate.id === playerId);
+          next.filter(candidate => candidate.id !== playerId && candidate.isBot).forEach(candidate => {
+            const offered = ['WOOD', 'BRICK', 'SHEEP', 'WHEAT', 'ORE', 'COIN', 'PAPER', 'CLOTH'].find(card => ['WOOD', 'BRICK', 'SHEEP', 'WHEAT', 'ORE'].includes(card) ? (candidate.resources[card] || 0) > 0 : (candidate.commodities[card] || 0) > 0);
+            if (!offered) return;
+            const field = ['WOOD', 'BRICK', 'SHEEP', 'WHEAT', 'ORE'].includes(offered) ? 'resources' : 'commodities';
+            candidate[field][offered] -= 1;
+            receiving[field][offered] = (receiving[field][offered] || 0) + 1;
+            const returned = (field === 'resources' ? ['WOOD', 'BRICK', 'SHEEP', 'WHEAT', 'ORE'] : ['COIN', 'PAPER', 'CLOTH']).find(card => (receiving[field][card] || 0) > 0);
+            if (!returned) return;
+            receiving[field][returned] -= 1;
+            candidate[field][returned] = (candidate[field][returned] || 0) + 1;
+          });
+          return next;
+        });
+        context.setCitiesKnightsState?.((previous: any) => ({ ...previous, commercialHarborQueue: queue }));
+        if (queue.length) context.setTurnSubPhase?.('COMMERCIAL_HARBOR_GIVE');
+      } else if (action.cardId === 'DIPLOMAT' && action.data?.targetEdgeId) {
+        context.setEdges?.((previous: any[]) => previous.map(edge => edge.id === action.data!.targetEdgeId ? { ...edge, hasRoad: false, playerId: null } : edge));
+        context.setRoadBuildingRemaining?.((previous: number) => previous + 1);
+      } else if (action.cardId === 'INTRIGUE' && action.data?.targetVertexId) {
+        const target = context.vertices?.find((vertex: any) => vertex.id === action.data!.targetVertexId);
+        if (!target?.knight) return;
+        context.setVertices?.((previous: any[]) => previous.map(vertex => vertex.id === target.id ? { ...vertex, knight: undefined } : vertex));
+        context.setCitiesKnightsState?.((previous: any) => ({ ...previous, pendingDisplacedKnight: { ownerId: target.knight.playerId, knight: { ...target.knight }, originVertexId: target.id } }));
+        context.setTurnSubPhase?.('KNIGHT_DISPLACEMENT');
+      } else if (action.cardId === 'CRANE') {
+        context.setPlayers?.((previous: any[]) => previous.map(candidate => candidate.id === playerId ? { ...candidate, cityImprovementDiscount: 1 } : candidate));
+      } else if (action.cardId === 'SMITH') {
+        context.setPlayers?.((previous: any[]) => previous.map(candidate => candidate.id === playerId ? { ...candidate, freeKnightPromotions: (candidate.freeKnightPromotions || 0) + 2 } : candidate));
+      } else if (action.cardId === 'ENGINEER' && action.data?.vertexId) {
+        context.setVertices?.((previous: any[]) => previous.map(vertex => vertex.id === action.data!.vertexId ? { ...vertex, cityWall: true } : vertex));
+      } else if (action.cardId === 'IRRIGATION' || action.cardId === 'MINING') {
+        const resource = action.cardId === 'IRRIGATION' ? 'WHEAT' : 'ORE';
+        const hexes = (context.tiles || []).filter((tile: any) => {
+          if (tile.type !== resource) return false;
+          const center = cubeToPixel(tile.coord, 60);
+          return Array.from({ length: 6 }, (_, index) => {
+            const angle = (Math.PI / 180) * (60 * index - 30);
+            return `v_${Math.round((center.x + 60 * Math.cos(angle)) * 10) / 10}_${Math.round((center.y + 60 * Math.sin(angle)) * 10) / 10}`;
+          }).some(vertexId => {
+            const vertex = (context.vertices || []).find((candidate: any) => candidate.id === vertexId);
+            return vertex?.playerId === playerId && (vertex.structure === 'SETTLEMENT' || vertex.structure === 'CITY');
+          });
+        });
+        const amount = Math.min(hexes.length * 2, context.resourceBank?.[resource] || 0);
+        context.setPlayers?.((previous: any[]) => previous.map(candidate => candidate.id === playerId ? {
+          ...candidate, resources: { ...candidate.resources, [resource]: candidate.resources[resource] + amount },
+        } : candidate));
+        context.setResourceBank?.((previous: any) => ({ ...previous, [resource]: previous[resource] - amount }));
+      } else if (action.cardId === 'MEDICINE' && action.data?.vertexId) {
+        context.setVertices?.((previous: any[]) => previous.map(vertex => vertex.id === action.data!.vertexId ? { ...vertex, structure: 'CITY' } : vertex));
+        context.setPlayers?.((previous: any[]) => previous.map(candidate => candidate.id === playerId ? {
+          ...candidate,
+          victoryPoints: (candidate.victoryPoints || 0) + 1,
+          resources: { ...candidate.resources, WHEAT: candidate.resources.WHEAT - 1, ORE: candidate.resources.ORE - 2 },
+        } : candidate));
+        context.setResourceBank?.((previous: any) => ({ ...previous, WHEAT: previous.WHEAT + 1, ORE: previous.ORE + 2 }));
+      }
+      context.addLog?.(`הופעל קלף קִדמה: ${action.cardId}.`);
+      break;
+    }
+    case 'DISCARD_PROGRESS_CARD': {
+      const player = context.players?.find((candidate: any) => candidate.id === playerId);
+      if (!player?.progressCards?.includes(action.cardId)) return;
+      const track = {
+        ALCHEMIST: 'SCIENCE', CRANE: 'SCIENCE', ENGINEER: 'SCIENCE', INVENTOR: 'SCIENCE', IRRIGATION: 'SCIENCE', MEDICINE: 'SCIENCE', MINING: 'SCIENCE', ROAD_BUILDING: 'SCIENCE', SMITH: 'SCIENCE',
+        BISHOP: 'POLITICS', DESERTER: 'POLITICS', DIPLOMAT: 'POLITICS', INTRIGUE: 'POLITICS', SABOTEUR: 'POLITICS', SPY: 'POLITICS', WARLORD: 'POLITICS', WEDDING: 'POLITICS',
+        COMMERCIAL_HARBOR: 'TRADE', MASTER_MERCHANT: 'TRADE', MERCHANT: 'TRADE', MERCHANT_FLEET: 'TRADE', RESOURCE_MONOPOLY: 'TRADE', TRADE_MONOPOLY: 'TRADE',
+      }[action.cardId] as 'SCIENCE' | 'POLITICS' | 'TRADE' | undefined;
+      if (!track) return;
+      context.setPlayers?.((previous: any[]) => previous.map(candidate => candidate.id === playerId ? {
+        ...candidate, progressCards: candidate.progressCards.filter((card: string, index: number) => card !== action.cardId || index !== candidate.progressCards.indexOf(action.cardId)),
+      } : candidate));
+      context.setCitiesKnightsState?.((previous: any) => ({
+        ...previous,
+        progressDecks: { ...previous.progressDecks, [track]: [...(previous.progressDecks?.[track] || []), action.cardId] },
+        progressDiscardQueue: (previous.progressDiscardQueue || []).slice(1),
+      }));
+      if ((context.citiesKnightsState?.progressDiscardQueue || []).length <= 1) {
+        context.setTurnSubPhase?.('TRADE_AND_BUILD');
+      }
       break;
     }
 
