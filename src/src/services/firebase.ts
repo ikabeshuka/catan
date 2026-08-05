@@ -24,7 +24,10 @@ const firebaseConfig = {
 // אתחול האפליקציה והשירותים
 const app = initializeApp(firebaseConfig);
 export const auth = getAuth(app);
-export const db = initializeFirestore(app, { experimentalAutoDetectLongPolling: true });
+export const db = initializeFirestore(app, {
+  experimentalForceLongPolling: true,
+  useFetchStreams: false,
+} as any);
 export const googleProvider = new GoogleAuthProvider();
 
 // פונקציית התחברות מהירה עם Google

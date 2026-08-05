@@ -1,8 +1,8 @@
 /* oxlint-disable react/only-export-components */
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import { User, onAuthStateChanged } from 'firebase/auth';
-import { doc, getDoc, setDoc } from 'firebase/firestore';
-import { auth, db, signInWithGoogle, logoutUser, registerWithEmail, loginWithEmail } from '../services/firebase';
+import { auth, signInWithGoogle, logoutUser, registerWithEmail, loginWithEmail } from '../services/firebase';
+import { socketService } from '../services/network/socketService';
 import { GeneralPlayerStats, PlayerRatingStats, RoomParticipant, RatingCalculationResult } from '../types/rating.types';
 import { calculateGameRating } from '../utils/ai/rating/ratingCalculator';
 
@@ -73,6 +73,17 @@ export const UserProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   // 1. מאזין להתחברות/התנתקות ב-Firebase Auth
   useEffect(() => {
+    // Safety fallback timeout to guarantee isAuthLoading is set to false
+    const fallbackTimer = setTimeout(() => {
+      setIsAuthLoading((loading) => {
+        if (loading) {
+          console.warn('Authentication/profile loading took too long, resolving loading state.');
+          loadUserDataFromLocalStorage();
+        }
+        return false;
+      });
+    }, 3500);
+
     const unsubscribe = onAuthStateChanged(auth, async (user) => {
       setCurrentUser(user);
       if (user) {
@@ -82,10 +93,14 @@ export const UserProvider: React.FC<{ children: React.ReactNode }> = ({ children
         // משתמש אורח -> טעינה מ-localStorage
         loadUserDataFromLocalStorage();
       }
+      clearTimeout(fallbackTimer);
       setIsAuthLoading(false);
     });
 
-    return () => unsubscribe();
+    return () => {
+      unsubscribe();
+      clearTimeout(fallbackTimer);
+    };
   }, []);
 
   // טעינה מ-localStorage
@@ -111,14 +126,19 @@ export const UserProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   };
 
-  // טעינה מ-Firestore
+  // טעינה מ-Firestore (דרך השרת באמצעות סוקטים)
   const loadUserDataFromFirestore = async (user: User) => {
     try {
-      const userDocRef = doc(db, 'users', user.uid);
-      const docSnap = await getDoc(userDocRef);
+      console.log('[UserContext] Requesting user profile via Socket for UID:', user.uid);
+      const res = await socketService.getUserProfile({
+        uid: user.uid,
+        email: user.email,
+        displayName: user.displayName,
+      });
 
-      if (docSnap.exists()) {
-        const data = docSnap.data();
+      if (res?.success && res.profile) {
+        console.log('[UserContext] Successfully loaded user profile:', res.profile);
+        const data = res.profile;
         const fetchedStats = data.playerStats || DEFAULT_STATS;
         const normalizedStats = {
           ...DEFAULT_STATS,
@@ -131,18 +151,10 @@ export const UserProvider: React.FC<{ children: React.ReactNode }> = ({ children
         setPlayerStats(normalizedStats);
         setPlayerNameState(fetchedName);
       } else {
-        // יצירת מסמך ראשוני במקרה של משתמש חדש
-        const initialName = user.displayName || user.email?.split('@')[0] || 'שחקן';
-        setPlayerNameState(initialName);
-        await setDoc(userDocRef, {
-          playerName: initialName,
-          playerStats: playerStats,
-          email: user.email,
-          updatedAt: new Date().toISOString()
-        });
+        console.error('Failed to get user profile from socket server:', res?.message);
       }
     } catch (err) {
-      console.error('Failed to load user data from Firestore:', err);
+      console.error('Failed to load user data from Firestore via Socket:', err);
     }
   };
 
@@ -167,14 +179,13 @@ export const UserProvider: React.FC<{ children: React.ReactNode }> = ({ children
       localStorage.setItem(STORAGE_KEY, JSON.stringify(newStats));
       if (playerName) saveGeneralEntry(playerName, newStats);
 
-      // אם יש משתמש מחובר -> שמירה לענן ב-Firestore
+      // אם יש משתמש מחובר -> שמירה לענן דרך השרת באמצעות סוקטים
       if (auth.currentUser) {
-        const userDocRef = doc(db, 'users', auth.currentUser.uid);
-        await setDoc(userDocRef, {
-          playerStats: newStats,
+        await socketService.syncUserProfile({
+          uid: auth.currentUser.uid,
           playerName,
-          updatedAt: new Date().toISOString()
-        }, { merge: true });
+          playerStats: newStats,
+        });
       }
     } catch (err) {
       console.error('Failed to save player stats:', err);
@@ -190,10 +201,12 @@ export const UserProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
     if (auth.currentUser) {
       try {
-        const userDocRef = doc(db, 'users', auth.currentUser.uid);
-        await setDoc(userDocRef, { playerName: nextName }, { merge: true });
+        await socketService.syncUserProfile({
+          uid: auth.currentUser.uid,
+          playerName: nextName,
+        });
       } catch (err) {
-        console.error('Failed to update name in Firestore:', err);
+        console.error('Failed to update name in Firestore via Socket:', err);
       }
     }
   };

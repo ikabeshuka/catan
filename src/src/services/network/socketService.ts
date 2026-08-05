@@ -75,7 +75,12 @@ class SocketService {
       if (!this.socket.connected) this.socket.connect();
       return;
     }
-    this.socket = io(serverUrl, { autoConnect: true, transports: ['websocket', 'polling'], reconnection: true });
+    this.socket = io(serverUrl, {
+      autoConnect: true,
+      transports: ['polling'],
+      upgrade: false,
+      reconnection: true,
+    });
     this.socket.on('connect', () => this.resumeSession());
     this.socket.on('room_not_found', (error: { message?: string }) => this.showConnectionError(error?.message || 'החדר המבוקש לא נמצא'));
     this.socket.on('authorization_error', (error: { message?: string }) => this.showConnectionError(error?.message || 'אין הרשאה לבצע פעולה זו'));
@@ -171,6 +176,49 @@ class SocketService {
       this.socket?.off('game_state_snapshot', remoteHandler);
       this.snapshotCallbacks.delete(callback);
     };
+  }
+
+  getUserProfile(payload: { uid: string; email?: string | null; displayName?: string | null }): Promise<any> {
+    return new Promise((resolve) => {
+      if (!this.socket) {
+        this.connect();
+      } else if (!this.socket.connected) {
+        this.socket.connect();
+      }
+
+      if (!this.socket) {
+        console.error('[SocketService] No socket instance available for getUserProfile');
+        return resolve({ success: false, message: 'No connection' });
+      }
+
+      const emitProfile = () => {
+        console.log('[SocketService] Emitting get_user_profile for UID:', payload.uid);
+        this.socket?.emit('get_user_profile', payload, (response: any) => {
+          console.log('[SocketService] Received get_user_profile response:', response);
+          resolve(response);
+        });
+      };
+
+      if (this.socket.connected) {
+        emitProfile();
+      } else {
+        console.log('[SocketService] Socket not connected, waiting for connect event to emit get_user_profile...');
+        this.socket.once('connect', () => {
+          console.log('[SocketService] Socket connected! Proceeding to emit get_user_profile...');
+          emitProfile();
+        });
+      }
+    });
+  }
+
+  syncUserProfile(payload: { uid: string; playerName?: string; playerStats?: any }): Promise<any> {
+    return new Promise((resolve) => {
+      if (!this.socket) this.connect();
+      if (!this.socket) return resolve({ success: false, message: 'No connection' });
+      this.socket.emit('sync_user_profile', payload, (response: any) => {
+        resolve(response);
+      });
+    });
   }
 
   updateGameSettings(roomId: string, settings: any) { this.socket?.emit('game_settings_update', { roomId, settings }); }

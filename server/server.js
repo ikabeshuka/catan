@@ -3,7 +3,28 @@ const http = require('http');
 const crypto = require('crypto');
 const cors = require('cors');
 const { Server } = require('socket.io');
+const admin = require('firebase-admin');
 const { validateActionShape, validateGameAction, applyReservedAction, DEV_CARD_TYPES, RESOURCE_TYPES } = require('./gameRules');
+
+let db = null;
+if (process.env.FIREBASE_PROJECT_ID && process.env.FIREBASE_CLIENT_EMAIL && process.env.FIREBASE_PRIVATE_KEY) {
+  try {
+    const privateKey = process.env.FIREBASE_PRIVATE_KEY.replace(/\\n/g, '\n');
+    admin.initializeApp({
+      credential: admin.credential.cert({
+        projectId: process.env.FIREBASE_PROJECT_ID,
+        clientEmail: process.env.FIREBASE_CLIENT_EMAIL,
+        privateKey: privateKey,
+      }),
+    });
+    db = admin.firestore();
+    console.log('Firebase Admin initialized successfully.');
+  } catch (err) {
+    console.error('Failed to initialize Firebase Admin:', err);
+  }
+} else {
+  console.log('Firebase environment variables missing. Server starting without Firebase Admin sync.');
+}
 
 const DEFAULT_PORT = 3001;
 const RECONNECT_GRACE_MS = Number(process.env.RECONNECT_GRACE_MS || 15000);
@@ -250,6 +271,78 @@ function createCatanServer({ disconnectedTurnPauseMs = DISCONNECTED_TURN_PAUSE_M
   };
 
   io.on('connection', socket => {
+    socket.on('get_user_profile', async (payload = {}, callback) => {
+      if (!isPlainObject(payload) || !isShortString(payload.uid, 128)) {
+        callback?.({ success: false, code: 'INVALID_REQUEST', message: 'UID is required' });
+        return;
+      }
+      if (!db) {
+        callback?.({ success: false, code: 'FIREBASE_NOT_CONFIGURED', message: 'Firebase Admin not configured on server' });
+        return;
+      }
+      try {
+        const userDocRef = db.collection('users').doc(payload.uid);
+        const docSnap = await userDocRef.get();
+        if (docSnap.exists) {
+          const data = docSnap.data();
+          callback?.({ success: true, profile: data });
+        } else {
+          const initialName = isShortString(payload.displayName, 80)
+            ? payload.displayName.trim()
+            : (isShortString(payload.email, 120) ? payload.email.split('@')[0] : 'שחקן');
+          const defaultStats = {
+            ratingPoints: 0,
+            totalGames: 0,
+            totalWins: 0,
+            totalLosses: 0,
+            gamesByBotType: { EASY: 0, MEDIUM: 0, HARD: 0, SUPER_HARD: 0, GEMINI_AI: 0 },
+            winsByBotType: { EASY: 0, MEDIUM: 0, HARD: 0, SUPER_HARD: 0, GEMINI_AI: 0 },
+            humanGames: 0,
+            humanWins: 0,
+          };
+          const initialProfile = {
+            playerName: initialName,
+            playerStats: defaultStats,
+            email: isShortString(payload.email, 120) ? payload.email : null,
+            updatedAt: new Date().toISOString(),
+          };
+          await userDocRef.set(initialProfile);
+          callback?.({ success: true, profile: initialProfile });
+        }
+      } catch (err) {
+        console.error('Error in get_user_profile:', err);
+        callback?.({ success: false, code: 'SERVER_ERROR', message: err.message });
+      }
+    });
+
+    socket.on('sync_user_profile', async (payload = {}, callback) => {
+      if (!isPlainObject(payload) || !isShortString(payload.uid, 128)) {
+        callback?.({ success: false, code: 'INVALID_REQUEST', message: 'UID is required' });
+        return;
+      }
+      if (!db) {
+        callback?.({ success: false, code: 'FIREBASE_NOT_CONFIGURED', message: 'Firebase Admin not configured on server' });
+        return;
+      }
+      try {
+        const userDocRef = db.collection('users').doc(payload.uid);
+        const updateData = {
+          updatedAt: new Date().toISOString(),
+        };
+        if (isShortString(payload.playerName, 80)) {
+          updateData.playerName = payload.playerName.trim();
+        }
+        if (isPlainObject(payload.playerStats)) {
+          updateData.playerStats = payload.playerStats;
+        }
+        await userDocRef.set(updateData, { merge: true });
+        callback?.({ success: true });
+      } catch (err) {
+        console.error('Error in sync_user_profile:', err);
+        callback?.({ success: false, code: 'SERVER_ERROR', message: err.message });
+      }
+    });
+
     socket.on('get_public_rooms', () => socket.emit('public_rooms_list', getPublicRoomsList()));
 
     socket.on('create_room', (roomData = {}, callback) => {
