@@ -37,11 +37,10 @@ jobs:
           tagName: v__VERSION__
           releaseName: 'Catan Premium v__VERSION__'
           releaseBody: 'שחרור גרסה אוטומטי v__VERSION__'
-          releaseDraft: false
+          releaseDraft: true
           prerelease: false
 
-      # 🚀 צעד חדש: העלאת הקובץ הנייד (catan-portable.exe) ל-Release
-      - name: Upload Portable Executable
+      - name: Upload Portable Executable & Finalize Release
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         shell: powershell
@@ -51,6 +50,6 @@ jobs:
             Copy-Item $exePath.FullName -Destination "catan-portable.exe"
             gh release upload ${{ github.ref_name }} catan-portable.exe --clobber
             Write-Host "Successfully uploaded catan-portable.exe!"
-          } else {
-            Write-Error "Could not find catan.exe in target release folder."
           }
+          # Publish the draft release now that all files are uploaded
+          gh release edit ${{ github.ref_name }} --draft=false
