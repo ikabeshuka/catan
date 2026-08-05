@@ -7,6 +7,7 @@ import { validateSettlementPlacement } from '../../utils/validation/validateSett
 import { cubeToPixel } from '../../utils/hexMath/cubeToPixel';
 import { useGame } from '../../context/GameContext';
 import { useBoard } from '../../context/BoardContext';
+import { useVertexInteraction } from '../../hooks/useVertexInteraction';
 
 interface VertexNodeProps {
   vertex: BoardVertex;
@@ -35,30 +36,56 @@ export const VertexNode: React.FC<VertexNodeProps> = ({
   players,
   currentPlayerIndex,
   gamePhase,
-  setVertices,
-  setPlayers,
   is3DMode,
-  showBuildingCostToast,
-  addLog,
-  setActivePortTrade,
   onClick,
   isSetupPhase: propIsSetupPhase,
   setupState: propSetupState,
-  recordSetupPlacement: propRecordSetupPlacement,
   turnSubPhase: propTurnSubPhase,
 }) => {
   const turnManager = useTurnManager();
   const isSetupPhase = propIsSetupPhase !== undefined ? propIsSetupPhase : turnManager.isSetupPhase;
   const setupState = propSetupState !== undefined ? propSetupState : turnManager.setupState;
-  const recordSetupPlacement = propRecordSetupPlacement !== undefined ? propRecordSetupPlacement : turnManager.recordSetupPlacement;
   const turnSubPhase = propTurnSubPhase !== undefined ? propTurnSubPhase : turnManager.turnSubPhase;
 
-  const { tiles, setIsTradeModalOpen, activeExpansion } = useGame();
+  const { tiles, activeExpansion } = useGame();
   const { selectedScenario } = useBoard();
+  const { handleVertexClick: centralHandleVertexClick } = useVertexInteraction();
   const [isHovered, setIsHovered] = useState(false);
   
   const { x, y } = parseVertexId(vertex.id);
   const currentPlayer = players[currentPlayerIndex];
+
+  // Hide vertex completely for Cloth for Catan if building is prohibited on it
+  const isUnbuildableClothVertex = React.useMemo(() => {
+    if (selectedScenario !== 'CLOTH_FOR_CATAN' || !tiles) return false;
+    
+    const [, xStr, yStr] = vertex.id.split('_');
+    const vX = parseFloat(xStr);
+    const vY = parseFloat(yStr);
+
+    const borderingTiles = tiles.filter((tile) => {
+      const center = cubeToPixel(tile.coord, 60);
+      for (let i = 0; i < 6; i++) {
+        const angleRad = (Math.PI / 180) * (60 * i - 30);
+        const x = center.x + 60 * Math.cos(angleRad);
+        const y = center.y + 60 * Math.sin(angleRad);
+        
+        const roundedX = Math.round(x * 10) / 10;
+        const roundedY = Math.round(y * 10) / 10;
+
+        if (roundedX === vX && roundedY === vY) {
+          return true;
+        }
+      }
+      return false;
+    });
+
+    return borderingTiles.some(tile => (tile.lostTribeVillages?.length || 0) > 0);
+  }, [selectedScenario, tiles, vertex.id]);
+
+  if (isUnbuildableClothVertex) {
+    return null;
+  }
 
   // בדיקת חוקיות לבניית יישוב
   const isBlockedBySetup = isSetupPhase && setupState.hasPlacedSettlement;
@@ -70,176 +97,14 @@ export const VertexNode: React.FC<VertexNodeProps> = ({
   const isOwnSettlement = vertex.structure === 'SETTLEMENT' && vertex.playerId === currentPlayer?.id;
   const canUpgradeToCity = currentPlayer && !isSetupPhase && turnSubPhase === 'TRADE_AND_BUILD' && isOwnSettlement;
 
-  const handleVertexClick = () => {
+  const handleVertexClick = (e: React.MouseEvent) => {
     if (onClick) {
       onClick();
       return;
     }
     if (currentPlayer?.isBot) return;
 
-    // אם זה נמל ששייך לשחקן הנוכחי, ובשלב מסחר ובנייה, נפתח את ממשק המסחר של הנמל
-    const isOwnedHarbor = vertex.isHarbor && vertex.playerId === currentPlayer?.id;
-    if (isOwnedHarbor && !isSetupPhase && turnSubPhase === 'TRADE_AND_BUILD') {
-      setActivePortTrade(vertex);
-      setIsTradeModalOpen(true);
-      return;
-    }
-
-    // במקרה של שלב ההקמה
-    if (isSetupPhase) {
-      if (!isValidPlacement) return;
-      setVertices(prevVertices => prevVertices.map(v => 
-        v.id === vertex.id 
-          ? { ...v, structure: 'SETTLEMENT', playerId: currentPlayer.id } 
-          : v
-      ));
-      recordSetupPlacement?.('SETTLEMENT', vertex.id);
-      showBuildingCostToast('SETTLEMENT', true, true);
-      addLog(`שחקן ${currentPlayer.name} בנה יישוב בשלב ההקמה (חינם).`);
-      return;
-    }
-
-    // במקרה של שדרוג לעיר
-    if (canUpgradeToCity) {
-      const hasResources = currentPlayer.resources.WHEAT >= 2 && currentPlayer.resources.ORE >= 3;
-      
-      // תמיד נציג את העלות בכל לחיצה
-      showBuildingCostToast('CITY', hasResources);
-
-      if (!hasResources) {
-        addLog(`אין לך מספיק משאבים לשדרוג לעיר! נדרש: 3 ברזל, 2 חיטה.`);
-        return;
-      }
-
-      // הפחתת משאבים והוספת נקודת ניצחון
-      setPlayers(prev => prev.map(p => p.id === currentPlayer.id 
-        ? {
-            ...p,
-            victoryPoints: p.victoryPoints + 1,
-            resources: {
-              ...p.resources,
-              WHEAT: p.resources.WHEAT - 2,
-              ORE: p.resources.ORE - 3
-            }
-          }
-        : p
-      ));
-
-      setVertices(prevVertices => prevVertices.map(v => 
-        v.id === vertex.id 
-          ? { ...v, structure: 'CITY' } 
-          : v
-      ));
-
-      addLog(`שחקן ${currentPlayer.name} שדרג יישוב לעיר! עלות: 3 ברזל, 2 חיטה.`);
-      return;
-    }
-
-    // במקרה של בניית יישוב רגיל
-    if (isValidPlacement) {
-      if (turnSubPhase !== 'TRADE_AND_BUILD') return;
-
-      const hasResources = currentPlayer.resources.WOOD >= 1 && 
-                           currentPlayer.resources.BRICK >= 1 && 
-                           currentPlayer.resources.SHEEP >= 1 && 
-                           currentPlayer.resources.WHEAT >= 1;
-
-      // תמיד נציג את העלות בכל לחיצה
-      showBuildingCostToast('SETTLEMENT', hasResources);
-
-      if (!hasResources) {
-        addLog(`אין לך מספיק משאבים לבניית יישוב! נדרש: 1 עץ, 1 לבנה, 1 כבש, 1 חיטה.`);
-        return;
-      }
-
-      let specialVPBonus = 0;
-      let targetIslandId: number | undefined;
-
-      if (selectedScenario === 'THROUGH_THE_DESERT') {
-        const [, xStr, yStr] = vertex.id.split('_');
-        const vX = parseFloat(xStr);
-        const vY = parseFloat(yStr);
-
-        const borderingTiles = (tiles || []).filter((tile: any) => {
-          const center = cubeToPixel(tile.coord, 60);
-          for (let i = 0; i < 6; i++) {
-            const angleRad = (Math.PI / 180) * (60 * i - 30);
-            const x = center.x + 60 * Math.cos(angleRad);
-            const y = center.y + 60 * Math.sin(angleRad);
-            const roundedX = Math.round(x * 10) / 10;
-            const roundedY = Math.round(y * 10) / 10;
-            if (roundedX === vX && roundedY === vY) return true;
-          }
-          return false;
-        });
-
-        const landTiles = borderingTiles.filter((t: any) => t.type !== 'WATER');
-        const foreignIslandTile = landTiles.find((t: any) => t.islandId !== undefined && t.islandId > 1);
-
-        if (foreignIslandTile) {
-          targetIslandId = foreignIslandTile.islandId;
-          let isFirstSettlementOnThisIsland = true;
-
-          const playerVertices = (vertices || []).filter((v: any) => v.playerId === currentPlayer.id && (v.structure === 'SETTLEMENT' || v.structure === 'CITY'));
-          for (const pv of playerVertices) {
-            if (pv.id === vertex.id) continue;
-
-            const [, pvXStr, pvYStr] = pv.id.split('_');
-            const pvX = parseFloat(pvXStr);
-            const pvY = parseFloat(pvYStr);
-            const pvBorderingTiles = (tiles || []).filter((tile: any) => {
-              const center = cubeToPixel(tile.coord, 60);
-              for (let i = 0; i < 6; i++) {
-                const angleRad = (Math.PI / 180) * (60 * i - 30);
-                const x = center.x + 60 * Math.cos(angleRad);
-                const y = center.y + 60 * Math.sin(angleRad);
-                const roundedX = Math.round(x * 10) / 10;
-                const roundedY = Math.round(y * 10) / 10;
-                if (roundedX === pvX && roundedY === pvY) return true;
-              }
-              return false;
-            });
-            const touchesSameIsland = pvBorderingTiles.some((tile: any) => tile.islandId === targetIslandId);
-            if (touchesSameIsland) {
-              isFirstSettlementOnThisIsland = false;
-              break;
-            }
-          }
-
-          if (isFirstSettlementOnThisIsland) {
-            specialVPBonus = 2;
-          }
-        }
-      }
-
-      // הפחתת משאבים והוספת נקודת ניצחון
-      setPlayers(prev => prev.map(p => p.id === currentPlayer.id 
-        ? {
-            ...p,
-            victoryPoints: p.victoryPoints + 1,
-            resources: {
-              ...p.resources,
-              WOOD: p.resources.WOOD - 1,
-              BRICK: p.resources.BRICK - 1,
-              SHEEP: p.resources.SHEEP - 1,
-              WHEAT: p.resources.WHEAT - 1
-            }
-          }
-        : p
-      ));
-
-      setVertices(prevVertices => prevVertices.map(v => 
-        v.id === vertex.id 
-          ? { ...v, structure: 'SETTLEMENT', playerId: currentPlayer.id } 
-          : v
-      ));
-
-      addLog(`שחקן ${currentPlayer.name} בנה יישוב! עלות: 1 עץ, 1 לבנה, 1 כבש, 1 חיטה.`);
-      if (specialVPBonus > 0 && targetIslandId !== undefined) {
-        addLog(`🏆 ${currentPlayer.name} התיישב לראשונה באי זר (אי מספר ${targetIslandId}) וקיבל 2 נקודות ניצחון מיוחדות! (סה"כ 3 נקודות על היישוב)`);
-      }
-      return;
-    }
+    centralHandleVertexClick(vertex, e);
   };
 
   const isOwnedHarbor = vertex.isHarbor && vertex.playerId === currentPlayer?.id;

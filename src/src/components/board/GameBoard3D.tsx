@@ -10,6 +10,8 @@ import * as THREE from 'three';
 import { useBoardInteraction } from '../../hooks/useBoardInteraction';
 import { Board3DScene } from './Board3DScene';
 import { getHarborDescription, getTileTooltipInfo } from '../../utils/boardTooltipHelpers';
+import { VertexActionPopover } from './VertexActionPopover';
+import { useVertexInteraction } from '../../hooks/useVertexInteraction';
 
 export const GameBoard3D: React.FC = () => {
   const orbitControlsRef = useRef<any>(null);
@@ -43,10 +45,12 @@ export const GameBoard3D: React.FC = () => {
     citiesKnightsState,
     gamePhase,
     addLog,
-    showBuildingCostToast
+    showBuildingCostToast,
+    selectedScenario
   } = useGame();
 
-  const { isAlternativeTheme, setIsAlternativeTheme } = useGameUI();
+  const { isAlternativeTheme, setIsAlternativeTheme, activeVertexPopover, setActiveVertexPopover } = useGameUI();
+  const { getAvailableVertexActions } = useVertexInteraction();
 
   const hasFrameSea = tiles.some(tile => tile.isFrameSea);
 
@@ -279,7 +283,7 @@ export const GameBoard3D: React.FC = () => {
       {/* Main canvas viewport */}
       <div ref={containerRef} className="absolute inset-0 w-full h-full" style={{ touchAction: 'none' }}>
         <Canvas
-          camera={{ position: [0, 0, 44], fov: 30 }}
+          camera={{ position: [0, 0, 44], fov: 30, near: 0.1, far: 2000 }}
           dpr={[1, 1.5]}
           frameloop={is3DMode ? 'always' : 'demand'}
           gl={{ antialias: is3DMode, powerPreference: 'high-performance' }}
@@ -292,6 +296,8 @@ export const GameBoard3D: React.FC = () => {
             enableZoom={true} 
             enablePan={true}
             enableRotate={is3DMode}
+            minDistance={15}
+            maxDistance={120}
             target={[0, 0, 0]} 
             mouseButtons={{
               LEFT: THREE.MOUSE.PAN,
@@ -442,10 +448,35 @@ export const GameBoard3D: React.FC = () => {
                 <p className="text-[11px] text-slate-400 leading-relaxed font-medium mt-1">
                   {info.description}
                 </p>
+
+                {/* Remaining quantity of cloth rolls for each numbered village on that island/tile */}
+                {selectedScenario === 'CLOTH_FOR_CATAN' && hoveredTile.tile.lostTribeVillages && hoveredTile.tile.lostTribeVillages.length > 0 && (
+                  <div className="mt-2.5 pt-2 border-t border-white/10 flex flex-col gap-1.5 text-right" dir="rtl">
+                    <span className="text-[11px] font-black text-indigo-300">גלילי בד נותרים:</span>
+                    <div className="flex flex-col gap-1">
+                      {hoveredTile.tile.lostTribeVillages.map((village: any) => (
+                        <div key={village.id} className="flex items-center justify-between bg-slate-950/40 border border-indigo-500/20 px-2 py-1 rounded text-[10px] font-bold">
+                          <span className="text-slate-200">כפר {village.number}:</span>
+                          <span className="text-amber-400 font-mono">{village.clothRemaining} 🧵</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
               </>
             );
           })()}
         </div>
+      )}
+
+      {/* Contextual Vertex Action Popover */}
+      {activeVertexPopover && (
+        <VertexActionPopover
+          screenCoords={activeVertexPopover.screenCoords}
+          vertexId={activeVertexPopover.vertexId}
+          actions={getAvailableVertexActions(activeVertexPopover.vertexId)}
+          onClose={() => setActiveVertexPopover(null)}
+        />
       )}
 
       {/* Coastline Placement Choice Popup */}

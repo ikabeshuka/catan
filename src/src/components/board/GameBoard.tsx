@@ -4,9 +4,12 @@ import { useGameUI } from '../../context/GameUIContext';
 import { HexTile } from './HexTile';
 import { EdgeLine } from './EdgeLine';
 import { VertexNode } from './VertexNode';
+import { VertexActionPopover } from './VertexActionPopover';
+import { useVertexInteraction } from '../../hooks/useVertexInteraction';
 
 export const GameBoard: React.FC = () => {
-  const { isAlternativeTheme } = useGameUI();
+  const { isAlternativeTheme, activeVertexPopover, setActiveVertexPopover } = useGameUI();
+  const { getAvailableVertexActions } = useVertexInteraction();
   const {
     tiles,
     vertices,
@@ -206,6 +209,16 @@ export const GameBoard: React.FC = () => {
           </g>
         </g>
       </svg>
+
+      {/* Contextual Vertex Action Popover */}
+      {activeVertexPopover && (
+        <VertexActionPopover
+          screenCoords={activeVertexPopover.screenCoords}
+          vertexId={activeVertexPopover.vertexId}
+          actions={getAvailableVertexActions(activeVertexPopover.vertexId)}
+          onClose={() => setActiveVertexPopover(null)}
+        />
+      )}
     </div>
   );
 };

@@ -29,6 +29,21 @@ interface EdgeLineProps {
   tiles?: HexTile[];
 }
 
+const RESOURCE_COLORS_BLENDED: Record<string, string> = {
+  WOOD: '#15803d',
+  BRICK: '#dc2626',
+  SHEEP: '#a3e635',
+  WHEAT: '#eab308',
+  ORE: '#64748b',
+  DESERT: '#8b5a2b',
+  WATER: '#1e3a8a',
+  SEA: '#1e3a8a',
+  GOLD_FIELD: '#f59e0b',
+  FOG: '#334155',
+};
+
+const COAST_BASE_COLOR = '#dfbd73';
+
 export const EdgeLine: React.FC<EdgeLineProps> = ({
   edge,
   vertices,
@@ -82,6 +97,36 @@ export const EdgeLine: React.FC<EdgeLineProps> = ({
     if (!tiles || tiles.length === 0) return false;
     return edgeRenderData?.isCoast || false;
   }, [edgeRenderData, tiles]);
+
+  const { leftColor, rightColor } = React.useMemo(() => {
+    if (!isCoast || !tiles || tiles.length === 0 || !edgeRenderData) {
+      return { leftColor: '#1e3a8a', rightColor: '#1e3a8a' };
+    }
+    const borderingTiles = edgeRenderData.borderingTiles || [];
+    let leftColor = '#1e3a8a';
+    let rightColor = '#1e3a8a';
+    const angleRad = (angleDeg * Math.PI) / 180;
+    const edgeDirectionX = Math.cos(angleRad);
+    const edgeDirectionY = Math.sin(angleRad);
+
+    borderingTiles.forEach((tile) => {
+      const tileGeometry = boardRenderCache.tileById.get(tile.id);
+      const tilePosition = tileGeometry?.center2D;
+      if (!tilePosition) return;
+
+      const relativeX = tilePosition.x - mx;
+      const relativeY = tilePosition.y - my;
+      const isOnLeft = edgeDirectionX * relativeY - edgeDirectionY * relativeX >= 0;
+      const tileColor = RESOURCE_COLORS_BLENDED[tile.type] || '#1e3a8a';
+
+      if (isOnLeft) {
+        leftColor = tileColor;
+      } else {
+        rightColor = tileColor;
+      }
+    });
+    return { leftColor, rightColor };
+  }, [isCoast, tiles, edgeRenderData, angleDeg, mx, my, boardRenderCache]);
 
   const isAdjacentToSetupSettlement = React.useMemo(() => {
     if (!isSetupPhase || !setupState?.lastSettlementVertexId) return false;
@@ -345,6 +390,32 @@ export const EdgeLine: React.FC<EdgeLineProps> = ({
       onMouseLeave={() => setIsHovered(false)}
       style={{ transformStyle: 'preserve-3d' }}
     >
+      {/* 2D Coastal Edge Blending Strip */}
+      {!is3DMode && isCoast && (
+        <g>
+          <defs>
+            <linearGradient id={`grad-coast-${edge.id}`} x1="0%" y1="0%" x2="0%" y2="100%">
+              <stop offset="0%" stopColor={rightColor} />
+              <stop offset="33%" stopColor={COAST_BASE_COLOR} />
+              <stop offset="66%" stopColor={COAST_BASE_COLOR} />
+              <stop offset="100%" stopColor={leftColor} />
+            </linearGradient>
+          </defs>
+          <g transform={`translate(${mx}, ${my}) rotate(${angleDeg})`}>
+            <rect
+              x={-length / 2 - 1}
+              y={-10}
+              width={length + 2}
+              height={20}
+              fill={`url(#grad-coast-${edge.id})`}
+              rx={1.5}
+              pointerEvents="none"
+              opacity="0.85"
+            />
+          </g>
+        </g>
+      )}
+
       {/* קו עבה שקוף להקלת הלחיצה */}
       <line
         x1={x1} y1={y1} x2={x2} y2={y2}

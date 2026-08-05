@@ -23,6 +23,7 @@ const ModelWithOutlines: React.FC<ModelWithOutlinesProps> = ({ object, playerCol
           position={mesh.position}
           rotation={mesh.rotation}
           scale={mesh.scale}
+          frustumCulled={false}
         >
           {showOutline && <Outlines color={playerColor} screenspace={false} thickness={0.08} />}
           {mesh.children && mesh.children.length > 0 && mesh.children.map((child, i) => renderNode(child, i))}
@@ -58,7 +59,7 @@ interface Structure3DProps {
   playerColor: string;
   textures: Record<string, THREE.Texture>;
   getVertexConfig: (vertex: BoardVertex) => { isClickable: boolean; isValidPlacement: boolean };
-  onVertexClick: (vertex: BoardVertex) => void;
+  onVertexClick: (vertex: BoardVertex, event?: any) => void;
   is3DMode?: boolean;
   onHarborHover?: (harbor: BoardVertex, x: number, y: number) => void;
   onHarborLeave?: () => void;
@@ -142,7 +143,7 @@ const PlacedStructure3D: React.FC<Structure3DProps> = ({
   const commonEvents = {
     onClick: (e: any) => {
       e.stopPropagation();
-      onVertexClick(vertex);
+      onVertexClick(vertex, e);
     },
     onPointerOver: (e: any) => {
       e.stopPropagation();

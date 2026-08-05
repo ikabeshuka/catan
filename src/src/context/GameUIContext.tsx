@@ -37,6 +37,7 @@ interface GameUIContextType {
   merchantConvoys: any[];
   isMovingWagon: boolean;
   isTradeModalOpen: boolean;
+  activeVertexPopover: { vertexId: string; screenCoords: { x: number; y: number } } | null;
 
   setIs3DMode: React.Dispatch<React.SetStateAction<boolean>>;
   setIsAlternativeTheme: React.Dispatch<React.SetStateAction<boolean>>;
@@ -53,6 +54,7 @@ interface GameUIContextType {
   setMerchantConvoys: React.Dispatch<React.SetStateAction<any[]>>;
   setIsMovingWagon: React.Dispatch<React.SetStateAction<boolean>>;
   setIsTradeModalOpen: React.Dispatch<React.SetStateAction<boolean>>;
+  setActiveVertexPopover: React.Dispatch<React.SetStateAction<{ vertexId: string; screenCoords: { x: number; y: number } } | null>>;
   showBuildingCostToast: (type: 'ROAD' | 'SETTLEMENT' | 'CITY' | 'SHIP', success: boolean, isFree?: boolean, errorMessage?: string) => void;
   triggerResourceFlow: (flows: ResourceFlow[]) => void;
   addResourceFlow: (flow: ResourceFlow) => void;
@@ -76,6 +78,7 @@ export const GameUIProvider: React.FC<{ children: ReactNode }> = ({ children }) 
   const [merchantConvoys, setMerchantConvoys] = useState<any[]>([]);
   const [isMovingWagon, setIsMovingWagon] = useState<boolean>(false);
   const [isTradeModalOpen, setIsTradeModalOpen] = useState<boolean>(false);
+  const [activeVertexPopover, setActiveVertexPopover] = useState<{ vertexId: string; screenCoords: { x: number; y: number } } | null>(null);
   const toastTimeoutRef = useRef<any>(null);
 
   const showBuildingCostToast = (type: 'ROAD' | 'SETTLEMENT' | 'CITY' | 'SHIP', success: boolean, isFree?: boolean, errorMessage?: string) => {
@@ -114,6 +117,7 @@ export const GameUIProvider: React.FC<{ children: ReactNode }> = ({ children }) 
         merchantConvoys,
         isMovingWagon,
         isTradeModalOpen,
+        activeVertexPopover,
         setIs3DMode,
         setIsAlternativeTheme,
         setBuildingToast,
@@ -129,6 +133,7 @@ export const GameUIProvider: React.FC<{ children: ReactNode }> = ({ children }) 
         setMerchantConvoys,
         setIsMovingWagon,
         setIsTradeModalOpen,
+        setActiveVertexPopover,
         showBuildingCostToast,
         triggerResourceFlow,
         addResourceFlow,

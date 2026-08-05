@@ -17,6 +17,8 @@ import { BarbarianShip3D } from './3d/BarbarianShip3D';
 import { useBoardTextures } from '../../hooks/useBoardTextures';
 import { BoardRenderCache } from '../../utils/hexMath/boardRenderCache';
 import { getTokenZ, getVertex3DCoords } from '../../utils/hexMath/board3DMath';
+import { useGame } from '../../context/GameContext';
+import { cubeToPixel } from '../../utils/hexMath/cubeToPixel';
 
 const HEX_SIZE_2D = 60; // Base size for 2D calculations, remains consistent
 const HEX_HEIGHT_3D = 3.0; // Visual height for 3D hexes
@@ -38,7 +40,7 @@ interface Board3DSceneProps {
   players: any[];
   currentPlayerIndex: number;
   onTileClick: (tile: any) => void;
-  onVertexClick: (vertex: any) => void;
+  onVertexClick: (vertex: any, event?: any) => void;
   onEdgeClick: (edge: any) => void;
   onTileHover: (tile: any, x: number, y: number) => void;
   onTileLeave: () => void;
@@ -73,6 +75,35 @@ export const Board3DScene: React.FC<Board3DSceneProps> = ({
   citiesKnightsState,
 }) => {
   const handleVertexClick = onVertexClick;
+
+  const { tiles, selectedScenario } = useGame();
+
+  const isUnbuildableClothVertex = React.useCallback((vertexId: string) => {
+    if (selectedScenario !== 'CLOTH_FOR_CATAN' || !tiles) return false;
+    
+    const [, xStr, yStr] = vertexId.split('_');
+    const vX = parseFloat(xStr);
+    const vY = parseFloat(yStr);
+
+    const borderingTiles = tiles.filter((tile) => {
+      const center = cubeToPixel(tile.coord, 60);
+      for (let i = 0; i < 6; i++) {
+        const angleRad = (Math.PI / 180) * (60 * i - 30);
+        const x = center.x + 60 * Math.cos(angleRad);
+        const y = center.y + 60 * Math.sin(angleRad);
+        
+        const roundedX = Math.round(x * 10) / 10;
+        const roundedY = Math.round(y * 10) / 10;
+
+        if (roundedX === vX && roundedY === vY) {
+          return true;
+        }
+      }
+      return false;
+    });
+
+    return borderingTiles.some(tile => (tile.lostTribeVillages?.length || 0) > 0);
+  }, [selectedScenario, tiles]);
 
   const { camera } = useThree();
   React.useEffect(() => {
@@ -332,6 +363,7 @@ export const Board3DScene: React.FC<Board3DSceneProps> = ({
       {/* Render Vertices (Settlements / Cities / Harbors) */}
       {boardRenderCache.vertices.map(({ vertex, position3D }) => {
         if (!vertex || !vertex.id) return null;
+        if (isUnbuildableClothVertex(vertex.id)) return null;
         if (!boardRenderCache.edgesByVertexId.has(vertex.id)) return null;
         const vx = position3D.x;
         const vy = position3D.y;
@@ -418,7 +450,7 @@ export const Board3DScene: React.FC<Board3DSceneProps> = ({
               rotation={[Math.PI / 2, 0, 0]}
               onClick={(e) => {
                 e.stopPropagation();
-                onVertexClick(vertex);
+                onVertexClick(vertex, e);
               }}
               onPointerOver={(e) => {
                 e.stopPropagation();
@@ -501,7 +533,7 @@ export const Board3DScene: React.FC<Board3DSceneProps> = ({
               }}
               onClick={(e) => {
                 e.stopPropagation();
-                onVertexClick(connectedVertex);
+                onVertexClick(connectedVertex, e);
               }}
             />
           </group>

@@ -22,6 +22,7 @@ const ModelWithOutlines: React.FC<ModelWithOutlinesProps> = ({ object, playerCol
           position={mesh.position}
           rotation={mesh.rotation}
           scale={mesh.scale}
+          frustumCulled={false}
         >
           <Outlines color={playerColor} screenspace={false} thickness={0.08} />
           {mesh.children && mesh.children.length > 0 && mesh.children.map((child, i) => renderNode(child, i))}
@@ -150,8 +151,8 @@ export const Road3D: React.FC<Road3DProps> = ({
   // Each outer third fades from the terrain touching that side into the
   // original strip texture; the middle third remains completely original.
   const blendStripShader = React.useMemo(() => (shader: THREE.WebGLProgramParametersWithUniforms) => {
-    shader.uniforms.leftNeighborMap = { value: leftNeighborTexture };
-    shader.uniforms.rightNeighborMap = { value: rightNeighborTexture };
+    shader.uniforms.leftNeighborMap = { value: leftNeighborTexture || surfaceTexture };
+    shader.uniforms.rightNeighborMap = { value: rightNeighborTexture || surfaceTexture };
 
     shader.fragmentShader = `
       uniform sampler2D leftNeighborMap;
@@ -174,7 +175,7 @@ export const Road3D: React.FC<Road3DProps> = ({
         #endif
       `,
     );
-  }, [leftNeighborTexture, rightNeighborTexture]);
+  }, [leftNeighborTexture, rightNeighborTexture, surfaceTexture]);
 
   return (
     <group

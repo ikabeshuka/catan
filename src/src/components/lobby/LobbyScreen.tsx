@@ -47,10 +47,10 @@ export const LobbyScreen: React.FC<LobbyScreenProps> = ({
   const [botTimeLimit, setBotTimeLimit] = useState<number>(10);
 
   const [lobbyPlayers, setLobbyPlayers] = useState<LobbyPlayer[]>([
-    { id: 'p1', name: 'שחקן 1 (רוס)', color: '#e53935', isBot: false, playerType: 'HUMAN', difficulty: undefined },
-    { id: 'p2', name: 'שחקן 2', color: '#1e88e5', isBot: true, playerType: 'LOCAL_BOT', difficulty: 'בינוני' },
-    { id: 'p3', name: 'שחקן 3', color: '#fdd835', isBot: true, playerType: 'LOCAL_BOT', difficulty: 'בינוני' },
-    { id: 'p4', name: 'שחקן 4', color: '#43a047', isBot: true, playerType: 'LOCAL_BOT', difficulty: 'בינוני' },
+    { id: 'p1', name: 'רוס', color: '#e53935', isBot: false, playerType: 'HUMAN', difficulty: undefined },
+    { id: 'p2', name: "צ'נדלר", color: '#1e88e5', isBot: true, playerType: 'LOCAL_BOT', difficulty: 'בינוני' },
+    { id: 'p3', name: "ג'ואי", color: '#fdd835', isBot: true, playerType: 'LOCAL_BOT', difficulty: 'בינוני' },
+    { id: 'p4', name: 'פיבי', color: '#43a047', isBot: true, playerType: 'LOCAL_BOT', difficulty: 'בינוני' },
   ]);
 
   const isOnlineMode = !!roomId || isOnlineCreationMode;

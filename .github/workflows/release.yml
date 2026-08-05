@@ -1,0 +1,56 @@
+name: "Publish Tauri Release"
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  publish-tauri:
+    permissions:
+      contents: write
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install frontend dependencies
+        run: npm ci
+
+      - name: Build and Publish Tauri App
+        id: tauri_build
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        with:
+          tagName: v__VERSION__
+          releaseName: 'Catan Premium v__VERSION__'
+          releaseBody: 'שחרור גרסה אוטומטי v__VERSION__'
+          releaseDraft: false
+          prerelease: false
+
+      # 🚀 צעד חדש: העלאת הקובץ הנייד (catan-portable.exe) ל-Release
+      - name: Upload Portable Executable
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: powershell
+        run: |
+          $exePath = Get-ChildItem -Path "src-tauri/target/release/catan.exe", "catan-game/src-tauri/target/release/catan.exe" -ErrorAction SilentlyContinue | Select-Object -First 1
+          if ($exePath) {
+            Copy-Item $exePath.FullName -Destination "catan-portable.exe"
+            gh release upload ${{ github.ref_name }} catan-portable.exe --clobber
+            Write-Host "Successfully uploaded catan-portable.exe!"
+          } else {
+            Write-Error "Could not find catan.exe in target release folder."
+          }

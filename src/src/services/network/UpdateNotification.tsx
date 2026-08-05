@@ -27,29 +27,60 @@ export const UpdateNotification: React.FC = () => {
         }
 
         setVersion(update.version);
+        
+        let isPortable = false;
+        try {
+          isPortable = await invoke<boolean>('check_is_portable');
+        } catch (err) {
+          console.warn('Failed to check if running as portable:', err);
+        }
+
         setStatus('downloading');
         await invoke('set_update_downloading', { downloading: true });
 
-        let downloaded = 0;
-        let total = 0;
-        await update.downloadAndInstall(event => {
-          if (!active) return;
-          if (event.event === 'Started') {
-            total = event.data.contentLength || 0;
-            setProgress(0);
-          } else if (event.event === 'Progress') {
-            downloaded += event.data.chunkLength;
-            setProgress(total > 0 ? Math.min(100, Math.round(downloaded / total * 100)) : 0);
-          } else if (event.event === 'Finished') {
-            setProgress(100);
+        if (isPortable) {
+          console.log('Running in Portable Mode. Preparing in-place executable update...');
+          const platforms = update.rawJson?.platforms as any;
+          const setupUrl = platforms?.['windows-x86_64']?.url;
+          if (!setupUrl) {
+            throw new Error('No download URL found for Windows platform in update manifest.');
           }
-        });
+
+          // Convert installer setup url to portable exe url
+          const urlParts = setupUrl.split('/');
+          urlParts[urlParts.length - 1] = 'catan.exe';
+          const downloadUrl = urlParts.join('/');
+          console.log(`Downloading portable update from: ${downloadUrl}`);
+
+          setProgress(35); // Simulated starting download state
+          await invoke('update_portable_app', { downloadUrl });
+          setProgress(100);
+        } else {
+          let downloaded = 0;
+          let total = 0;
+          await update.downloadAndInstall(event => {
+            if (!active) return;
+            if (event.event === 'Started') {
+              total = event.data.contentLength || 0;
+              setProgress(0);
+            } else if (event.event === 'Progress') {
+              downloaded += event.data.chunkLength;
+              setProgress(total > 0 ? Math.min(100, Math.round(downloaded / total * 100)) : 0);
+            } else if (event.event === 'Finished') {
+              setProgress(100);
+            }
+          });
+        }
 
         if (active) setStatus('ready');
         await invoke('set_update_downloading', { downloading: false });
       } catch (error) {
         console.error('Update check/download failed:', error);
-        if (active) setStatus('error');
+        const errMsg = error instanceof Error ? error.message : String(error);
+        if (active) {
+          setStatus('error');
+          setVersion(errMsg); // Display error detail inside notification block
+        }
         try { await invoke('set_update_downloading', { downloading: false }); } catch { /* Browser/dev mode */ }
       }
     };
