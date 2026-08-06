@@ -33,6 +33,8 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          # 🚀 משתני סביבה לתקשורת השרת בענן:
+          VITE_SOCKET_URL: "https://catan-32o1.onrender.com"
         with:
           tagName: v__VERSION__
           releaseName: 'Catan Premium v__VERSION__'
