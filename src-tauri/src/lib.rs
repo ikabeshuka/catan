@@ -105,13 +105,32 @@ async fn update_portable_app(app: tauri::AppHandle, download_url: String) -> Res
     let old_exe = current_dir.join(format!("{}.old", exe_name.to_string_lossy()));
 
     // 1. Download target binary to .new
-    let response = reqwest::get(&download_url)
+    let client = reqwest::Client::builder()
+        .redirect(reqwest::redirect::Policy::limited(10))
+        .build()
+        .map_err(|e| format!("Failed to build HTTP client: {}", e))?;
+
+    let response = client.get(&download_url)
+        .send()
         .await
-        .map_err(|e| format!("Network request failed: {}", e))?;
+        .map_err(|e| format!("Network request failed: {}", e))?
+        .error_for_status()
+        .map_err(|e| format!("HTTP request failed with error status: {}", e))?;
+
     let bytes = response
         .bytes()
         .await
         .map_err(|e| format!("Failed to read response bytes: {}", e))?;
+
+    let min_size = 5 * 1024 * 1024; // 5 MB in bytes
+    if bytes.len() < min_size {
+        return Err(format!(
+            "Downloaded file size ({} bytes) is too small (minimum required is {} bytes). The file may be corrupt or an HTML error page.",
+            bytes.len(),
+            min_size
+        ));
+    }
+
     std::fs::write(&new_exe, &bytes)
         .map_err(|e| format!("Failed to write to file {}: {}", new_exe.display(), e))?;
 

@@ -17,8 +17,21 @@ export const UpdateNotification: React.FC = () => {
 
     const runUpdate = async () => {
       setStatus('checking');
+      const ENDPOINT_URL = 'https://github.com/ikabeshuka/catan/releases/latest/download/latest.json';
+      let update;
+
       try {
-        const update = await check();
+        try {
+          update = await check();
+        } catch (error: any) {
+          const errMsg = error?.message || String(error);
+          const errStack = error?.stack || 'No stack trace available';
+          const detailedMsg = `[Auto-Updater Check Failure]\nEndpoint: ${ENDPOINT_URL}\nError: ${errMsg}\nStack: ${errStack}`;
+          console.error(detailedMsg, error);
+          alert(detailedMsg);
+          throw error;
+        }
+
         if (!active) return;
         if (!update) {
           setStatus('current');
@@ -50,6 +63,10 @@ export const UpdateNotification: React.FC = () => {
           const urlParts = setupUrl.split('/');
           urlParts[urlParts.length - 1] = 'catan.exe';
           const downloadUrl = urlParts.join('/');
+          
+          if (!downloadUrl.endsWith('.exe')) {
+            throw new Error(`Invalid download URL: ${downloadUrl}. The download URL must point strictly to a .exe release asset.`);
+          }
           console.log(`Downloading portable update from: ${downloadUrl}`);
 
           setProgress(35); // Simulated starting download state
@@ -58,18 +75,27 @@ export const UpdateNotification: React.FC = () => {
         } else {
           let downloaded = 0;
           let total = 0;
-          await update.downloadAndInstall(event => {
-            if (!active) return;
-            if (event.event === 'Started') {
-              total = event.data.contentLength || 0;
-              setProgress(0);
-            } else if (event.event === 'Progress') {
-              downloaded += event.data.chunkLength;
-              setProgress(total > 0 ? Math.min(100, Math.round(downloaded / total * 100)) : 0);
-            } else if (event.event === 'Finished') {
-              setProgress(100);
-            }
-          });
+          try {
+            await update.downloadAndInstall(event => {
+              if (!active) return;
+              if (event.event === 'Started') {
+                total = event.data.contentLength || 0;
+                setProgress(0);
+              } else if (event.event === 'Progress') {
+                downloaded += event.data.chunkLength;
+                setProgress(total > 0 ? Math.min(100, Math.round(downloaded / total * 100)) : 0);
+              } else if (event.event === 'Finished') {
+                setProgress(100);
+              }
+            });
+          } catch (error: any) {
+            const errMsg = error?.message || String(error);
+            const errStack = error?.stack || 'No stack trace available';
+            const detailedMsg = `[Auto-Updater Download/Install Failure]\nEndpoint: ${ENDPOINT_URL}\nError: ${errMsg}\nStack: ${errStack}`;
+            console.error(detailedMsg, error);
+            alert(detailedMsg);
+            throw error;
+          }
         }
 
         if (active) setStatus('ready');
