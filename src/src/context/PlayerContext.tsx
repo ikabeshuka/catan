@@ -7,7 +7,7 @@ import { generateBoard } from '../utils/gameEngine/generateBoard';
 import { generateVertices } from '../utils/gameEngine/generateVertices';
 import { generateEdges } from '../utils/gameEngine/generateEdges';
 import { standardCatanConfig } from '../config/standardVersion';
-import { createStandardDevelopmentDeck } from '../config/gameRules';
+import { createStandardDevelopmentDeck, isCitiesKnightsExpansion } from '../config/gameRules';
 import { createSnapshot, restoreFromSnapshot, TurnSnapshot } from '../utils/gameEngine/turnSnapshots';
 import { calculateLongestRoadForPlayer } from '../utils/gameEngine/checkLongestRoad';
 import { ResourceCards } from '../types/resources.types';
@@ -20,6 +20,9 @@ export interface GoldSelectionPending {
   playerId: string;
   amount: number;
   tileId: string;
+  /** A treasure may limit the otherwise-free resource selection. */
+  allowedResources?: Array<keyof ResourceCards>;
+  source?: 'GOLD_FIELD' | 'TREASURE';
 }
 
 interface PlayerContextType {
@@ -160,7 +163,7 @@ export const PlayerProvider: React.FC<{ children: ReactNode }> = ({ children }) 
   }, [edges, vertices, players, selectedScenario]);
 
   const largestArmyPlayerId = useMemo(() => {
-    if (selectedScenario === 'PIRATE_ISLANDS' || activeExpansion === 'CITIES_AND_KNIGHTS') {
+    if (selectedScenario === 'PIRATE_ISLANDS' || selectedScenario === 'DESERT_DRAGONS' || isCitiesKnightsExpansion(activeExpansion)) {
       prevLargestArmyRef.current = null;
       return null;
     }
@@ -187,7 +190,7 @@ export const PlayerProvider: React.FC<{ children: ReactNode }> = ({ children }) 
 
     prevLargestArmyRef.current = leaderId;
     return leaderId;
-  }, [players, selectedScenario]);
+  }, [players, selectedScenario, activeExpansion]);
 
   const addLog = (message: string) => {
     setLogs(prev => [...prev, message]);
@@ -405,7 +408,7 @@ export const PlayerProvider: React.FC<{ children: ReactNode }> = ({ children }) 
         color: '#e53935',
         isBot: false,
         playerType: 'HUMAN',
-        victoryPoints: activeExpansion === 'CITIES_AND_KNIGHTS' ? 3 : 2,
+        victoryPoints: isCitiesKnightsExpansion(activeExpansion) ? 3 : 2,
         clothRolls: 0,
         lostTribeVillageIds: [],
         resources: { WOOD: 0, BRICK: 0, SHEEP: 0, WHEAT: 0, ORE: 0 },
@@ -418,7 +421,7 @@ export const PlayerProvider: React.FC<{ children: ReactNode }> = ({ children }) 
         color: '#1e88e5',
         isBot: true,
         playerType: 'LOCAL_BOT',
-        victoryPoints: activeExpansion === 'CITIES_AND_KNIGHTS' ? 3 : 2,
+        victoryPoints: isCitiesKnightsExpansion(activeExpansion) ? 3 : 2,
         clothRolls: 0,
         lostTribeVillageIds: [],
         resources: { WOOD: 0, BRICK: 0, SHEEP: 0, WHEAT: 0, ORE: 0 },
@@ -431,7 +434,7 @@ export const PlayerProvider: React.FC<{ children: ReactNode }> = ({ children }) 
         color: '#fdd835',
         isBot: true,
         playerType: 'LOCAL_BOT',
-        victoryPoints: activeExpansion === 'CITIES_AND_KNIGHTS' ? 3 : 2,
+        victoryPoints: isCitiesKnightsExpansion(activeExpansion) ? 3 : 2,
         clothRolls: 0,
         lostTribeVillageIds: [],
         resources: { WOOD: 0, BRICK: 0, SHEEP: 0, WHEAT: 0, ORE: 0 },
@@ -444,7 +447,7 @@ export const PlayerProvider: React.FC<{ children: ReactNode }> = ({ children }) 
         color: '#43a047',
         isBot: true,
         playerType: 'LOCAL_BOT',
-        victoryPoints: activeExpansion === 'CITIES_AND_KNIGHTS' ? 3 : 2,
+        victoryPoints: isCitiesKnightsExpansion(activeExpansion) ? 3 : 2,
         clothRolls: 0,
         lostTribeVillageIds: [],
         resources: { WOOD: 0, BRICK: 0, SHEEP: 0, WHEAT: 0, ORE: 0 },

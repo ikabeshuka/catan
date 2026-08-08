@@ -52,7 +52,7 @@ export function generateEdges(tiles: HexTile[], activeExpansion?: string): Board
     });
   });
 
-  if (activeExpansion === 'SEAFARERS') {
+  if (activeExpansion === 'SEAFARERS' || activeExpansion === 'SEAFARERS_AND_CITIES_AND_KNIGHTS') {
     const findSharedEdge = (t1: HexTile, t2: HexTile): string | null => {
       if (!t1 || !t2) return null;
       const edges1 = getTileEdgeIds(t1);

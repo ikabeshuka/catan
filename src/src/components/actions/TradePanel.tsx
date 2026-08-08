@@ -49,26 +49,58 @@ export const TradePanel: React.FC = () => {
     : players.find(p => !p.isBot) || players[0])!;
   const otherPlayers = players.filter(p => p.id !== humanPlayer.id);
 
-  // Selector States
-  const [giveRes, setGiveRes] = useState<ResourceType>('WOOD');
-  const [giveAmt, setGiveAmt] = useState<number>(1);
-  const [receiveRes, setReceiveRes] = useState<ResourceType>('BRICK');
-  const [receiveAmt, setReceiveAmt] = useState<number>(1);
+  // Multi-resource offer and request states
+  const [offer, setOffer] = useState<Record<ResourceType, number>>({
+    WOOD: 0, BRICK: 0, SHEEP: 0, WHEAT: 0, ORE: 0
+  });
+  const [request, setRequest] = useState<Record<ResourceType, number>>({
+    WOOD: 0, BRICK: 0, SHEEP: 0, WHEAT: 0, ORE: 0
+  });
 
   // Targets Sub-Menu States
   const [showTargetsMenu, setShowTargetsMenu] = useState<boolean>(false);
   const [checkedTargets, setCheckedTargets] = useState<Record<string, boolean>>({});
 
+  // Quick trade states
+  const [giveRes, setGiveRes] = useState<ResourceType>('WOOD');
+  const [giveAmt, setGiveAmt] = useState<number>(1);
+  const [receiveRes, setReceiveRes] = useState<ResourceType>('BRICK');
+  const [receiveAmt, setReceiveAmt] = useState<number>(1);
+
+  // Sync quick trade values to offer and request states for handling calculations
+  useEffect(() => {
+    setOffer({
+      WOOD: giveRes === 'WOOD' ? giveAmt : 0,
+      BRICK: giveRes === 'BRICK' ? giveAmt : 0,
+      SHEEP: giveRes === 'SHEEP' ? giveAmt : 0,
+      WHEAT: giveRes === 'WHEAT' ? giveAmt : 0,
+      ORE: giveRes === 'ORE' ? giveAmt : 0,
+    });
+  }, [giveRes, giveAmt]);
+
+  useEffect(() => {
+    setRequest({
+      WOOD: receiveRes === 'WOOD' ? receiveAmt : 0,
+      BRICK: receiveRes === 'BRICK' ? receiveAmt : 0,
+      SHEEP: receiveRes === 'SHEEP' ? receiveAmt : 0,
+      WHEAT: receiveRes === 'WHEAT' ? receiveAmt : 0,
+      ORE: receiveRes === 'ORE' ? receiveAmt : 0,
+    });
+  }, [receiveRes, receiveAmt]);
+
   // Initialize all target players as checked by default
   useEffect(() => {
+    if (!humanPlayer) return;
     const initial: Record<string, boolean> = {};
     players.filter(p => p.id !== humanPlayer.id).forEach(p => {
       initial[p.id] = true;
     });
     setCheckedTargets(initial);
-  }, [players, humanPlayer.id]); // Re-run if players list or local identity changes
+  }, [players, humanPlayer?.id]); // Re-run if players list or local identity changes
 
   if (!humanPlayer) return null;
+
+  const playerStock = humanPlayer.resources[giveRes] || 0;
 
   const isWrongOnlinePlayer = !!roomId && (!myPlayerId || currentPlayer?.id !== myPlayerId);
 
@@ -79,48 +111,56 @@ export const TradePanel: React.FC = () => {
     v.isHarbor
   );
 
+  // Extract non-zero entries for single-resource checks (for bank/port trade)
+  const offerEntries = Object.entries(offer).filter(([_, amt]) => amt > 0) as [ResourceType, number][];
+  const requestEntries = Object.entries(request).filter(([_, amt]) => amt > 0) as [ResourceType, number][];
+
+  const isSingleResourceTrade = offerEntries.length === 1 && requestEntries.length === 1;
+  const singleGiveRes = offerEntries[0]?.[0];
+  const singleGiveAmt = offerEntries[0]?.[1] || 0;
+  const singleReceiveRes = requestEntries[0]?.[0];
+  const singleReceiveAmt = requestEntries[0]?.[1] || 0;
+
   const hasGenericHarbor = ownedHarbors.some(h => h.harborType === 'GENERIC');
-  const hasSpecializedHarbor = ownedHarbors.some(h => h.harborType === giveRes);
-  const hasMerchantTrade = citiesKnightsState?.merchant?.playerId === humanPlayer.id && citiesKnightsState.merchant.resource === giveRes;
-  const hasMerchantFleetTrade = humanPlayer.merchantFleetResource === giveRes;
+  const hasSpecializedHarbor = singleGiveRes ? ownedHarbors.some(h => h.harborType === singleGiveRes) : false;
+  const hasMerchantTrade = singleGiveRes ? (citiesKnightsState?.merchant?.playerId === humanPlayer.id && citiesKnightsState.merchant.resource === singleGiveRes) : false;
+  const hasMerchantFleetTrade = singleGiveRes ? (humanPlayer.merchantFleetResource === singleGiveRes) : false;
   const bankTradeRatio = (hasSpecializedHarbor || hasMerchantTrade || hasMerchantFleetTrade) ? 2 : hasGenericHarbor ? 3 : 4;
 
   const isProposeTradeEnabled =
-    giveAmt > 0 &&
-    receiveAmt > 0 &&
-    giveRes !== receiveRes &&
-    (humanPlayer.resources[giveRes] || 0) >= giveAmt &&
+    Object.values(offer).reduce((sum, a) => sum + a, 0) > 0 &&
+    Object.values(request).reduce((sum, a) => sum + a, 0) > 0 &&
     !isCurrentPlayerBot &&
     !isWrongOnlinePlayer &&
-    turnSubPhase === 'TRADE_AND_BUILD';
+    turnSubPhase === 'TRADE_AND_BUILD' &&
+    Object.entries(offer).every(([res, amt]) => (humanPlayer.resources[res as ResourceType] || 0) >= amt);
 
   const isBankTradeEnabled =
-    giveAmt >= bankTradeRatio &&
-    giveAmt % bankTradeRatio === 0 &&
-    receiveAmt === giveAmt / bankTradeRatio &&
-    giveRes !== receiveRes &&
-    (humanPlayer.resources[giveRes] || 0) >= giveAmt &&
+    isSingleResourceTrade &&
+    singleGiveAmt >= bankTradeRatio &&
+    singleGiveAmt % bankTradeRatio === 0 &&
+    singleReceiveAmt === singleGiveAmt / bankTradeRatio &&
+    singleGiveRes !== singleReceiveRes &&
+    (humanPlayer.resources[singleGiveRes] || 0) >= singleGiveAmt &&
     !isCurrentPlayerBot &&
     !isWrongOnlinePlayer &&
     turnSubPhase === 'TRADE_AND_BUILD';
 
   const isHarborTradeEnabled = (() => {
-    if (giveRes === receiveRes || isCurrentPlayerBot || isWrongOnlinePlayer || turnSubPhase !== 'TRADE_AND_BUILD') return false;
-    const playerStock = humanPlayer.resources[giveRes] || 0;
-    if (playerStock < giveAmt) return false;
-    return bankTradeRatio < 4 && giveAmt >= bankTradeRatio && giveAmt % bankTradeRatio === 0 && receiveAmt === giveAmt / bankTradeRatio;
+    if (!isSingleResourceTrade || singleGiveRes === singleReceiveRes || isCurrentPlayerBot || isWrongOnlinePlayer || turnSubPhase !== 'TRADE_AND_BUILD') return false;
+    const playerStock = humanPlayer.resources[singleGiveRes] || 0;
+    if (playerStock < singleGiveAmt) return false;
+    return bankTradeRatio < 4 && singleGiveAmt >= bankTradeRatio && singleGiveAmt % bankTradeRatio === 0 && singleReceiveAmt === singleGiveAmt / bankTradeRatio;
   })();
 
   const handleProposeTradeToPlayers = () => {
-    const playerStock = humanPlayer.resources[giveRes] || 0;
-    if (playerStock < giveAmt) {
-      alert(`אין לך מספיק משאבים מסוג ${RESOURCE_LABELS[giveRes]} (יש לך ${playerStock})!`);
-      return;
-    }
-
-    if (giveRes === receiveRes) {
-      alert("לא ניתן לבצע עסקה על אותו משאב!");
-      return;
+    // Verify player has enough resources
+    for (const [res, amt] of Object.entries(offer)) {
+      const stock = humanPlayer.resources[res as ResourceType] || 0;
+      if (stock < amt) {
+        alert(`אין לך מספיק משאבים מסוג ${RESOURCE_LABELS[res as ResourceType]} (יש לך ${stock}, נדרש ${amt})!`);
+        return;
+      }
     }
 
     const checkedTargetsList = otherPlayers.filter(p => checkedTargets[p.id]);
@@ -142,45 +182,19 @@ export const TradePanel: React.FC = () => {
     for (const bot of botsToTrade) {
       const botAgreed = evaluateBotTradeDecision(
         bot,
-        giveRes,
-        giveAmt,
-        receiveRes,
-        receiveAmt
+        offer,
+        request
       );
 
       if (botAgreed) {
         dispatchGameAction({
           type: 'EXECUTE_PLAYER_TRADE', playerId: humanPlayer.id, targetPlayerId: bot.id,
-          offer: { [giveRes]: giveAmt }, request: { [receiveRes]: receiveAmt },
+          offer, request,
         }, {
           roomId: roomId || undefined, isRemote: false,
           myPlayerId: roomId ? myPlayerId : humanPlayer.id,
           turnSubPhase, players, setPlayers, addLog,
         });
-        /* Direct mutation replaced by dispatchGameAction.
-        setPlayers((prevPlayers: any[]) => prevPlayers.map(p => {
-          if (p.id === humanPlayer.id) {
-            return {
-              ...p,
-              resources: {
-                ...p.resources,
-                [giveRes]: (p.resources[giveRes] || 0) - giveAmt,
-                [receiveRes]: (p.resources[receiveRes] || 0) + receiveAmt
-              }
-            };
-          } else if (p.id === bot.id) {
-            return {
-              ...p,
-              resources: {
-                ...p.resources,
-                [giveRes]: (p.resources[giveRes] || 0) + giveAmt,
-                [receiveRes]: (p.resources[receiveRes] || 0) - receiveAmt
-              }
-            };
-          }
-          return p;
-        }));
-        */
 
         addLog(`[מסחר] בוט ${bot.name} קיבל את ההצעה שלך והעסקה בוצעה!`);
         tradeExecuted = true;
@@ -197,26 +211,27 @@ export const TradePanel: React.FC = () => {
   };
 
   const handleTradeWithBank = () => {
+    if (!isSingleResourceTrade) {
+      alert("לא ניתן לבצע מסחר בנמל/בנק המורכב מכמה סוגי משאבים!");
+      return;
+    }
     if (turnSubPhase !== 'TRADE_AND_BUILD') {
       alert("ניתן לסחור רק בשלב המסחר והבנייה!");
       return;
     }
 
-    const playerStock = humanPlayer.resources[giveRes] || 0;
-    if (playerStock < giveAmt) {
-      alert(`אין לך מספיק משאבים מסוג ${RESOURCE_LABELS[giveRes]} (יש לך ${playerStock})!`);
+    const playerStock = humanPlayer.resources[singleGiveRes] || 0;
+    if (playerStock < singleGiveAmt) {
+      alert(`אין לך מספיק משאבים מסוג ${RESOURCE_LABELS[singleGiveRes]} (יש לך ${playerStock})!`);
       return;
     }
 
-    const success = tradeWithBank(giveRes, receiveRes, giveAmt, receiveAmt);
+    const success = tradeWithBank(singleGiveRes, singleReceiveRes, singleGiveAmt, singleReceiveAmt);
     if (success) {
-      // Reset inputs after successful bank trade
-      setGiveAmt(1);
-      setReceiveAmt(1);
+      setOffer({ WOOD: 0, BRICK: 0, SHEEP: 0, WHEAT: 0, ORE: 0 });
+      setRequest({ WOOD: 0, BRICK: 0, SHEEP: 0, WHEAT: 0, ORE: 0 });
     }
   };
-
-  const playerStock = humanPlayer.resources[giveRes] || 0;
 
   return (
     <div className="bg-slate-900/90 border border-slate-800/85 rounded-2xl p-3 shadow-[inset_0_1px_1px_rgba(255,255,255,0.08),0_4px_16px_rgba(0,0,0,0.45)] mt-2.5" dir="rtl">

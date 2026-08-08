@@ -31,12 +31,15 @@ import { useOnlineGameSync } from './hooks/useOnlineGameSync';
 import { BotTimerIndicator } from './components/common/BotTimerIndicator';
 import { GameModalsManager } from './components/modals/GameModalsManager';
 import { UnifiedTradeModal } from './components/modals/UnifiedTradeModal';
-import { getVictoryPointTarget } from './config/gameRules';
+import { getVictoryPointTarget, isCitiesKnightsExpansion, isSeafarersExpansion } from './config/gameRules';
 import { dispatchGameAction } from './services/gameDispatcher';
 import { useUser } from './context/UserContext';
 import { RoomParticipant } from './types/rating.types';
 import { AuthModal } from './components/modals/AuthModal';
 import { EMPTY_COMMODITIES, createCitiesKnightsState } from './types/citiesKnights.types';
+import { createScenarioState } from './types/scenarioState.types';
+import { isTreasuresDragonsAdventurersScenario } from './config/treasuresDragonsAdventurers';
+import { getTileVertexIds } from './utils/hexMath/boardGeometryHelpers';
 
 const GameContent: React.FC = () => {
   const lastProcessedTurnRef = useRef<string>("");
@@ -96,6 +99,7 @@ const GameContent: React.FC = () => {
     hasMovedShipThisTurn,
     currentTurnBuiltShips,
     citiesKnightsState,
+    setScenarioState,
   } = useGame();
 
   const [activeRightTab, setActiveRightTab] = useState<'DEV_CARDS' | 'TRADE'>('DEV_CARDS');
@@ -135,7 +139,7 @@ const GameContent: React.FC = () => {
     };
   }, [roomId]);
 
-  const victoryGoal = getVictoryPointTarget(activeExpansion, selectedScenario);
+  const victoryGoal = getVictoryPointTarget(activeExpansion, selectedScenario, players.length);
 
   const activePlayer = players[currentPlayerIndex];
   const currentTurnPlayerId = activePlayer?.id;
@@ -421,11 +425,43 @@ const GameContent: React.FC = () => {
             
             lastProcessedTurnRef.current = "";
             lastStartedTurnRef.current = "";
-
             // Generate board data
             const newTiles = generateBoard(standardCatanConfig, boardType, activeExpansion, selectedScenario, pCount);
             let newVertices = generateVertices(newTiles, activeExpansion);
             let newEdges = generateEdges(newTiles, activeExpansion);
+            const treasureCount = selectedScenario === 'TREASURE_ISLANDS' ? 15
+              // The 3-player setup removes three of the seventeen chest
+              // tokens before placement; all twenty are used with four players.
+              : selectedScenario === 'INTO_THE_UNKNOWN' ? (pCount === 3 ? 14 : 20)
+              : 0;
+            const treasureVertexIds = treasureCount > 0
+              ? [...new Set(newTiles.filter(tile => tile.type === 'FOG').flatMap(getTileVertexIds))].slice(0, treasureCount)
+              : [];
+            const initialScenarioState = createScenarioState(selectedScenario, treasureVertexIds);
+            if (selectedScenario === 'GREATER_CATAN' && initialScenarioState.kind === 'GREATER_CATAN') {
+              initialScenarioState.numberTokenSupply = pCount === 3 ? [3, 4, 9, 10] : [3, 4, 5, 9, 10];
+            }
+            if (isTreasuresDragonsAdventurersScenario(selectedScenario) &&
+              (initialScenarioState.kind === 'TREASURE_ISLANDS' || initialScenarioState.kind === 'INTO_THE_UNKNOWN')) {
+              const tokenByVertexId = Object.fromEntries(Object.values(initialScenarioState.treasureTokens).map(token => [token.vertexId, token]));
+              newVertices = newVertices.map(vertex => tokenByVertexId[vertex.id]
+                ? { ...vertex, treasureToken: tokenByVertexId[vertex.id] }
+                : vertex);
+            }
+            if (selectedScenario === 'ENCHANTED_LAND' && initialScenarioState.kind === 'ENCHANTED_LAND') {
+              const enchantedVertexIds = [...new Set(newTiles.filter(tile => tile.scenarioMarker?.isEnchantedLand).flatMap(getTileVertexIds))];
+              const enchantedCoastVertexIds = new Set(newTiles.filter(tile => tile.type === 'WATER' || tile.type === 'SEA').flatMap(getTileVertexIds));
+              const dragonVertexIds = enchantedVertexIds.slice(0, 19);
+              initialScenarioState.dragonVertexIds = Object.fromEntries(dragonVertexIds.map((vertexId, index) => [`enchanted-dragon-${index + 1}`, vertexId]));
+              newVertices = newVertices.map(vertex => {
+                const entry = Object.entries(initialScenarioState.dragonVertexIds).find(([, vertexId]) => vertexId === vertex.id);
+                const isEnchantedLand = enchantedVertexIds.includes(vertex.id);
+                const isEnchantedCoast = isEnchantedLand && enchantedCoastVertexIds.has(vertex.id);
+                return entry ? { ...vertex, isEnchantedLand, isEnchantedCoast, enchantedDragon: { id: entry[0], strength: ((entry[0].slice(-1).charCodeAt(0) % 3) + 1) as 1 | 2 | 3 } }
+                  : isEnchantedLand ? { ...vertex, isEnchantedCoast } : vertex;
+              });
+            }
+            setScenarioState(initialScenarioState);
             if (selectedScenario === 'PIRATE_ISLANDS') {
               ({ vertices: newVertices, edges: newEdges } = applyPirateIslandsSetup(
                 newTiles, newVertices, newEdges, lobbyP.slice(0, pCount).map(player => player.id)
@@ -437,8 +473,8 @@ const GameContent: React.FC = () => {
               .filter(card => selectedScenario !== 'PIRATE_ISLANDS' || pCount !== 3 || card !== 'VICTORY_POINT');
 
             const pirateIslandColors = pCount === 3
-              ? ['#e53935', '#1e88e5', '#f97316']
-              : ['#e53935', '#f8fafc', '#1e88e5', '#f97316'];
+              ? ['#e53935', '#1e88e5', '#43a047']
+              : ['#e53935', '#fdd835', '#1e88e5', '#43a047'];
             const selectedPlayers = lobbyP.slice(0, pCount).map((p, index) => {
               const difficulty: 'EASY' | 'MEDIUM' | 'HARD' | 'SUPER_HARD' | undefined = p.isBot ? (p.difficulty === 'קל' ? 'EASY' : p.difficulty === 'קשה' ? 'HARD' : p.difficulty === 'סופר קשה' ? 'SUPER_HARD' : 'MEDIUM') : undefined;
               const archetype: 'BUILDER' | 'DEVELOPER' | undefined = (p.isBot && difficulty === 'HARD') ? (Math.random() < 0.5 ? 'BUILDER' : 'DEVELOPER') : undefined;
@@ -451,13 +487,13 @@ const GameContent: React.FC = () => {
                 playerType: p.playerType,
                 difficulty,
                 ...(archetype ? { archetype } : {}),
-                victoryPoints: selectedScenario === 'PIRATE_ISLANDS' || activeExpansion === 'CITIES_AND_KNIGHTS' ? 3 : 2,
+                victoryPoints: selectedScenario === 'PIRATE_ISLANDS' || isCitiesKnightsExpansion(activeExpansion) ? 3 : 2,
                 clothRolls: 0,
                 lostTribeVillageIds: [],
                 resources: { WOOD: 0, BRICK: 0, SHEEP: 0, WHEAT: 0, ORE: 0 },
                 developmentCards: { KNIGHT: 0, MONOPOLY: 0, ROAD_BUILDING: 0, YEAR_OF_PLENTY: 0, VICTORY_POINT: 0 },
                 knightsPlayed: 0,
-                ...(activeExpansion === 'CITIES_AND_KNIGHTS' ? {
+                ...(isCitiesKnightsExpansion(activeExpansion) ? {
                   commodities: { ...EMPTY_COMMODITIES },
                   cityImprovements: { SCIENCE: 0, POLITICS: 0, TRADE: 0 },
                   progressCards: [],
@@ -499,6 +535,7 @@ const GameContent: React.FC = () => {
                   hasMovedShipThisTurn: false,
                   commodityBank: { COIN: 12, PAPER: 12, CLOTH: 12 },
                   citiesKnightsState: createCitiesKnightsState(),
+                  scenarioState: initialScenarioState,
                   activeExpansion,
                   selectedScenario,
                   boardType,
@@ -773,7 +810,7 @@ const GameContent: React.FC = () => {
         )}
 
         {/* פאנל בחירה בין שודד לפיראט בהרחבת יורדי הים */}
-        {activeExpansion === 'SEAFARERS' && turnSubPhase === 'ROBBER_PLACEMENT' && !activePlayer?.isBot && activeRobberType === null && (
+        {isSeafarersExpansion(activeExpansion) && turnSubPhase === 'ROBBER_PLACEMENT' && !activePlayer?.isBot && activeRobberType === null && (
           <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-md flex items-center justify-center z-50 p-4">
             <div className="bg-slate-900 border border-slate-800 rounded-2xl w-full max-w-md p-6 shadow-2xl relative text-right animate-fade-in" dir="rtl">
               <h3 className="text-xl font-extrabold text-transparent bg-clip-text bg-gradient-to-r from-amber-400 to-orange-500 mb-6 border-b border-slate-800 pb-3 flex items-center gap-2">

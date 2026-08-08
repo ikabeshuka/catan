@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useGame } from '../../context/GameContext';
+import { isCitiesKnightsExpansion } from '../../config/gameRules';
 import { dispatchGameAction } from '../../services/gameDispatcher';
 
 const CARD_IMAGES: Record<string, string> = {
@@ -94,8 +95,9 @@ export const DiscardOverlay: React.FC = () => {
   }
 
   const totalCards = Object.values(humanPlayer.resources).reduce((a, b) => a + b, 0) +
-    (activeExpansion === 'CITIES_AND_KNIGHTS' ? Object.values(humanPlayer.commodities || {}).reduce((a, b) => a + b, 0) : 0);
-  const handLimit = 7 + (activeExpansion === 'CITIES_AND_KNIGHTS' ? 2 * vertices.filter(vertex => vertex.playerId === humanPlayer.id && vertex.cityWall).length : 0);
+    (isCitiesKnightsExpansion(activeExpansion) ? Object.values(humanPlayer.commodities || {}).reduce((a, b) => a + b, 0) : 0);
+  const handLimit = (selectedScenario === 'INTO_THE_UNKNOWN' && (humanPlayer.keptTreasureTokens || 0) > 0 ? 9 : 7) +
+    (isCitiesKnightsExpansion(activeExpansion) ? 2 * vertices.filter(vertex => vertex.playerId === humanPlayer.id && vertex.cityWall).length : 0);
   if (!sabotageEntry && !weddingEntry && !harborEntry && !harborReturn && totalCards <= handLimit) return null;
   const toDiscard = harborEntry || harborReturn ? 1 : weddingEntry?.amount ?? sabotageEntry?.amount ?? Math.floor(totalCards / 2);
 
@@ -157,7 +159,7 @@ export const DiscardOverlay: React.FC = () => {
     setHasSubmittedDiscard(true);
   };
 
-  const resourceKeys = activeExpansion === 'CITIES_AND_KNIGHTS'
+  const resourceKeys = isCitiesKnightsExpansion(activeExpansion)
     ? ['WOOD', 'BRICK', 'SHEEP', 'WHEAT', 'ORE', 'COIN', 'PAPER', 'CLOTH']
     : ['WOOD', 'BRICK', 'SHEEP', 'WHEAT', 'ORE'];
   const selectableKeys = harborReturn

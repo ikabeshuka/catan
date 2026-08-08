@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { useGame } from '../context/GameContext';
 import { getMediumBotTarget } from '../utils/ai/getMediumBotTarget';
 import { dispatchGameAction } from '../services/gameDispatcher';
+import type { ResourceCards } from '../types/resources.types';
 
 export const useAppTrade = () => {
   const {
@@ -145,35 +146,59 @@ export const useAppTrade = () => {
 
   const evaluateBotTradeDecision = (
     bot: typeof humanPlayer,
-    offerResource: 'WOOD' | 'BRICK' | 'SHEEP' | 'WHEAT' | 'ORE',
-    offerAmount: number,
-    demandResource: 'WOOD' | 'BRICK' | 'SHEEP' | 'WHEAT' | 'ORE',
-    demandAmount: number
+    offerResourceOrOfferObj: 'WOOD' | 'BRICK' | 'SHEEP' | 'WHEAT' | 'ORE' | Record<string, number>,
+    offerAmountOrRequestObj?: number | Record<string, number>,
+    demandResource?: 'WOOD' | 'BRICK' | 'SHEEP' | 'WHEAT' | 'ORE',
+    demandAmount?: number
   ): boolean => {
-    const botStock = bot.resources[demandResource] || 0;
-    if (botStock < demandAmount) {
-      return false;
+    let offerObj: Partial<ResourceCards>;
+    let requestObj: Partial<ResourceCards>;
+
+    if (typeof offerResourceOrOfferObj === 'string') {
+      offerObj = { [offerResourceOrOfferObj]: offerAmountOrRequestObj as number };
+      requestObj = { [demandResource!]: demandAmount! };
+    } else {
+      offerObj = offerResourceOrOfferObj as Partial<ResourceCards>;
+      requestObj = offerAmountOrRequestObj as Partial<ResourceCards>;
     }
 
-    if (bot.difficulty === 'EASY' && offerAmount === 1 && demandAmount === 1) {
-      return true;
+    // Check if bot can actually pay the requestObj
+    for (const [res, amt] of Object.entries(requestObj) as [keyof ResourceCards, number][]) {
+      if ((bot.resources[res] || 0) < amt) {
+        return false;
+      }
     }
 
-    const res = bot.resources;
+    const totalOfferAmt = Object.values(offerObj).reduce((sum, a) => sum + a, 0);
+    const totalRequestAmt = Object.values(requestObj).reduce((sum, a) => sum + a, 0);
+
+    if (bot.difficulty === 'EASY') {
+      return totalOfferAmt >= totalRequestAmt;
+    }
 
     if (bot.difficulty === 'MEDIUM') {
       const target = getMediumBotTarget(bot, gamePhase, tiles, vertices, edges);
       if (target) {
-        const isNeeded = (bot.resources[offerResource] || 0) < (target.cost[offerResource] || 0);
-        if (!isNeeded) {
+        let isNeeded = false;
+        for (const [r, amt] of Object.entries(offerObj) as [keyof ResourceCards, number][]) {
+          if (amt > 0 && (bot.resources[r] || 0) < (target.cost[r] || 0)) {
+            isNeeded = true;
+          }
+        }
+        if (!isNeeded && totalOfferAmt < totalRequestAmt) {
           return false;
         }
-        const isGivingAwayNeeded = (target.cost[demandResource] || 0) > 0 && (bot.resources[demandResource] || 0) <= (target.cost[demandResource] || 0);
+        let isGivingAwayNeeded = false;
+        for (const [r, amt] of Object.entries(requestObj) as [keyof ResourceCards, number][]) {
+          if (amt > 0 && (target.cost[r] || 0) > 0 && (bot.resources[r] || 0) <= (target.cost[r] || 0)) {
+            isGivingAwayNeeded = true;
+          }
+        }
         if (isGivingAwayNeeded) {
           return false;
         }
         
-        const ratio = offerAmount / demandAmount;
+        const ratio = totalOfferAmt / totalRequestAmt;
         let acceptProbability = 0.85;
         if (ratio < 1) {
           acceptProbability -= 0.35;
@@ -182,58 +207,33 @@ export const useAppTrade = () => {
       }
     }
 
-    const ROAD_COST = { WOOD: 1, BRICK: 1, SHEEP: 0, WHEAT: 0, ORE: 0 };
-    const SETTLEMENT_COST = { WOOD: 1, BRICK: 1, SHEEP: 1, WHEAT: 1, ORE: 0 };
-    const CITY_COST = { WOOD: 0, BRICK: 0, SHEEP: 0, WHEAT: 2, ORE: 3 };
+    // HARD DIFFICULTY (or fallback)
+    let hasWantedResourceInOffer = false;
+    let givingCriticalResource = false;
 
-    const getMissingResources = (cost: typeof ROAD_COST) => {
-      let missingCount = 0;
-      const missingMap: Record<string, number> = {};
-      let isAffordable = true;
-
-      for (const key of ['WOOD', 'BRICK', 'SHEEP', 'WHEAT', 'ORE'] as const) {
-        const needed = cost[key] || 0;
-        const current = res[key] || 0;
-        if (current < needed) {
-          isAffordable = false;
-          const diff = needed - current;
-          missingCount += diff;
-          missingMap[key] = diff;
-        }
+    for (const [r, amt] of Object.entries(offerObj) as [keyof ResourceCards, number][]) {
+      if (amt > 0 && (bot.resources[r] || 0) <= 1) {
+        hasWantedResourceInOffer = true;
       }
-      return { isAffordable, missingCount, missingMap };
-    };
+    }
 
-    const roadInfo = getMissingResources(ROAD_COST);
-    const settlementInfo = getMissingResources(SETTLEMENT_COST);
-    const cityInfo = getMissingResources(CITY_COST);
-
-    const goals = [
-      { name: 'ROAD', ...roadInfo, cost: ROAD_COST },
-      { name: 'SETTLEMENT', ...settlementInfo, cost: SETTLEMENT_COST },
-      { name: 'CITY', ...cityInfo, cost: CITY_COST }
-    ];
-
-    const pendingGoals = goals.filter(g => !g.isAffordable && g.missingCount > 0);
-    pendingGoals.sort((a, b) => a.missingCount - b.missingCount);
-
-    const closestGoal = pendingGoals[0];
-    const isNeededForClosestGoal = closestGoal && (closestGoal.missingMap[offerResource] || 0) > 0;
-    const isCritical = closestGoal && 
-      (closestGoal.cost[demandResource] || 0) > 0 && 
-      (res[demandResource] || 0) <= (closestGoal.cost[demandResource] || 0);
+    for (const [r, amt] of Object.entries(requestObj) as [keyof ResourceCards, number][]) {
+      if (amt > 0 && (bot.resources[r] || 0) - amt <= 1) {
+        givingCriticalResource = true;
+      }
+    }
 
     let acceptProbability = 0.3;
 
-    if (isNeededForClosestGoal && !isCritical) {
+    if (hasWantedResourceInOffer && !givingCriticalResource) {
       acceptProbability = 0.85;
-    } else if (isCritical) {
+    } else if (givingCriticalResource) {
       acceptProbability = 0.10;
-    } else if (!isCritical && !isNeededForClosestGoal) {
+    } else if (!givingCriticalResource && !hasWantedResourceInOffer) {
       acceptProbability = 0.40;
     }
 
-    const ratio = offerAmount / demandAmount;
+    const ratio = totalOfferAmt / totalRequestAmt;
     if (ratio >= 2) {
       acceptProbability += 0.40;
     } else if (ratio > 1) {

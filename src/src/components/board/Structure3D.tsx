@@ -91,11 +91,42 @@ const PlacedStructure3D: React.FC<Structure3DProps> = ({
 
   // ביצוע scene.clone() מבוקר כדי למנוע התנגשויות בין שכפולים של מודלים ונרמול מוגדל
   const clonedScene = React.useMemo(() => {
-    // אל תדרוס את חומרי המודלים בצבע השחקן. השאר את המרקם/טקסטורה המקורית של המודל.
     const targetSize = isSettlement ? 0.9 : 1.3;
     // normalizeAndCenterModel already makes the deep clone required per piece.
-    return normalizeAndCenterModel(activeScene, targetSize);
-  }, [activeScene, isSettlement]);
+    const scene = normalizeAndCenterModel(activeScene, targetSize);
+
+    // Traverse the scene and recursively apply playerColor to the target roof/structure materials
+    scene.traverse((node) => {
+      if ((node as THREE.Mesh).isMesh) {
+        const mesh = node as THREE.Mesh;
+        const materials = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
+
+        materials.forEach((mat) => {
+          if (!mat) return;
+
+          const isTargetMaterial = 
+            (isSettlement && mat.name === '02___Default') ||
+            (!isSettlement && mat.name === 'Diffuse_color');
+
+          if (isTargetMaterial) {
+            const clonedMat = mat.clone();
+            if ('color' in clonedMat) {
+              (clonedMat as any).color.set(playerColor);
+            }
+
+            if (Array.isArray(mesh.material)) {
+              const idx = mesh.material.indexOf(mat);
+              if (idx !== -1) mesh.material[idx] = clonedMat;
+            } else {
+              mesh.material = clonedMat;
+            }
+          }
+        });
+      }
+    });
+
+    return scene;
+  }, [activeScene, isSettlement, playerColor]);
   const metropolisModel = React.useMemo(() => normalizeAndCenterModel(metropolisScene, 0.42), [metropolisScene]);
 
   // מדדי מטרה לאנימציית צמיחה (Scale Animation)

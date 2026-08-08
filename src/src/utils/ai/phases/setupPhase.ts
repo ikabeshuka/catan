@@ -59,7 +59,7 @@ export function setupPhase({
     const targetVertexId = bestVertices[0].vertexId;
 
     // 2. בניית היישוב בסטייט ודיווח למערכת ההקמה
-    const setupStructure = activeExpansion === 'CITIES_AND_KNIGHTS' && gamePhase === 'SETUP_ROUND_2'
+    const setupStructure = ['CITIES_AND_KNIGHTS', 'SEAFARERS_AND_CITIES_AND_KNIGHTS'].includes(activeExpansion || '') && gamePhase === 'SETUP_ROUND_2'
       ? 'CITY' as const
       : 'SETTLEMENT' as const;
     const updatedVertices = vertices.map(v =>

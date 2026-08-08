@@ -2,6 +2,7 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import { User, onAuthStateChanged } from 'firebase/auth';
 import { auth, signInWithGoogle, logoutUser, registerWithEmail, loginWithEmail } from '../services/firebase';
+import { getRedirectResult } from 'firebase/auth';
 import { socketService } from '../services/network/socketService';
 import { GeneralPlayerStats, PlayerRatingStats, RoomParticipant, RatingCalculationResult } from '../types/rating.types';
 import { calculateGameRating } from '../utils/ai/rating/ratingCalculator';
@@ -36,7 +37,7 @@ const DEFAULT_STATS: PlayerRatingStats = {
 interface UserContextType {
   currentUser: User | null;
   isAuthLoading: boolean;
-  loginWithGoogle: () => Promise<User | void>;
+  loginWithGoogle: () => Promise<User | null | void>;
   loginWithEmail: (email: string, pass: string) => Promise<User | void>;
   registerWithEmail: (email: string, pass: string) => Promise<User | void>;
   logout: () => Promise<void>;
@@ -73,6 +74,17 @@ export const UserProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   // 1. מאזין להתחברות/התנתקות ב-Firebase Auth
   useEffect(() => {
+    // Handle redirect results for Google Sign-In fallback
+    getRedirectResult(auth)
+      .then((result) => {
+        if (result) {
+          console.log('[UserContext] Redirect sign-in successful. User:', result.user.uid);
+        }
+      })
+      .catch((error) => {
+        console.error('[UserContext] Error during redirect sign-in:', error);
+      });
+
     // Safety fallback timeout to guarantee isAuthLoading is set to false
     const fallbackTimer = setTimeout(() => {
       setIsAuthLoading((loading) => {

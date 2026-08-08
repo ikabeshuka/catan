@@ -46,6 +46,7 @@ export const GoldFieldSelectionModal: React.FC = () => {
   const remainingSelections = Math.max(0, amount - selectedTotal);
 
   const addResource = (resource: ResourceType) => {
+    if (currentSelection.allowedResources && !currentSelection.allowedResources.includes(resource)) return;
     if (selectedTotal >= amount || selectedResources[resource] >= (resourceBank[resource] || 0)) return;
     setSelectedResources(previous => ({ ...previous, [resource]: previous[resource] + 1 }));
   };
@@ -64,7 +65,8 @@ export const GoldFieldSelectionModal: React.FC = () => {
       Array.from({ length: selectedResources[resource.type] }, () => resource.type)
     );
 
-    if (RESOURCES.some(resource => selectedResources[resource.type] > (resourceBank[resource.type] || 0))) {
+    if (RESOURCES.some(resource => selectedResources[resource.type] > (resourceBank[resource.type] || 0) ||
+      (selectedResources[resource.type] > 0 && currentSelection.allowedResources && !currentSelection.allowedResources.includes(resource.type)))) {
       alert('אין מספיק קלפים מהמשאב שנבחר בבנק.');
       return;
     }
@@ -114,7 +116,8 @@ export const GoldFieldSelectionModal: React.FC = () => {
             const selectedCount = selectedResources[resource.type];
             const ownedResources = activePlayer.resources?.[resource.type] || 0;
             const bankStock = resourceBank[resource.type] || 0;
-            const cannotAdd = selectedTotal >= amount || selectedCount >= bankStock;
+            const isAllowed = !currentSelection.allowedResources || currentSelection.allowedResources.includes(resource.type);
+            const cannotAdd = !isAllowed || selectedTotal >= amount || selectedCount >= bankStock;
 
             return (
               <div key={resource.type} className="relative pt-2">

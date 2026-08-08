@@ -9,6 +9,7 @@ import { OrbitControls } from '@react-three/drei';
 import * as THREE from 'three';
 import { useBoardInteraction } from '../../hooks/useBoardInteraction';
 import { Board3DScene } from './Board3DScene';
+import { isSeafarersExpansion } from '../../config/gameRules';
 import { getHarborDescription, getTileTooltipInfo } from '../../utils/boardTooltipHelpers';
 import { VertexActionPopover } from './VertexActionPopover';
 import { useVertexInteraction } from '../../hooks/useVertexInteraction';
@@ -60,7 +61,7 @@ export const GameBoard3D: React.FC = () => {
         const controls = orbitControlsRef.current;
         const camera = controls.object as THREE.PerspectiveCamera;
         if (camera) {
-          const isSeafarers = activeExpansion === 'SEAFARERS';
+          const isSeafarers = isSeafarersExpansion(activeExpansion);
           if (!is3DMode) {
             camera.position.set(0, 0, hasFrameSea ? 66 : isSeafarers ? 58 : 46);
             camera.fov = isSeafarers ? 35 : 30;
@@ -515,7 +516,7 @@ export const GameBoard3D: React.FC = () => {
                 <span>בנה כביש 🛣️</span>
               </button>
               
-              {activeExpansion === 'SEAFARERS' && (
+              {isSeafarersExpansion(activeExpansion) && (
                 <button
                   onClick={() => {
                     const currentPlayer = players[currentPlayerIndex];

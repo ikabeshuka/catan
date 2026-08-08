@@ -18,6 +18,12 @@ import {
   seafarersPirateIslands,
   LOST_TRIBE_RESTRICTED_NUMBER_TILE_IDS
 } from '../../config/seafarersPresets';
+import { createTreasureIslandsBoard } from '../../config/scenarios/treasureIslands';
+import { createIntoUnknownBoard } from '../../config/scenarios/intoUnknown';
+import { createDesertDragonsBoard } from '../../config/scenarios/desertDragons';
+import { createGreaterCatanBoard } from '../../config/scenarios/greaterCatan';
+import { createEnchantedLandBoard } from '../../config/scenarios/enchantedLand';
+import { createGreatCanalBoard } from '../../config/scenarios/greatCanal';
 
 /**
  * פונקציית עזר לבדיקת שכנות קובייה (isNeighbor שבה המרחק הגיאומטרי בין המשושים שווה ל-1)
@@ -63,6 +69,13 @@ export function addFrameSeaTargets(tiles: HexTile[]): HexTile[] {
   return [...boardTiles, ...frameTiles].sort((a, b) => a.coord.r - b.coord.r || a.coord.q - b.coord.q);
 }
 
+const applyCombinedPirateSetup = (tiles: HexTile[], expansion?: GameExpansion): HexTile[] => {
+  if (expansion === 'SEAFARERS_AND_CITIES_AND_KNIGHTS') {
+    tiles.forEach(tile => { tile.hasPirate = false; });
+  }
+  return tiles;
+};
+
 /**
  * מייצרת לוח משחק מלא (מערך של אריחים משושים) על פי חוקי הקונפיגורציה שסופקה
  */
@@ -73,8 +86,44 @@ export function generateBoard(
   scenario?: SeafarersScenario,
   playerCount: number = 4
 ): HexTile[] {
-  if (expansion === 'SEAFARERS') {
+  if (expansion === 'SEAFARERS' || expansion === 'SEAFARERS_AND_CITIES_AND_KNIGHTS') {
     switch (scenario) {
+      case 'TREASURE_ISLANDS': {
+        const tiles = createTreasureIslandsBoard();
+        return applyCombinedPirateSetup(addFrameSeaTargets(tiles), expansion);
+      }
+      case 'INTO_THE_UNKNOWN': {
+        // Unlike Fog Island, this scenario has its own published map and is
+        // played with the robber only (no pirate or frame-sea targets).
+        const tiles = createIntoUnknownBoard(playerCount);
+        tiles.forEach(tile => { tile.hasPirate = false; });
+        return tiles;
+      }
+      case 'GREATER_CATAN': {
+        const tiles = createGreaterCatanBoard(playerCount);
+        // New-island terrain starts without its number chits. Routes reveal them.
+        // The surrounding islands are explored without number chits. The
+        // scenario's finite 4/5-chit supply is assigned only when a route
+        // first reaches each terrain hex; later discoveries deplete a legal
+        // home-island chit as the published rules require.
+        tiles.filter(tile => tile.islandId !== undefined && tile.islandId > 1 && !['WATER', 'DESERT'].includes(tile.type))
+          .forEach(tile => { tile.numberToken = null; });
+        return applyCombinedPirateSetup(addFrameSeaTargets(tiles), expansion);
+      }
+      case 'DESERT_DRAGONS': {
+        const tiles = createDesertDragonsBoard(playerCount);
+        // Desert Dragons explicitly uses neither robber nor pirate.
+        tiles.forEach(tile => { tile.hasRobber = false; tile.hasPirate = false; });
+        return tiles;
+      }
+      case 'GREAT_CANAL': {
+        const tiles = createGreatCanalBoard();
+        return applyCombinedPirateSetup(addFrameSeaTargets(tiles), expansion);
+      }
+      case 'ENCHANTED_LAND': {
+        const tiles = createEnchantedLandBoard();
+        return applyCombinedPirateSetup(addFrameSeaTargets(tiles), expansion);
+      }
       case 'HEADING_FOR_NEW_SHORES': {
         const preset = playerCount === 3 ? seafarers3PlayersNewShores : seafarers4PlayersNewShores;
         const tiles = JSON.parse(JSON.stringify(preset)) as HexTile[];
@@ -241,7 +290,7 @@ export function generateBoard(
           }
         }
 
-        return addFrameSeaTargets(tiles);
+        return applyCombinedPirateSetup(addFrameSeaTargets(tiles), expansion);
       }
       case 'FOUR_ISLANDS': {
         const preset = playerCount === 3 ? seafarers3PlayersFourIslands : seafarers4PlayersFourIslands;
@@ -326,7 +375,7 @@ export function generateBoard(
         if (playerCount === 4) {
           framedTiles.forEach(tile => { tile.hasPirate = tile.id === 'frame_4_0'; });
         }
-        return framedTiles;
+        return applyCombinedPirateSetup(framedTiles, expansion);
       }
       case 'FOG_ISLAND': {
         const preset = playerCount === 3 ? seafarers3PlayersFogIsland : seafarers4PlayersFogIsland;
@@ -366,7 +415,7 @@ export function generateBoard(
           }
         });
 
-        return addFrameSeaTargets(tiles);
+        return applyCombinedPirateSetup(addFrameSeaTargets(tiles), expansion);
       }
       case 'THROUGH_THE_DESERT': {
         const preset = playerCount === 3
@@ -415,7 +464,7 @@ export function generateBoard(
           desertTile.hasRobber = true;
         }
 
-        return addFrameSeaTargets(tiles);
+        return applyCombinedPirateSetup(addFrameSeaTargets(tiles), expansion);
       }
       case 'THE_LOST_TRIBE': {
         const tiles = JSON.parse(JSON.stringify(seafarersLostTribe)) as HexTile[];
@@ -458,7 +507,7 @@ export function generateBoard(
           tile.robberStartLocked = tile.id === robberStart?.id;
         });
 
-        return addFrameSeaTargets(tiles);
+        return applyCombinedPirateSetup(addFrameSeaTargets(tiles), expansion);
       }
       case 'CLOTH_FOR_CATAN': {
         const tiles = JSON.parse(JSON.stringify(seafarersClothForCatan)) as HexTile[];
@@ -469,12 +518,12 @@ export function generateBoard(
           mainIslandTiles.forEach((tile, tileIndex) => { tile.type = resources[tileIndex]; tile.numberToken = tokens[tileIndex]; });
         }
         tiles.forEach(tile => { tile.hasPirate = tile.id === 'hex_cfc_26'; tile.hasRobber = tile.id === 'hex_cfc_12'; tile.robberStartLocked = false; });
-        return addFrameSeaTargets(tiles);
+        return applyCombinedPirateSetup(addFrameSeaTargets(tiles), expansion);
       }
       case 'PIRATE_ISLANDS': {
         const tiles = JSON.parse(JSON.stringify(seafarersPirateIslands)) as HexTile[];
         tiles.forEach(tile => { tile.hasRobber = false; tile.hasPirate = tile.id === 'hex_pi_49'; });
-        return addFrameSeaTargets(tiles);
+        return applyCombinedPirateSetup(addFrameSeaTargets(tiles), expansion);
       }
       default: {
         const preset = playerCount === 3 ? seafarers3PlayersNewShores : seafarers4PlayersNewShores;

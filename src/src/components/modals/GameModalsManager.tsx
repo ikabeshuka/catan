@@ -4,6 +4,7 @@ import { DiscardOverlay } from './DiscardOverlay';
 import { MonopolyModal } from './MonopolyModal';
 import { YearOfPlentyModal } from './YearOfPlentyModal';
 import { GoldFieldSelectionModal } from './GoldFieldSelectionModal';
+import { UnknownTreasureModal } from './UnknownTreasureModal';
 import { TrophyDetailModal } from './TrophyModal';
 import { GameOverRatingModal } from './GameOverRatingModal';
 import { PlayerStatsModal } from './PlayerStatsModal';
@@ -63,6 +64,7 @@ const { lastRatingResult, setLastRatingResult, isStatsModalOpen, setIsStatsModal
 
       {/* מודל בחירת זהב ממכרה זהב */}
       <GoldFieldSelectionModal />
+      <UnknownTreasureModal />
 
       {/* קומפוננטת Overlay במסך מלא עבור זריקת משאבים כשהשודד מופעל */}
       <DiscardOverlay />

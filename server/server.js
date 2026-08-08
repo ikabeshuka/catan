@@ -43,12 +43,30 @@ const payloadFits = value => {
   try { return Buffer.byteLength(JSON.stringify(value), 'utf8') <= MAX_PAYLOAD_BYTES; } catch { return false; }
 };
 const STANDARD_DEV_COUNTS = { KNIGHT: 14, VICTORY_POINT: 5, ROAD_BUILDING: 2, YEAR_OF_PLENTY: 2, MONOPOLY: 2 };
+const TDA_SCENARIO_KINDS = {
+  TREASURE_ISLANDS: 'TREASURE_ISLANDS',
+  INTO_THE_UNKNOWN: 'INTO_THE_UNKNOWN',
+  GREATER_CATAN: 'GREATER_CATAN',
+  DESERT_DRAGONS: 'DESERT_DRAGONS',
+  GREAT_CANAL: 'GREAT_CANAL',
+  ENCHANTED_LAND: 'ENCHANTED_LAND',
+};
+const validateScenarioState = (scenarioState, selectedScenario) => {
+  // Older rooms did not send this field. Keeping that snapshot compatibility is
+  // important while new games always include the versioned state.
+  if (scenarioState === undefined) return true;
+  if (!isPlainObject(scenarioState) || scenarioState.version !== 1 || scenarioState.scenarioId !== selectedScenario ||
+      typeof scenarioState.kind !== 'string') return false;
+  const expectedKind = TDA_SCENARIO_KINDS[selectedScenario];
+  return expectedKind ? scenarioState.kind === expectedKind : scenarioState.kind === 'STANDARD';
+};
 const validateRuntimeGameState = (state, room) => {
   if (!isPlainObject(state) || !Array.isArray(state.players) || state.players.length < 2 || state.players.length > room.maxPlayers ||
       !Array.isArray(state.tiles) || !Array.isArray(state.vertices) || !Array.isArray(state.edges) ||
       !Number.isInteger(state.currentPlayerIndex) || state.currentPlayerIndex < 0 || state.currentPlayerIndex >= state.players.length ||
       !['SETUP_ROUND_1', 'SETUP_ROUND_2', 'SETUP_ROUND_3', 'MAIN_GAME', 'GAME_OVER'].includes(state.gamePhase) ||
-      !isPlainObject(state.resourceBank) || !Array.isArray(state.devCardDeck)) return false;
+      !isPlainObject(state.resourceBank) || !Array.isArray(state.devCardDeck) ||
+      !validateScenarioState(state.scenarioState, state.selectedScenario)) return false;
   const playerIds = state.players.map(player => player?.id);
   if (new Set(playerIds).size !== playerIds.length || playerIds.some((id, index) => id !== `p${index + 1}`)) return false;
   if (state.players.some(player => !isPlainObject(player.resources) || RESOURCE_TYPES.some(resource =>
@@ -478,7 +496,7 @@ function createCatanServer({ disconnectedTurnPauseMs = DISCONNECTED_TURN_PAUSE_M
         const alchemistDice = rollingPlayer?.alchemistDice;
         const alchemistEventDie = rollingPlayer?.alchemistEventDie;
         approvedAction.diceValues = alchemistDice ? [...alchemistDice] : [crypto.randomInt(1, 7), crypto.randomInt(1, 7)];
-        if (room.gameState?.activeExpansion === 'CITIES_AND_KNIGHTS') {
+        if (['CITIES_AND_KNIGHTS', 'SEAFARERS_AND_CITIES_AND_KNIGHTS'].includes(room.gameState?.activeExpansion)) {
           if (!alchemistDice) approvedAction.diceValues.push(crypto.randomInt(1, 7));
           approvedAction.eventDie = alchemistEventDie || ['BARBARIAN', 'BARBARIAN', 'BARBARIAN', 'SCIENCE', 'POLITICS', 'TRADE'][crypto.randomInt(0, 6)];
         }

@@ -7,7 +7,7 @@ import { distributeInitialResources } from '../utils/gameEngine/distributeInitia
 import { GamePhase } from '../context/GameContext';
 import { Player } from '../types/player.types';
 import { ResourceType, ResourceCards } from '../types/resources.types';
-import { getVictoryPointTarget } from '../config/gameRules';
+import { getVictoryPointTarget, isCitiesKnightsExpansion } from '../config/gameRules';
 import { getVertexIslandIds } from '../utils/gameEngine/getVertexIslandIds';
 import { getLostTribeVillages } from '../utils/gameEngine/lostTribeHelpers';
 import { dispatchGameAction } from '../services/gameDispatcher';
@@ -56,6 +56,7 @@ export function useTurnManager() {
     setCommodityBank,
     citiesKnightsState,
     setCitiesKnightsState,
+    scenarioState,
   } = useGame();
 
   const { devCardDeck, setDevCardDeck, createTurnSnapshot, undoTurnActions } = useGame();
@@ -77,7 +78,7 @@ export function useTurnManager() {
       if (currentIndex > 0) {
         return { nextIndex: currentIndex - 1, nextPhase: 'SETUP_ROUND_2' as GamePhase };
       } else {
-        return selectedScenario === 'CLOTH_FOR_CATAN'
+        return ['CLOTH_FOR_CATAN', 'INTO_THE_UNKNOWN'].includes(selectedScenario)
           ? { nextIndex: 0, nextPhase: 'SETUP_ROUND_3' as GamePhase }
           : { nextIndex: 0, nextPhase: 'MAIN_GAME' as GamePhase };
       }
@@ -111,7 +112,8 @@ export function useTurnManager() {
             wagonPosition: p.wagonPosition || defaultPos,
             remainingMovementPoints: maxPoints,
             playedDevCardThisTurn: false,
-            boughtDevCardsThisTurn: {}
+            boughtDevCardsThisTurn: {},
+            diplomatRoadBuildingRemaining: 0,
           };
         }
         return p;
@@ -150,15 +152,15 @@ export function useTurnManager() {
       const diceResult = fixedValues
         ? { dice1: fixedValues[0], dice2: fixedValues[1], total: fixedValues[0] + fixedValues[1] }
         : rollDice();
-      const cityDie = fixedValues?.[2] || (activeExpansion === 'CITIES_AND_KNIGHTS' ? Math.floor(Math.random() * 6) + 1 : undefined);
-      const eventDie = fixedEventDie || (activeExpansion === 'CITIES_AND_KNIGHTS'
+      const cityDie = fixedValues?.[2] || (isCitiesKnightsExpansion(activeExpansion) ? Math.floor(Math.random() * 6) + 1 : undefined);
+      const eventDie = fixedEventDie || (isCitiesKnightsExpansion(activeExpansion)
         ? ['BARBARIAN', 'BARBARIAN', 'BARBARIAN', 'SCIENCE', 'POLITICS', 'TRADE'][Math.floor(Math.random() * 6)]
         : undefined);
       
       setLastRoll({ d1: diceResult.dice1, d2: diceResult.dice2 });
       setRollValues({ d1: diceResult.dice1, d2: diceResult.dice2 });
       setIsRolling(false);
-      if (activeExpansion === 'CITIES_AND_KNIGHTS' && currentPlayer.alchemistDice) {
+      if (isCitiesKnightsExpansion(activeExpansion) && currentPlayer.alchemistDice) {
         setPlayers(previous => previous.map(player => player.id === currentPlayer.id
           ? { ...player, alchemistDice: undefined, alchemistEventDie: undefined }
           : player));
@@ -167,7 +169,8 @@ export function useTurnManager() {
       addLog(`${currentPlayer.name} הטיל קוביות וקיבל ${diceResult.total}!`);
 
       let progressDiscardQueue: string[] = [];
-      if (activeExpansion === 'CITIES_AND_KNIGHTS' && cityDie && eventDie) {
+      let firstBarbarianAttack = false;
+      if (isCitiesKnightsExpansion(activeExpansion) && cityDie && eventDie) {
         let lossQueue: string[] = [];
         setCitiesKnightsState(previous => {
           const next = { ...previous, lastCityDie: cityDie, lastEventDie: eventDie as any };
@@ -175,6 +178,7 @@ export function useTurnManager() {
             const position = Math.min(7, (previous.barbarianPosition || 0) + 1);
             next.barbarianPosition = position;
             if (position === 7) {
+              firstBarbarianAttack = !previous.hasBarbarianAttacked;
               const activeStrength = (playerId: string) => vertices.reduce((total, vertex) => total +
                 (vertex.knight?.playerId === playerId && vertex.knight.active ? vertex.knight.level : 0), 0);
               const totalStrength = players.reduce((total, player) => total + activeStrength(player.id), 0);
@@ -230,6 +234,13 @@ export function useTurnManager() {
           }
           return next;
         });
+        if (firstBarbarianAttack && activeExpansion === 'SEAFARERS_AND_CITIES_AND_KNIGHTS') {
+          setTiles(previousTiles => {
+            if (previousTiles.some(tile => tile.hasPirate)) return previousTiles;
+            const target = previousTiles.find(tile => ['WATER', 'SEA'].includes(tile.type) && !tile.isFrameSea);
+            return target ? previousTiles.map(tile => ({ ...tile, hasPirate: tile.id === target.id })) : previousTiles;
+          });
+        }
         if (lossQueue.length) {
           setTurnSubPhase('BARBARIAN_LOSS');
           return;
@@ -251,16 +262,16 @@ export function useTurnManager() {
         addLog(`המספר 7 עלה! השודד הופעל.`);
         
         const handSize = (player: Player) => Object.values(player.resources).reduce((a, b) => a + b, 0) +
-          (activeExpansion === 'CITIES_AND_KNIGHTS' ? Object.values(player.commodities || {}).reduce((a, b) => a + b, 0) : 0);
-        const handLimit = (player: Player) => 7 + (activeExpansion === 'CITIES_AND_KNIGHTS'
+          (isCitiesKnightsExpansion(activeExpansion) ? Object.values(player.commodities || {}).reduce((a, b) => a + b, 0) : 0);
+        const handLimit = (player: Player) => (selectedScenario === 'INTO_THE_UNKNOWN' && (player.keptTreasureTokens || 0) > 0 ? 9 : 7) + (isCitiesKnightsExpansion(activeExpansion)
           ? 2 * vertices.filter(vertex => vertex.playerId === player.id && vertex.cityWall).length : 0);
-        const robberIsDormant = activeExpansion === 'CITIES_AND_KNIGHTS' && !citiesKnightsState?.hasBarbarianAttacked;
+        const robberIsDormant = isCitiesKnightsExpansion(activeExpansion) && !citiesKnightsState?.hasBarbarianAttacked;
         const anyHumanNeedsToDiscard = players.some(p => !p.isBot && handSize(p) > handLimit(p));
 
         if (anyHumanNeedsToDiscard) {
           addLog(`השודד הגיע! שחקנים עם מעל 7 קלפים נאלצים לזרוק קלפים לקופה.`);
           setTurnSubPhase('DISCARD_PHASE');
-        } else if (selectedScenario === 'PIRATE_ISLANDS') {
+        } else if (selectedScenario === 'PIRATE_ISLANDS' || selectedScenario === 'DESERT_DRAGONS') {
           const targets = players.filter(player => player.id !== currentPlayer.id && Object.values(player.resources).reduce((sum, count) => sum + count, 0) > 0);
           if (targets.length) {
             setRobberyState({ tile: tiles.find(tile => tile.hasPirate) || tiles[0], targets });
@@ -337,7 +348,7 @@ export function useTurnManager() {
         }));
       } else {
         const { updatedPlayers, updatedBank, updatedCommodityBank, flows, goldSelections } = distributeResources(
-          diceResult.total, tiles, vertices, players, resourceBank, selectedScenario, activeExpansion, commodityBank
+          diceResult.total, tiles, vertices, players, resourceBank, selectedScenario, activeExpansion, commodityBank, scenarioState
         );
         setResourceBank(updatedBank);
         if (updatedCommodityBank) setCommodityBank(updatedCommodityBank);
@@ -400,6 +411,24 @@ export function useTurnManager() {
         }
 
         setPlayers(updatedPlayers);
+
+        if (selectedScenario === 'DESERT_DRAGONS' && scenarioState.kind === 'DESERT_DRAGONS' && scenarioState.dragonsHaveAttacked) {
+          setTiles(previous => {
+            const isNeighbor = (first: any, second: any) =>
+              (Math.abs(first.coord.q - second.coord.q) + Math.abs(first.coord.r - second.coord.r) + Math.abs(first.coord.s - second.coord.s)) / 2 === 1;
+            const next = previous.map(tile => ({ ...tile, scenarioMarker: tile.scenarioMarker ? { ...tile.scenarioMarker, dragonIds: [...(tile.scenarioMarker.dragonIds || [])] } : tile.scenarioMarker }));
+            const deserts = next.filter(tile => tile.type === 'DESERT' && (tile.scenarioMarker?.dragonIds || []).length > 0);
+            const destinations = next.filter(tile => tile.numberToken === diceResult.total && tile.type !== 'WATER' && tile.type !== 'DESERT' &&
+              !(tile.scenarioMarker?.dragonIds || []).length && deserts.some(desert => isNeighbor(desert, tile)));
+            destinations.forEach((destination, index) => {
+              const sources = deserts.filter(desert => (desert.scenarioMarker?.dragonIds || []).length > 0 && isNeighbor(desert, destination));
+              const source = sources[index % sources.length];
+              const dragonId = source?.scenarioMarker?.dragonIds?.pop();
+              if (dragonId) destination.scenarioMarker = { ...destination.scenarioMarker, dragonIds: [...(destination.scenarioMarker?.dragonIds || []), dragonId] };
+            });
+            return next;
+          });
+        }
 
         if (selectedScenario === 'CLOTH_FOR_CATAN') {
           const villageAwards = new Map<string, number>();
@@ -486,8 +515,12 @@ export function useTurnManager() {
       (v.structure === 'SETTLEMENT' || v.structure === 'CITY') && 
       v.isHarbor
     );
+    const merchantHarbors = selectedScenario === 'GREAT_CANAL'
+      ? vertices.filter(v => v.knight?.playerId === currentPlayer.id && v.isHarbor && v.harborType && v.harborType !== 'GENERIC' &&
+        getVertexIslandIds(v.id, tiles).some(islandId => islandId !== 1))
+      : [];
 
-    const hasSpecializedHarbor = ownedHarbors.some(h => h.harborType === giveResource);
+    const hasSpecializedHarbor = ownedHarbors.some(h => h.harborType === giveResource) || merchantHarbors.some(h => h.harborType === giveResource);
     const hasGenericHarbor = ownedHarbors.some(h => h.harborType === 'GENERIC');
 
     let defaultRatio = 4;
@@ -638,7 +671,7 @@ export function useTurnManager() {
         };
       });
 
-      if (gamePhase === 'SETUP_ROUND_2' || gamePhase === 'SETUP_ROUND_3') {
+      if (gamePhase === 'SETUP_ROUND_3' || (gamePhase === 'SETUP_ROUND_2' && selectedScenario !== 'INTO_THE_UNKNOWN')) {
         const oldPlayer = players.find(p => p.id === currentPlayer.id);
         const initialDistribution = distributeInitialResources(
           targetId, tiles, players, currentPlayer.id, resourceBank
@@ -702,7 +735,7 @@ export function useTurnManager() {
     }
 
     if (turnSubPhase !== 'TRADE_AND_BUILD') return;
-    if (activeExpansion === 'CITIES_AND_KNIGHTS' && (currentPlayer?.progressCards || []).length > 4) {
+    if (isCitiesKnightsExpansion(activeExpansion) && (currentPlayer?.progressCards || []).length > 4) {
       addLog(`${currentPlayer.name} חייב/ת להשליך קלפי קידמה עד שנותרים ארבעה.`);
       return;
     }
@@ -742,7 +775,7 @@ export function useTurnManager() {
     }
     const totalVP = getPlayerTotalVP(player, longestRoadPlayerId, largestArmyPlayerId, true, vertices, tiles, selectedScenario);
     
-    const victoryGoal = getVictoryPointTarget(activeExpansion, selectedScenario);
+    const victoryGoal = getVictoryPointTarget(activeExpansion, selectedScenario, players.length);
 
     if (totalVP >= victoryGoal) {
       setGamePhase('GAME_OVER');

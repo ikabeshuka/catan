@@ -236,6 +236,21 @@ export const VertexNode: React.FC<VertexNodeProps> = ({
         />
       )}
 
+      {vertex.treasureToken && !vertex.treasureToken.claimedBy && (
+        <g className="pointer-events-none" transform={`translate(${x}, ${y})`}>
+          <rect x="-10" y="-8" width="20" height="16" rx="3" fill="#8b5a2b" stroke="#fde68a" strokeWidth="1.5" />
+          <path d="M-10,-2 H10 M0,-8 V8" stroke="#fbbf24" strokeWidth="1.4" />
+          <circle r="2.2" fill="#fef3c7" />
+        </g>
+      )}
+      {vertex.enchantedDragon && (
+        <g transform={`translate(${x + 12}, ${y - 15})`} className="pointer-events-none">
+          <circle r="13" fill="#4c1d95" stroke="#fbbf24" strokeWidth="2" />
+          <text textAnchor="middle" dominantBaseline="central" fontSize="16">🐲</text>
+          <text x="10" y="11" fill="#fff" fontSize="9" fontWeight="800">{vertex.enchantedDragon.strength}</text>
+        </g>
+      )}
+
       {/* יישוב בנוי (Settlement: Small House shape) */}
       {vertex.structure === 'SETTLEMENT' && !is3DMode && (
         <g className="transition-all duration-300 hover:scale-125" style={{ transformOrigin: `${x}px ${y}px` }}>

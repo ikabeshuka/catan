@@ -5,6 +5,7 @@ import { NumberToken } from './NumberToken';
 import { getEligibleRobberyTargets } from '../../utils/gameEngine/robberSteal';
 import { parseEdgeId } from '../../utils/hexMath/parseEdgeId';
 import { getCachedTileGeometry } from '../../utils/hexMath/boardRenderCache';
+import { isSeafarersExpansion } from '../../config/gameRules';
 
 interface HexTileProps {
   tile: HexTileType;
@@ -45,7 +46,7 @@ export const HexTile: React.FC<HexTileProps> = ({ tile }) => {
     if (turnSubPhase !== 'ROBBER_PLACEMENT') return false;
     if (players[currentPlayerIndex]?.isBot) return false;
 
-    if (activeExpansion === 'SEAFARERS') {
+    if (isSeafarersExpansion(activeExpansion)) {
       if (activeRobberType === 'ROBBER') {
         if (selectedScenario === 'THE_LOST_TRIBE' && (tile.islandId !== 1 || tile.robberStartLocked)) return false;
         if (selectedScenario === 'CLOTH_FOR_CATAN' && tile.islandId !== 1) return false;
@@ -63,7 +64,7 @@ export const HexTile: React.FC<HexTileProps> = ({ tile }) => {
     if (!isSelectableForRobber) return;
 
     const currentPlayerName = players[currentPlayerIndex]?.name || 'השחקן';
-    const isPirate = activeExpansion === 'SEAFARERS' && activeRobberType === 'PIRATE';
+    const isPirate = isSeafarersExpansion(activeExpansion) && activeRobberType === 'PIRATE';
 
     if (isPirate) {
       setTiles(prevTiles => prevTiles.map(t => {
@@ -193,6 +194,27 @@ export const HexTile: React.FC<HexTileProps> = ({ tile }) => {
             height="40"
             className="rounded-full overflow-hidden"
           />
+        </g>
+      )}
+
+      {(tile.scenarioMarker?.dragonIds || []).length > 0 && (
+        <g transform={`translate(${center.x + 18}, ${center.y - 18})`} className="pointer-events-none drop-shadow-lg">
+          <circle r="15" fill="#7f1d1d" stroke="#fbbf24" strokeWidth="2" />
+          <text textAnchor="middle" dominantBaseline="central" fontSize="18">🐉</text>
+          <text x="12" y="14" textAnchor="middle" fill="#fff" fontSize="10" fontWeight="800">{tile.scenarioMarker?.dragonIds?.length}</text>
+        </g>
+      )}
+
+      {tile.scenarioMarker?.canalBuilt && (
+        <g className="pointer-events-none">
+          <path d={`M ${center.x - 36},${center.y + 15} Q ${center.x},${center.y - 18} ${center.x + 36},${center.y + 15}`} fill="none" stroke="#38bdf8" strokeWidth="10" strokeLinecap="round" opacity="0.9" />
+          <path d={`M ${center.x - 36},${center.y + 15} Q ${center.x},${center.y - 18} ${center.x + 36},${center.y + 15}`} fill="none" stroke="#e0f2fe" strokeWidth="3" strokeLinecap="round" />
+        </g>
+      )}
+      {tile.scenarioMarker?.infertileField && (
+        <g transform={`translate(${center.x}, ${center.y})`} className="pointer-events-none">
+          <circle r="22" fill="#78350f" opacity="0.72" stroke="#fbbf24" strokeWidth="1.5" strokeDasharray="4 3" />
+          <text textAnchor="middle" dominantBaseline="central" fontSize="15">🏜️</text>
         </g>
       )}
     </g>

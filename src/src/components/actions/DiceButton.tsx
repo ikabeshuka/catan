@@ -4,6 +4,7 @@ import { useGame } from '../../context/GameContext';
 import { DiceIcon } from '../common/Icons';
 import { dispatchGameAction } from '../../services/gameDispatcher';
 import { rollDice } from '../../utils/gameEngine/rollDice';
+import { isCitiesKnightsExpansion } from '../../config/gameRules';
 
 export const DiceButton: React.FC = () => {
   const { currentPlayer, turnSubPhase, isCurrentPlayerBot, handleDiceRoll, isSetupPhase } = useTurnManager();
@@ -16,8 +17,8 @@ export const DiceButton: React.FC = () => {
     const alchemistDice = currentPlayer.alchemistDice;
     const alchemistEventDie = currentPlayer.alchemistEventDie;
     const diceResult = roomId ? null : (alchemistDice ? { dice1: alchemistDice[0], dice2: alchemistDice[1] } : rollDice());
-    const cityDie = activeExpansion === 'CITIES_AND_KNIGHTS' ? (alchemistDice?.[2] || Math.floor(Math.random() * 6) + 1) : undefined;
-    const eventDie = activeExpansion === 'CITIES_AND_KNIGHTS'
+    const cityDie = isCitiesKnightsExpansion(activeExpansion) ? (alchemistDice?.[2] || Math.floor(Math.random() * 6) + 1) : undefined;
+    const eventDie = isCitiesKnightsExpansion(activeExpansion)
       ? (alchemistEventDie || (['BARBARIAN', 'BARBARIAN', 'BARBARIAN', 'SCIENCE', 'POLITICS', 'TRADE'] as const)[Math.floor(Math.random() * 6)])
       : undefined;
     dispatchGameAction({

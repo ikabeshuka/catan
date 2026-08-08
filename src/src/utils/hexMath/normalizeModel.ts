@@ -18,8 +18,8 @@ export function normalizeAndCenterModel(scene: THREE.Group, targetSize: number) 
   scaledBox.getCenter(center);
   
   cloned.position.x -= center.x;
-  cloned.position.y -= center.y;
-  cloned.position.z -= scaledBox.min.z; // Align bottom to Z = 0
+  cloned.position.y = -scaledBox.min.y; // Align bottom to Y = 0
+  cloned.position.z -= center.z; // Center Z
   
   return cloned;
 }
@@ -40,8 +40,8 @@ export function stretchAndCenterModel(scene: THREE.Group, targetX: number, targe
   scaledBox.getCenter(center);
   
   cloned.position.x -= center.x;
-  cloned.position.y -= center.y;
-  cloned.position.z -= scaledBox.min.z; // Align bottom to Z = 0
+  cloned.position.y = -scaledBox.min.y; // Align bottom to Y = 0
+  cloned.position.z -= center.z; // Center Z
 
   return cloned;
 }

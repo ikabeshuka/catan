@@ -9,6 +9,7 @@ import { dispatchGameAction } from '../services/gameDispatcher';
 import { canExtendPirateShippingLine } from '../utils/gameEngine/pirateIslands';
 import { GameAction } from '../types/gameActions.types';
 import { getEligibleHarborEdges } from '../utils/gameEngine/lostTribeHelpers';
+import { isSeafarersExpansion } from '../config/gameRules';
 
 export function useEdgeInteraction() {
   const {
@@ -43,6 +44,10 @@ export function useEdgeInteraction() {
     resourceBank,
     setResourceBank,
     boardRenderCache,
+    scenarioState,
+    setScenarioState,
+    devCardDeck,
+    setDevCardDeck,
   } = useGame();
 
   const { isSetupPhase, setupState, recordSetupPlacement } = useTurnManager();
@@ -97,13 +102,13 @@ export function useEdgeInteraction() {
 
     if (isAdjacentToSetupSettlement && bordersWater) {
       const isValidRoad = currentPlayer && !isBlockedBySetup && validateRoadPlacement(edge.id, currentPlayer.id, vertices, edges, tiles, gamePhase);
-      const isValidShip = activeExpansion === 'SEAFARERS' && currentPlayer && !isBlockedBySetup && validateShipPlacement(edge.id, currentPlayer.id, vertices, edges, tiles, gamePhase);
+      const isValidShip = isSeafarersExpansion(activeExpansion) && currentPlayer && !isBlockedBySetup && validateShipPlacement(edge.id, currentPlayer.id, vertices, edges, tiles, gamePhase);
       isValidPlacement = isValidRoad || isValidShip;
     } else if (isCoast) {
       const isValidRoad = currentPlayer && !isBlockedBySetup && validateRoadPlacement(edge.id, currentPlayer.id, vertices, edges, tiles, gamePhase);
-      const isValidShip = activeExpansion === 'SEAFARERS' && currentPlayer && !isBlockedBySetup && validateShipPlacement(edge.id, currentPlayer.id, vertices, edges, tiles, gamePhase);
+      const isValidShip = isSeafarersExpansion(activeExpansion) && currentPlayer && !isBlockedBySetup && validateShipPlacement(edge.id, currentPlayer.id, vertices, edges, tiles, gamePhase);
       isValidPlacement = isValidRoad || isValidShip;
-    } else if (activeExpansion === 'SEAFARERS' && bordersWater && !isCoast) {
+    } else if (isSeafarersExpansion(activeExpansion) && bordersWater && !isCoast) {
       isValidPlacement = currentPlayer && !isBlockedBySetup
         ? validateShipPlacement(edge.id, currentPlayer.id, vertices, edges, tiles || [], gamePhase)
         : false;
@@ -169,6 +174,12 @@ export function useEdgeInteraction() {
     const currentPlayer = players[currentPlayerIndex];
     if (!currentPlayer) return;
     const [firstVertex, secondVertex] = getEdgeVertices(edgeId);
+    // Into the Unknown resolves a chest at the reached intersection before
+    // revealing its neighboring hexes. The modal performs that discovery after
+    // the irreversible treasure choice has been applied.
+    if (selectedScenario === 'INTO_THE_UNKNOWN' && vertices.some(vertex =>
+      (vertex.id === firstVertex || vertex.id === secondVertex) && vertex.treasureToken && !vertex.treasureToken.claimedBy
+    )) return;
     (tiles || []).filter(tile => tile.type === 'FOG').forEach(tile => {
       const tileVertices = getTileVertexIds(tile);
       if (!tileVertices.includes(firstVertex) && !tileVertices.includes(secondVertex)) return;
@@ -198,6 +209,57 @@ export function useEdgeInteraction() {
     });
   };
 
+  const handleClaimTreasure = (edgeId: string) => {
+    if (selectedScenario !== 'TREASURE_ISLANDS' && selectedScenario !== 'INTO_THE_UNKNOWN') return;
+    const currentPlayer = players[currentPlayerIndex];
+    if (!currentPlayer) return;
+    const [firstVertex, secondVertex] = getEdgeVertices(edgeId);
+    vertices.filter(vertex => (vertex.id === firstVertex || vertex.id === secondVertex) && vertex.treasureToken && !vertex.treasureToken.claimedBy)
+      .forEach(vertex => {
+        if (selectedScenario === 'INTO_THE_UNKNOWN') {
+          setScenarioState((previous: any) => ({ ...previous, pendingTreasureId: vertex.treasureToken!.id }));
+          return;
+        }
+        dispatchGameAction({ type: 'CLAIM_TREASURE', playerId: currentPlayer.id, treasureId: vertex.treasureToken!.id }, {
+        roomId: roomId || undefined,
+        isRemote: false,
+        myPlayerId: roomId ? myPlayerId : currentPlayer.id,
+        gamePhase,
+        turnSubPhase,
+        players,
+        vertices,
+        edges,
+        tiles,
+        setVertices,
+        setPlayers,
+        setTurnSubPhase,
+        resourceBank,
+        setResourceBank,
+        setGoldSelectionQueue,
+        setRoadBuildingRemaining,
+        scenarioState,
+        setScenarioState,
+        devCardDeck,
+        setDevCardDeck,
+        addLog,
+        });
+      });
+  };
+
+  const handleGreaterCatanDiscovery = (edgeId: string) => {
+    if (selectedScenario !== 'GREATER_CATAN') return;
+    const currentPlayer = players[currentPlayerIndex];
+    if (!currentPlayer) return;
+    const [firstVertex, secondVertex] = getEdgeVertices(edgeId);
+    (tiles || []).filter(tile => tile.numberToken === null && tile.islandId !== undefined && tile.islandId > 1 && !['WATER', 'DESERT'].includes(tile.type) &&
+      getTileVertexIds(tile).some(vertexId => vertexId === firstVertex || vertexId === secondVertex)).forEach(tile => dispatchGameAction({
+        type: 'DISCOVER_SCENARIO_HEX', playerId: currentPlayer.id, tileId: tile.id,
+      }, {
+        roomId: roomId || undefined, isRemote: false, myPlayerId: roomId ? myPlayerId : currentPlayer.id,
+        players, vertices, edges, tiles, setTiles, scenarioState, setScenarioState, addLog,
+      }));
+  };
+
   const dispatchBuildAction = (action: Extract<GameAction, { type: 'BUILD_ROAD' | 'BUILD_SHIP' }>) => {
     dispatchGameAction(action, {
       roomId: roomId || undefined,
@@ -221,6 +283,7 @@ export function useEdgeInteraction() {
       setRoadBuildingRemaining,
       activeExpansion,
       selectedScenario,
+      setupState,
     });
   };
 
@@ -230,6 +293,8 @@ export function useEdgeInteraction() {
     if (isSetupPhase) {
       dispatchBuildAction({ type: 'BUILD_ROAD', playerId: currentPlayer.id, edgeId: edge.id });
       handleRevealFog(edge.id);
+      handleClaimTreasure(edge.id);
+      handleGreaterCatanDiscovery(edge.id);
       return;
     }
 
@@ -248,6 +313,8 @@ export function useEdgeInteraction() {
 
     dispatchBuildAction({ type: 'BUILD_ROAD', playerId: currentPlayer.id, edgeId: edge.id });
     handleRevealFog(edge.id);
+    handleClaimTreasure(edge.id);
+    handleGreaterCatanDiscovery(edge.id);
   };
 
   const buildShipOnEdge = (edge: any) => {
@@ -260,13 +327,15 @@ export function useEdgeInteraction() {
     if (isSetupPhase) {
       dispatchBuildAction({ type: 'BUILD_SHIP', playerId: currentPlayer.id, edgeId: edge.id });
       handleRevealFog(edge.id);
+      handleClaimTreasure(edge.id);
+      handleGreaterCatanDiscovery(edge.id);
       return;
     }
 
     const canBuildFreeShipBeforeRoll = turnSubPhase === 'BEFORE_ROLL' && roadBuildingRemaining > 0;
     if (turnSubPhase !== 'TRADE_AND_BUILD' && !canBuildFreeShipBeforeRoll) return;
 
-    const isFreeShip = roadBuildingRemaining > 0 && activeExpansion === 'SEAFARERS';
+    const isFreeShip = roadBuildingRemaining > 0 && isSeafarersExpansion(activeExpansion);
     const hasResources = isFreeShip || (currentPlayer.resources.WOOD >= 1 && currentPlayer.resources.SHEEP >= 1);
     showBuildingCostToast('SHIP', hasResources, isFreeShip);
 
@@ -284,6 +353,8 @@ export function useEdgeInteraction() {
     }
     
     handleRevealFog(edge.id);
+    handleClaimTreasure(edge.id);
+    handleGreaterCatanDiscovery(edge.id);
   };
 
   const handleEdgeClick = (edge: any) => {
@@ -354,7 +425,7 @@ export function useEdgeInteraction() {
     }
 
     if (isCoast) {
-      if (activeExpansion === 'SEAFARERS') {
+      if (isSeafarersExpansion(activeExpansion)) {
         setCoastlinePopupEdge(edge);
       } else {
         buildRoadOnEdge(edge);
@@ -362,7 +433,7 @@ export function useEdgeInteraction() {
       return;
     }
 
-    if (activeExpansion === 'SEAFARERS' && bordersWater && !isCoast) {
+    if (isSeafarersExpansion(activeExpansion) && bordersWater && !isCoast) {
       const isValid = currentPlayer && validateShipPlacement(edge.id, currentPlayer.id, vertices, edges, tiles || [], gamePhase);
       if (isValid) {
         buildShipOnEdge(edge);
@@ -370,7 +441,7 @@ export function useEdgeInteraction() {
       return;
     }
 
-    if (roadBuildingRemaining > 0 && activeExpansion === 'SEAFARERS') {
+    if (roadBuildingRemaining > 0 && isSeafarersExpansion(activeExpansion)) {
       const isBlockedBySetup = isSetupPhase && setupState?.hasPlacedRoad;
       const isValidRoad = currentPlayer && !isBlockedBySetup && validateRoadPlacement(edge.id, currentPlayer.id, vertices, edges, tiles, gamePhase);
       const isValidShip = currentPlayer && !isBlockedBySetup && validateShipPlacement(edge.id, currentPlayer.id, vertices, edges, tiles || [], gamePhase);

@@ -14,6 +14,8 @@ import { SheepGroup3D } from './3d/SheepGroup3D';
 import { Birds3D } from './3d/Birds3D';
 import { Knight3D } from './3d/Knight3D';
 import { BarbarianShip3D } from './3d/BarbarianShip3D';
+import { Dragon3D } from './3d/Dragon3D';
+import { isCitiesKnightsExpansion } from '../../config/gameRules';
 import { useBoardTextures } from '../../hooks/useBoardTextures';
 import { BoardRenderCache } from '../../utils/hexMath/boardRenderCache';
 import { getTokenZ, getVertex3DCoords } from '../../utils/hexMath/board3DMath';
@@ -155,7 +157,7 @@ export const Board3DScene: React.FC<Board3DSceneProps> = ({
 
       {/* Birds floating over the island */}
       {is3DMode && <Birds3D />}
-      {activeExpansion === 'CITIES_AND_KNIGHTS' && <BarbarianShip3D position={citiesKnightsState?.barbarianPosition || 0} />}
+      {isCitiesKnightsExpansion(activeExpansion) && <BarbarianShip3D position={citiesKnightsState?.barbarianPosition || 0} />}
 
       {/* Render Hex Tiles */}
       {boardRenderCache.tiles.map(({ tile, position3D, vertexIds }, tileIndex) => {
@@ -274,6 +276,13 @@ export const Board3DScene: React.FC<Board3DSceneProps> = ({
                 pirateTexture={textures.pirate}
                 onTileHover={onTileHover}
                 onTileLeave={onTileLeave}
+              />
+            )}
+
+            {is3DMode && (tile.scenarioMarker?.dragonIds || []).length > 0 && (
+              <Dragon3D
+                position={[tileX, tileY, getTokenZ(tile.type, is3DMode) + 0.18]}
+                count={tile.scenarioMarker?.dragonIds?.length}
               />
             )}
 
@@ -414,7 +423,7 @@ export const Board3DScene: React.FC<Board3DSceneProps> = ({
                 {[0, 1, 2].slice(0, vertex.pirateFortress.remainingTokens).map(level => (
                   <mesh key={level} position={[0, 0, level * 0.12]} rotation={[Math.PI / 2, 0, 0]}>
                     <cylinderGeometry args={[0.34, 0.34, 0.1, 20]} />
-                    <meshStandardMaterial color={{ RED: '#dc2626', WHITE: '#f8fafc', BLUE: '#2563eb', ORANGE: '#f97316' }[vertex.pirateFortress!.color]} emissive="#3f1d2e" />
+                    <meshStandardMaterial color={{ RED: '#dc2626', YELLOW: '#fdd835', BLUE: '#2563eb', GREEN: '#43a047' }[vertex.pirateFortress!.color]} emissive="#3f1d2e" />
                   </mesh>
                 ))}
                 <mesh position={[0, 0, 0.48]}>
@@ -484,6 +493,7 @@ export const Board3DScene: React.FC<Board3DSceneProps> = ({
               onHarborLeave={onHarborLeave}
             />
             {vertex.knight && <Knight3D knight={vertex.knight} playerColor={playerColor} />}
+            {vertex.enchantedDragon && <Dragon3D position={[0.25, -0.18, 0.32]} strength={vertex.enchantedDragon.strength} />}
           </group>
         );
       })}

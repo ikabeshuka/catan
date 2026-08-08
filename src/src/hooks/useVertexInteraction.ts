@@ -4,6 +4,8 @@ import { validateSettlementPlacement } from '../utils/validation/validateSettlem
 import { useBoard } from '../context/BoardContext';
 import { dispatchGameAction } from '../services/gameDispatcher';
 import { GameAction } from '../types/gameActions.types';
+import { isCitiesKnightsExpansion } from '../config/gameRules';
+import { getTileVertexIds } from '../utils/hexMath/boardGeometryHelpers';
 
 export function useVertexInteraction() {
   const { selectedScenario } = useBoard();
@@ -20,6 +22,7 @@ export function useVertexInteraction() {
     setIsMovingWagon,
     setActivePortTrade,
     setVertices,
+    setTiles,
     showBuildingCostToast,
     addLog,
     setPlayers,
@@ -42,11 +45,14 @@ export function useVertexInteraction() {
 
     const isOwnSettlement = vertex.structure === 'SETTLEMENT' && vertex.playerId === currentPlayer?.id;
     const playerCitiesCount = vertices.filter(v => v.playerId === currentPlayer?.id && v.structure === 'CITY').length;
-    const canUpgradeToCity = currentPlayer && !isSetupPhase && turnSubPhase === 'TRADE_AND_BUILD' && isOwnSettlement && playerCitiesCount < 4;
+    const touchesEnchantedLand = selectedScenario === 'ENCHANTED_LAND' && tiles.some(tile =>
+      tile.scenarioMarker?.isEnchantedLand && getTileVertexIds(tile).includes(vertex.id));
+    const cityLimit = selectedScenario === 'GREATER_CATAN' ? 8 : 4;
+    const canUpgradeToCity = currentPlayer && !isSetupPhase && turnSubPhase === 'TRADE_AND_BUILD' && isOwnSettlement && playerCitiesCount < cityLimit && !touchesEnchantedLand;
     const isOwnedHarbor = vertex.isHarbor && vertex.playerId === currentPlayer?.id;
     const isClickable = ((isValidPlacement || canUpgradeToCity) || (isOwnedHarbor && turnSubPhase === 'TRADE_AND_BUILD')) && !currentPlayer?.isBot && isLocalPlayersTurn;
 
-    const isSetupCity = isSetupPhase && activeExpansion === 'CITIES_AND_KNIGHTS' && gamePhase === 'SETUP_ROUND_2';
+    const isSetupCity = isSetupPhase && isCitiesKnightsExpansion(activeExpansion) && gamePhase === 'SETUP_ROUND_2';
     return { isValidPlacement, canUpgradeToCity, isOwnedHarbor, isClickable, isSetupCity };
   };
 
@@ -64,6 +70,7 @@ export function useVertexInteraction() {
       selectedScenario,
       activeExpansion,
       setVertices,
+      setTiles,
       setPlayers,
       resourceBank,
       setResourceBank,
@@ -122,7 +129,7 @@ export function useVertexInteraction() {
       });
     }
 
-    if (activeExpansion === 'CITIES_AND_KNIGHTS' && !isSetupPhase && turnSubPhase === 'TRADE_AND_BUILD') {
+    if (isCitiesKnightsExpansion(activeExpansion) && !isSetupPhase && turnSubPhase === 'TRADE_AND_BUILD') {
       // 3. Build Knight
       const borderingEdges = edges.filter(e => e.id.includes(vertex.id));
       const isConnectedToOwnRoute = borderingEdges.some(e => 

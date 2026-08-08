@@ -7,6 +7,7 @@ import { Player } from '../types/player.types';
 import { BoardVertex } from '../types/boardElements.types';
 import { HexTile } from '../types/hex.types';
 import { getVertexIslandIds } from '../utils/gameEngine/getVertexIslandIds';
+import { getTileVertexIds } from '../utils/hexMath/boardGeometryHelpers';
 import { SeafarersScenario } from '../types/game.types';
 
 // Re-export types for backward compatibility
@@ -36,7 +37,7 @@ export const getPlayerTotalVP = (
   let vp = player.victoryPoints || 0;
   // Cities & Knights replaces both the Longest Road and Largest Army awards
   // with city improvements, progress cards, and Defender of Catan points.
-  const disablesTrophies = selectedScenario === 'CLOTH_FOR_CATAN' || selectedScenario === 'PIRATE_ISLANDS' || Boolean(player.cityImprovements);
+  const disablesTrophies = selectedScenario === 'CLOTH_FOR_CATAN' || selectedScenario === 'PIRATE_ISLANDS' || selectedScenario === 'DESERT_DRAGONS' || Boolean(player.cityImprovements);
   if (!disablesTrophies && longestRoadPlayerId === player.id) {
     vp += 2;
   }
@@ -48,6 +49,12 @@ export const getPlayerTotalVP = (
   }
   if (selectedScenario === 'CLOTH_FOR_CATAN') {
     vp += Math.floor((player.clothRolls || 0) / 2);
+  }
+  if (selectedScenario === 'DESERT_DRAGONS' && vertices && tiles) {
+    vertices.filter(vertex => vertex.playerId === player.id && (vertex.structure === 'SETTLEMENT' || vertex.structure === 'CITY')).forEach(vertex => {
+      const adjacentLand = tiles.filter(tile => getTileVertexIds(tile).includes(vertex.id) && tile.type !== 'WATER');
+      if (adjacentLand.length > 0 && adjacentLand.every(tile => (tile.scenarioMarker?.dragonIds || []).length > 0)) vp -= 1;
+    });
   }
   vp += player.defenderOfCatanPoints || 0;
 

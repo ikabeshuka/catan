@@ -8,12 +8,16 @@ export interface BoardVertex {
   structure: VertexStructure;  // מה בנוי כאן (כלום, יישוב או עיר)
   isHarbor: boolean;           // האם יש כאן נמל?
   harborType?: 'GENERIC' | 'WOOD' | 'BRICK' | 'SHEEP' | 'WHEAT' | 'ORE';
-  pirateFortress?: { color: 'RED' | 'WHITE' | 'BLUE' | 'ORANGE'; playerId?: string; remainingTokens: number; conquered: boolean; };
+  pirateFortress?: { color: 'RED' | 'YELLOW' | 'BLUE' | 'GREEN'; playerId?: string; remainingTokens: number; conquered: boolean; };
   pirateSettlementTarget?: string;
   /** Cities & Knights additions. A city wall replaces the normal city model. */
   cityWall?: boolean;
   metropolis?: CityImprovementTrack;
   knight?: KnightPiece;
+  treasureToken?: { id: string; claimedBy?: string };
+  enchantedDragon?: { id: string; strength: 1 | 2 | 3 };
+  isEnchantedLand?: boolean;
+  isEnchantedCoast?: boolean;
 }
 
 export interface BoardEdge {

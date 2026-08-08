@@ -71,6 +71,12 @@ export type GameAction =
   | { type: 'DISCOVER_FOG'; playerId: string; tileId: string; revealedTile: any }
   | { type: 'SELECT_GOLD_RESOURCE'; playerId: string; resource: ResourceType }
   | { type: 'ATTACK_PIRATE_FORTRESS'; playerId: string; fortressVertexId: string; fortressPower?: number }
+  // --- אוצרות, דרקונים והרפתקנים ---
+  | { type: 'DISCOVER_SCENARIO_HEX'; playerId: string; tileId: string }
+  | { type: 'CLAIM_TREASURE'; playerId: string; treasureId: string; mode?: 'REVEAL'; progressTrack?: 'SCIENCE' | 'POLITICS' | 'TRADE' }
+  | { type: 'KEEP_TREASURE'; playerId: string; treasureId: string; harborType?: 'WOOD' | 'BRICK' | 'SHEEP' | 'WHEAT' | 'ORE' }
+  | { type: 'MOVE_ENCHANTED_KNIGHT'; playerId: string; fromVertexId: string; toVertexId: string }
+  | { type: 'FIGHT_ENCHANTED_DRAGON'; playerId: string; knightVertexId: string; dragonId: string }
 
   // --- הרחבת סוחרים וברברים (Merchants & Barbarians) ---
   | { type: 'MOVE_WAGON'; playerId: string; targetVertexId: string; movementCost: number }
@@ -80,6 +86,7 @@ export type GameAction =
   | { type: 'ACTIVATE_KNIGHT'; playerId: string; vertexId: string }
   | { type: 'UPGRADE_KNIGHT'; playerId: string; vertexId: string }
   | { type: 'MOVE_KNIGHT'; playerId: string; fromVertexId: string; toVertexId: string }
+  | { type: 'EXPEL_PIRATE'; playerId: string; vertexId: string; tileId: string }
   | { type: 'DISPLACE_KNIGHT'; playerId: string; fromVertexId: string; toVertexId: string }
   | { type: 'RELOCATE_DISPLACED_KNIGHT'; playerId: string; toVertexId?: string }
   | { type: 'SELECT_DESERTER_KNIGHT'; playerId: string; vertexId: string }

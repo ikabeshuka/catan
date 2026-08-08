@@ -5,6 +5,9 @@ import { ResourceCards } from '../../types/resources.types';
 import { cubeToPixel } from '../hexMath/cubeToPixel';
 import { GoldSelectionPending } from '../../context/PlayerContext';
 import { CommodityCards } from '../../types/citiesKnights.types';
+import { isCitiesKnightsExpansion } from '../../config/gameRules';
+import { getTileVertexIds } from '../hexMath/boardGeometryHelpers';
+import { ScenarioState } from '../../types/scenarioState.types';
 
 const HEX_SIZE = 60;
 type Resource = keyof ResourceCards;
@@ -40,6 +43,7 @@ export function distributeResources(
   selectedScenario?: string,
   activeExpansion?: string,
   commodityBank?: CommodityCards,
+  scenarioState?: ScenarioState,
 ): {
   updatedPlayers: Player[];
   updatedBank: ResourceCards;
@@ -49,7 +53,7 @@ export function distributeResources(
 } {
   const updatedPlayers = players.map(player => ({ ...player, resources: { ...player.resources }, commodities: { COIN: 0, PAPER: 0, CLOTH: 0, ...player.commodities } }));
   const updatedBank = { ...resourceBank };
-  const updatedCommodityBank = activeExpansion === 'CITIES_AND_KNIGHTS'
+  const updatedCommodityBank = isCitiesKnightsExpansion(activeExpansion)
     ? { COIN: 12, PAPER: 12, CLOTH: 12, ...commodityBank }
     : undefined;
   if (diceRoll === 7) return { updatedPlayers, updatedBank, updatedCommodityBank, flows: [], goldSelections: [] };
@@ -62,6 +66,8 @@ export function distributeResources(
   tiles.filter(tile =>
     tile.numberToken === diceRoll &&
     !tile.hasRobber &&
+    !(selectedScenario === 'DESERT_DRAGONS' && (tile.scenarioMarker?.dragonIds || []).length > 0) &&
+    !(selectedScenario === 'GREAT_CANAL' && tile.scenarioMarker?.infertileField) &&
     !((selectedScenario === 'THE_LOST_TRIBE' || selectedScenario === 'CLOTH_FOR_CATAN') && tile.islandId !== 1)
   ).forEach(tile => {
     const center = cubeToPixel(tile.coord, HEX_SIZE);
@@ -74,7 +80,7 @@ export function distributeResources(
       if (tile.type === 'GOLD_FIELD') {
         goldSelections.push({ playerId: vertex.playerId, amount, tileId: tile.id });
       } else if (['WOOD', 'BRICK', 'SHEEP', 'WHEAT', 'ORE'].includes(tile.type)) {
-        const commodity = activeExpansion === 'CITIES_AND_KNIGHTS' && vertex.structure === 'CITY'
+        const commodity = isCitiesKnightsExpansion(activeExpansion) && vertex.structure === 'CITY'
           ? ({ WOOD: 'PAPER', ORE: 'COIN', SHEEP: 'CLOTH' } as const)[tile.type as 'WOOD' | 'ORE' | 'SHEEP']
           : undefined;
         claims.push({ playerId: vertex.playerId, resource: tile.type as Resource, amount: commodity ? 1 : amount, tile, vertex, center });
@@ -82,6 +88,12 @@ export function distributeResources(
       }
     }
   });
+  if (selectedScenario === 'GREAT_CANAL' && diceRoll === 8 && !(scenarioState?.kind === 'GREAT_CANAL' && scenarioState.isCanalComplete)) {
+    const minerIds = new Set(vertices.filter(vertex => vertex.knight?.playerId &&
+      tiles.some(tile => tile.type === 'GOLD_FIELD' && tile.islandId !== 1 && getTileVertexIds(tile).includes(vertex.id)))
+      .map(vertex => vertex.knight!.playerId));
+    minerIds.forEach(playerId => goldSelections.push({ playerId, amount: 1, tileId: 'great-canal-gold-miner' }));
+  }
 
   const flows: ResourceFlow[] = [];
   (['WOOD', 'BRICK', 'SHEEP', 'WHEAT', 'ORE'] as Resource[]).forEach(resource => {

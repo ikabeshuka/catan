@@ -5,3 +5,4 @@ export * from './throughTheDesert';
 export * from './lostTribe';
 export * from './clothForCatan';
 export * from './pirateIslands';
+export * from './treasureIslands';

@@ -20,6 +20,12 @@ export interface Player {
   victoryPoints: number; // נקודות הניצחון הנוכחיות שלו
   /** Cloth rolls collected from Lost Tribe villages. Two rolls are one VP. */
   clothRolls?: number;
+  /** Unrevealed treasure tokens kept in the Into the Unknown scenario. */
+  keptTreasureTokens?: number;
+  /** Treasure-island ids on which this player already earned the first-settlement VP. */
+  treasureIslandIds?: number[];
+  /** Victory-point CATAN chits earned while constructing the Great Canal. */
+  canalChits?: number;
   /** Village ids to which this player has established a shipping connection. */
   lostTribeVillageIds?: string[];
   developmentCards: {

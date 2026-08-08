@@ -5,6 +5,7 @@ import { getOpenShipsForPlayer } from '../../utils/gameEngine/getOpenShipsForPla
 import { dispatchGameAction } from '../../services/gameDispatcher';
 import { getPirateShippingPath } from '../../utils/gameEngine/pirateIslands';
 import type { DevCardType } from '../../types/gameActions.types';
+import { isCitiesKnightsExpansion, isSeafarersExpansion } from '../../config/gameRules';
 const RESOURCE_IMAGES = {
   WOOD: '/wood1.png',
   BRICK: '/brick1.png',
@@ -216,15 +217,15 @@ export const BuildActionsPanel: React.FC = () => {
             {buildItems
               .filter((item) => {
                 if (item.id === 'ship') {
-                  return activeExpansion === 'SEAFARERS';
+                  return isSeafarersExpansion(activeExpansion);
                 }
                 if (item.id === 'devCard') {
-                  return activeExpansion !== 'CITIES_AND_KNIGHTS';
+                  return !isCitiesKnightsExpansion(activeExpansion);
                 }
                 return true;
               })
               .map((item) => {
-                const isDevCardSpanned = activeExpansion === 'SEAFARERS' && item.id === 'devCard';
+                const isDevCardSpanned = isSeafarersExpansion(activeExpansion) && item.id === 'devCard';
                 const colSpanClass = isDevCardSpanned ? 'col-span-2' : 'col-span-1';
                 return (
                   <div 
@@ -303,7 +304,7 @@ export const BuildActionsPanel: React.FC = () => {
             )}
 
             {/* כפתור הזזת ספינה פתוחה עבור הרחבת יורדי הים */}
-            {activeExpansion === 'SEAFARERS' && selectedScenario !== 'PIRATE_ISLANDS' && (
+            {isSeafarersExpansion(activeExpansion) && selectedScenario !== 'PIRATE_ISLANDS' && (
               <button
                 onClick={() => {
                   if (currentAction === 'MOVE_SHIP_SELECT' || currentAction === 'MOVE_SHIP_PLACE') {

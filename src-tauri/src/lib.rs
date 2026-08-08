@@ -20,6 +20,70 @@ fn set_update_downloading(app: tauri::AppHandle, state: tauri::State<'_, Downloa
 }
 
 #[tauri::command]
+async fn start_oauth_listener() -> Result<String, String> {
+    use std::net::TcpListener;
+    use std::io::{Read, Write};
+
+    let listener = TcpListener::bind("127.0.0.1:12345").map_err(|e| e.to_string())?;
+    let mut id_token = String::new();
+    let mut code = String::new();
+
+    for stream in listener.incoming() {
+        let mut stream = match stream {
+            Ok(s) => s,
+            Err(_) => continue,
+        };
+
+        let mut buffer = [0; 4096];
+        if stream.read(&mut buffer).is_err() {
+            continue;
+        }
+
+        let request = String::from_utf8_lossy(&buffer);
+        if request.starts_with("GET /callback") {
+            let response_html = "HTTP/1.1 200 OK\r\nContent-Type: text/html; charset=utf-8\r\nAccess-Control-Allow-Origin: *\r\nConnection: close\r\n\r\n<!DOCTYPE html>\n<html>\n<head>\n    <title>Authentication Success</title>\n    <style>\n        body {\n            font-family: -apple-system, BlinkMacSystemFont, \"Segoe UI\", Roboto, Helvetica, Arial, sans-serif;\n            background-color: #f3f4f6;\n            color: #1f2937;\n            display: flex;\n            align-items: center;\n            justify-content: center;\n            height: 100vh;\n            margin: 0;\n        }\n        .container {\n            background-color: #ffffff;\n            padding: 2rem;\n            border-radius: 8px;\n            box-shadow: 0 4px 6px rgba(0,0,0,0.1);\n            text-align: center;\n            max-width: 400px;\n        }\n        h1 {\n            color: #10b981;\n            margin-top: 0;\n        }\n        p {\n            margin-bottom: 0;\n            color: #4b5563;\n        }\n    </style>\n</head>\n<body>\n    <div class=\"container\">\n        <h1>Success!</h1>\n        <p>You may close this tab and return to the game.</p>\n    </div>\n    <script>\n        const hash = window.location.hash;\n        if (hash) {\n            fetch('/submit_token' + hash.replace('#', '?'))\n                .then(() => { console.log('Token submitted successfully'); })\n                .catch(err => { console.error('Error submitting token', err); });\n        } else {\n            const search = window.location.search;\n            if (search) {\n                fetch('/submit_token' + search)\n                    .then(() => { console.log('Token/code submitted successfully'); })\n                    .catch(err => { console.error('Error submitting token/code', err); });\n            }\n        }\n    </script>\n</body>\n</html>";
+            let _ = stream.write_all(response_html.as_bytes());
+            let _ = stream.flush();
+        } else if request.starts_with("GET /submit_token") {
+            let first_line = request.lines().next().unwrap_or("");
+            if let Some(token_param) = first_line.split_whitespace().nth(1) {
+                let query = token_param.split('?').nth(1).unwrap_or("");
+                for pair in query.split('&') {
+                    let mut parts = pair.split('=');
+                    if let (Some(key), Some(val)) = (parts.next(), parts.next()) {
+                        if key == "id_token" {
+                            id_token = val.to_string();
+                        } else if key == "code" {
+                            code = val.to_string();
+                        }
+                    }
+                }
+            }
+
+            let ok_response = "HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nAccess-Control-Allow-Origin: *\r\nConnection: close\r\n\r\nOK";
+            let _ = stream.write_all(ok_response.as_bytes());
+            let _ = stream.flush();
+
+            if !id_token.is_empty() || !code.is_empty() {
+                break;
+            }
+        } else {
+            let not_found = "HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\nConnection: close\r\n\r\n";
+            let _ = stream.write_all(not_found.as_bytes());
+            let _ = stream.flush();
+        }
+    }
+
+    if !id_token.is_empty() {
+        Ok(format!("id_token:{}", id_token))
+    } else if !code.is_empty() {
+        Ok(format!("code:{}", code))
+    } else {
+        Err("No credentials received".to_string())
+    }
+}
+
+#[tauri::command]
 fn check_is_portable() -> bool {
     if let Ok(exe_path) = std::env::current_exe() {
         let path_str = exe_path.to_string_lossy().to_lowercase();
@@ -103,11 +167,13 @@ async fn update_portable_app(app: tauri::AppHandle, download_url: String) -> Res
 pub fn run() {
   tauri::Builder::default()
     .manage(DownloadState(AtomicBool::new(false)))
+    .plugin(tauri_plugin_shell::init())
     .plugin(tauri_plugin_updater::Builder::new().build())
     .invoke_handler(tauri::generate_handler![
         set_update_downloading,
         check_is_portable,
-        update_portable_app
+        update_portable_app,
+        start_oauth_listener
     ])
     .setup(|app| {
       if cfg!(debug_assertions) {

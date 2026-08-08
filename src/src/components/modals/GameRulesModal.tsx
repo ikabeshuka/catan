@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { useGame } from '../../context/GameContext';
 import type { SeafarersScenario } from '../../types/game.types';
+import { isCitiesKnightsExpansion, isSeafarersExpansion } from '../../config/gameRules';
 
 interface GameRulesModalProps {
   isOpen: boolean;
@@ -24,6 +25,12 @@ const SCENARIO_NAMES: Record<SeafarersScenario, string> = {
   THE_LOST_TRIBE: 'השבט האבוד',
   CLOTH_FOR_CATAN: 'בדים לקטאן',
   PIRATE_ISLANDS: 'איי הפיראטים',
+  TREASURE_ISLANDS: 'איי האוצרות',
+  INTO_THE_UNKNOWN: 'אל הלא־נודע',
+  GREATER_CATAN: 'קטאן הגדולה',
+  DESERT_DRAGONS: 'דרקוני המדבר',
+  GREAT_CANAL: 'התעלה הגדולה',
+  ENCHANTED_LAND: 'הארץ המכושפת',
 };
 
 const SCENARIO_RULES: Record<SeafarersScenario, React.ReactNode> = {
@@ -83,6 +90,12 @@ const SCENARIO_RULES: Record<SeafarersScenario, React.ReactNode> = {
       <li>אין שודד או שודד ים בתרחיש זה; בתוצאה 7 משליכים כרגיל וגונבים משחקן נבחר.</li>
     </>
   ),
+  TREASURE_ISLANDS: <li>תרחיש זה ייפתח עם יישום לוח איי האוצרות, אריחים נסתרים ואסימוני אוצר.</li>,
+  INTO_THE_UNKNOWN: <li>תרחיש זה ייפתח עם יישום ים לא ממופה, אוצרות שמורים ונמלים מיוחדים.</li>,
+  GREATER_CATAN: <li>תרחיש זה ייפתח עם יישום איים חדשים ומנגנון דלדול אסימוני המספר.</li>,
+  DESERT_DRAGONS: <li>תרחיש זה ייפתח עם יישום דרקונים, חסימות ואבירי הגנה.</li>,
+  GREAT_CANAL: <li>תרחיש זה דורש יורדי הים וערים ואבירים; ייפתח עם יישום התעלה ומשימות האבירים.</li>,
+  ENCHANTED_LAND: <li>תרחיש זה דורש יורדי הים וערים ואבירים; ייפתח עם יישום מסעות אבירים וקרבות דרקון.</li>,
 };
 
 const RuleSection: React.FC<RuleSectionProps> = ({ id, title, icon, isExpanded, onToggle, children }) => (
@@ -111,8 +124,8 @@ const RuleSection: React.FC<RuleSectionProps> = ({ id, title, icon, isExpanded, 
 export const GameRulesModal: React.FC<GameRulesModalProps> = ({ isOpen, onClose }) => {
   const { activeExpansion, selectedScenario } = useGame();
   const [expandedSections, setExpandedSections] = useState<Set<string>>(() => new Set(['base']));
-  const isSeafarers = activeExpansion === 'SEAFARERS';
-  const isCitiesKnights = activeExpansion === 'CITIES_AND_KNIGHTS';
+  const isSeafarers = isSeafarersExpansion(activeExpansion);
+  const isCitiesKnights = isCitiesKnightsExpansion(activeExpansion);
 
   useEffect(() => {
     if (!isOpen) return;

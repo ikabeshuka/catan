@@ -158,7 +158,7 @@ export async function runAITurn(params: AIControllerParams): Promise<void> {
     // Cities & Knights has an additional action economy. Execute its
     // priorities before the base-game builder, then finish the turn through
     // the dispatcher so that local and online games follow identical rules.
-    if (params.activeExpansion === 'CITIES_AND_KNIGHTS' && params.dispatchAction) {
+    if (['CITIES_AND_KNIGHTS', 'SEAFARERS_AND_CITIES_AND_KNIGHTS'].includes(params.activeExpansion || '') && params.dispatchAction) {
       const plan = getCitiesKnightsBotPlan({
         botPlayer, turnSubPhase, players, vertices, edges, tiles,
         resourceBank: params.resourceBank, commodityBank: params.commodityBank,

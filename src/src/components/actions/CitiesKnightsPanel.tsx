@@ -2,6 +2,8 @@ import React, { useMemo, useState } from 'react';
 import { useGame } from '../../context/GameContext';
 import { dispatchGameAction } from '../../services/gameDispatcher';
 import { PROGRESS_CARD_ART, PROGRESS_CARD_BY_ID } from '../../config/citiesKnightsProgressCards';
+import { getTileVertexIds } from '../../utils/hexMath/boardGeometryHelpers';
+import { isSeafarersExpansion } from '../../config/gameRules';
 
 const TRACKS = [
   { id: 'SCIENCE', label: 'מדע', commodity: 'PAPER', icon: '📜' },
@@ -47,14 +49,24 @@ export const CitiesKnightsPanel: React.FC = () => {
     setCitiesKnightsState: game.setCitiesKnightsState,
     citiesKnightsState: game.citiesKnightsState,
     setRoadBuildingRemaining: game.setRoadBuildingRemaining,
+    scenarioState: game.scenarioState,
+    setScenarioState: game.setScenarioState,
+    selectedScenario: game.selectedScenario,
+    gamePhase: game.gamePhase,
+    turnSubPhase: game.turnSubPhase,
     setTurnSubPhase: game.setTurnSubPhase,
     addLog: game.addLog,
   });
 
   const knightSpaces = useMemo(() => game.vertices.filter(vertex => vertex.structure === 'NONE' && !vertex.knight &&
-    game.edges.some(edge => edge.hasRoad && edge.playerId === player?.id && edge.id.includes(vertex.id))), [game.vertices, game.edges, player?.id]);
+    game.edges.some(edge => (edge.hasRoad && edge.playerId === player?.id) ||
+      (isSeafarersExpansion(game.activeExpansion) && edge.hasShip && edge.shipPlayerId === player?.id))), [game.vertices, game.edges, game.activeExpansion, player?.id]);
   if (!player) return null;
   const ownKnights = game.vertices.filter(vertex => vertex.knight?.playerId === player.id);
+  const enchantedState = game.scenarioState.kind === 'ENCHANTED_LAND' ? game.scenarioState : null;
+  const pirateExpulsions = game.activeExpansion === 'SEAFARERS_AND_CITIES_AND_KNIGHTS'
+    ? ownKnights.flatMap(vertex => game.tiles.filter(tile => tile.hasPirate && vertex.knight?.active && !vertex.knight?.actedThisTurn && getTileVertexIds(tile).includes(vertex.id)).map(tile => ({ vertex, tile })))
+    : [];
   const ownCities = game.vertices.filter(vertex => vertex.playerId === player.id && vertex.structure === 'CITY');
   const ownSettlements = game.vertices.filter(vertex => vertex.playerId === player.id && vertex.structure === 'SETTLEMENT');
   const selectedTarget = game.players.find(candidate => candidate.id === progressTargetId);
@@ -72,9 +84,30 @@ export const CitiesKnightsPanel: React.FC = () => {
     while (pending.length) {
       const current = pending.shift()!;
       if (current === toId) return true;
-      game.edges.filter(edge => edge.hasRoad && edge.playerId === player.id && endpoints(edge).includes(current)).forEach(edge =>
+      game.edges.filter(edge => ((edge.hasRoad && edge.playerId === player.id) ||
+        (isSeafarersExpansion(game.activeExpansion) && edge.hasShip && edge.shipPlayerId === player.id)) && endpoints(edge).includes(current)).forEach(edge =>
         endpoints(edge).filter(id => !visited.has(id)).forEach(id => { visited.add(id); pending.push(id); })
       );
+    }
+    return false;
+  };
+  const canReachInEnchantedLand = (fromId: string, toId: string) => {
+    const endpoints = (edge: any) => {
+      const parts = String(edge.id || '').replace(/^e_/, '').split('_v_');
+      return parts.length === 2 ? [parts[0], `v_${parts[1]}`] : [];
+    };
+    const pending: Array<[string, number]> = [[fromId, 0]];
+    const visited = new Set([fromId]);
+    while (pending.length) {
+      const [current, distance] = pending.shift()!;
+      if (current === toId) return true;
+      if (distance >= 3) continue;
+      game.edges.filter(edge => endpoints(edge).includes(current)).forEach(edge => endpoints(edge).forEach(id => {
+        if (!visited.has(id) && game.vertices.find(vertex => vertex.id === id)?.isEnchantedLand) {
+          visited.add(id);
+          pending.push([id, distance + 1]);
+        }
+      }));
     }
     return false;
   };
@@ -97,6 +130,11 @@ export const CitiesKnightsPanel: React.FC = () => {
         <span>🪙 {player.commodities?.COIN || 0}</span><span>📜 {player.commodities?.PAPER || 0}</span><span>🧶 {player.commodities?.CLOTH || 0}</span>
       </div>
       {game.citiesKnightsState.merchant && <div className="mb-2 rounded bg-amber-950/35 px-2 py-1 text-[10px] text-amber-200">סוחר: {game.players.find(candidate => candidate.id === game.citiesKnightsState.merchant?.playerId)?.name || '—'} · {game.citiesKnightsState.merchant.resource} ביחס 2:1</div>}
+
+      {pirateExpulsions.length > 0 && <div className="mb-3 rounded border border-rose-400/40 bg-rose-950/35 p-2 text-[10px] text-rose-100">
+        <div className="mb-1 font-black">שודד ים סמוך לאביר פעיל</div>
+        {pirateExpulsions.map(({ vertex, tile }) => <button key={`${vertex.id}-${tile.id}`} disabled={!isTurn} onClick={() => dispatch({ type: 'EXPEL_PIRATE', playerId: player.id, vertexId: vertex.id, tileId: tile.id })} className="rounded bg-rose-700 px-2 py-1 font-bold disabled:opacity-40">גרש שודד ים</button>)}
+      </div>}
 
       {(player.progressCards || []).length > 0 && <div className="mb-3 flex flex-wrap gap-1.5">
         {player.progressCards!.map((cardId, index) => {
@@ -179,7 +217,9 @@ export const CitiesKnightsPanel: React.FC = () => {
         <div className="mt-2 flex gap-1">
           <select value={relocationTarget} onChange={event => setRelocationTarget(event.target.value)} className="min-w-0 flex-1 rounded bg-slate-950 px-2 py-1 text-[10px]">
             <option value="">מיקום חלופי</option>
-            {game.vertices.filter(vertex => vertex.structure === 'NONE' && !vertex.knight && canReachOnRoads(pendingDisplacedKnight!.originVertexId, vertex.id)).map(vertex => <option key={vertex.id} value={vertex.id}>{vertex.id.replace('v_', '')}</option>)}
+            {game.vertices.filter(vertex => pendingDisplacedKnight!.relocationMode === 'ENCHANTED_LAND'
+              ? vertex.isEnchantedLand && !vertex.isEnchantedCoast && vertex.structure === 'NONE' && !vertex.knight
+              : vertex.structure === 'NONE' && !vertex.knight && canReachOnRoads(pendingDisplacedKnight!.originVertexId, vertex.id)).map(vertex => <option key={vertex.id} value={vertex.id}>{vertex.id.replace('v_', '')}</option>)}
           </select>
           <button disabled={!relocationTarget} onClick={() => dispatch({ type: 'RELOCATE_DISPLACED_KNIGHT', playerId: player.id, toVertexId: relocationTarget })} className="rounded bg-sky-700 px-2 py-1 font-bold disabled:opacity-40">הצב</button>
           <button onClick={() => dispatch({ type: 'RELOCATE_DISPLACED_KNIGHT', playerId: player.id })} className="rounded bg-slate-700 px-2 py-1">הסר</button>
@@ -201,7 +241,7 @@ export const CitiesKnightsPanel: React.FC = () => {
             {!vertex.knight!.active && <button disabled={!isTurn} onClick={() => dispatch({ type: 'ACTIVATE_KNIGHT', playerId: player.id, vertexId: vertex.id })} className="rounded bg-emerald-600 px-1.5 py-0.5 disabled:opacity-40">הפעל</button>}
             {vertex.knight!.active && vertex.knight!.level < 3 && <button disabled={!isTurn} onClick={() => dispatch({ type: 'UPGRADE_KNIGHT', playerId: player.id, vertexId: vertex.id })} className="rounded bg-amber-600 px-1.5 py-0.5 disabled:opacity-40">שדרג</button>}
           </span>
-          {vertex.knight!.active && !vertex.knight!.actedThisTurn && <span className="flex gap-1">
+          {vertex.knight!.active && !vertex.knight!.actedThisTurn && !(game.selectedScenario === 'ENCHANTED_LAND' && vertex.isEnchantedLand) && <span className="flex gap-1">
             <select value={knightMoveTarget[vertex.id] || ''} onChange={event => setKnightMoveTarget(previous => ({ ...previous, [vertex.id]: event.target.value }))} className="max-w-24 rounded bg-slate-800 px-1 text-[9px]">
               <option value="">יעד</option>
               {game.vertices.filter(target => (target.structure === 'NONE' && !target.knight) || (target.knight && target.knight.playerId !== player.id && target.knight.level < vertex.knight!.level)).filter(target => canReachOnRoads(vertex.id, target.id)).map(target => <option key={target.id} value={target.id}>{target.id.replace('v_', '')}{target.knight ? ' (דחיקה)' : ''}</option>)}
@@ -213,6 +253,44 @@ export const CitiesKnightsPanel: React.FC = () => {
           </span>}
         </div>)}
       </div>}
+
+      {game.selectedScenario === 'ENCHANTED_LAND' && enchantedState && (
+        <div className="mb-3 rounded border border-fuchsia-400/35 bg-fuchsia-950/20 p-2 text-[10px]">
+          <div className="mb-1 font-black text-fuchsia-200">🐲 הארץ המכושפת</div>
+          {ownKnights.filter(vertex => vertex.knight!.active && !vertex.knight!.actedThisTurn && !enchantedState.knightOnIslandByPlayerId[player.id]).map(vertex => (
+            <div key={`cross-${vertex.id}`} className="mb-1 flex gap-1">
+              <select value={knightMoveTarget[`enchanted-${vertex.id}`] || ''} onChange={event => setKnightMoveTarget(previous => ({ ...previous, [`enchanted-${vertex.id}`]: event.target.value }))} className="min-w-0 flex-1 rounded bg-slate-900 px-1">
+                <option value="">דרקון יעד</option>
+                {game.vertices.filter(target => target.isEnchantedLand && target.isEnchantedCoast && !target.knight && target.structure === 'NONE').map(target => <option key={target.id} value={target.id}>{target.enchantedDragon?.id || 'צומת חוף בארץ המכושפת'}</option>)}
+              </select>
+              <button disabled={!isTurn || !knightMoveTarget[`enchanted-${vertex.id}`]} onClick={() => dispatch({ type: 'MOVE_ENCHANTED_KNIGHT', playerId: player.id, fromVertexId: vertex.id, toVertexId: knightMoveTarget[`enchanted-${vertex.id}`] })} className="rounded bg-fuchsia-700 px-2 disabled:opacity-40">חצה</button>
+            </div>
+          ))}
+          {ownKnights.filter(vertex => vertex.knight!.active && !vertex.knight!.actedThisTurn).flatMap(vertex =>
+            game.vertices.filter(target => target.knight && target.knight.playerId !== player.id && target.knight.level < vertex.knight!.level && target.structure === 'NONE' && target.isEnchantedLand &&
+              (vertex.isEnchantedLand
+                ? !target.isEnchantedCoast && canReachInEnchantedLand(vertex.id, target.id)
+                : target.isEnchantedCoast))
+              .map(target => ({ source: vertex, target }))
+          ).map(({ source, target }) => (
+            <button key={`enchanted-displace-${source.id}-${target.id}`} disabled={!isTurn} onClick={() => dispatch({ type: 'MOVE_ENCHANTED_KNIGHT', playerId: player.id, fromVertexId: source.id, toVertexId: target.id })} className="mr-1 rounded bg-sky-700 px-2 py-1 font-bold disabled:opacity-40">
+              הדח אביר חלש
+            </button>
+          ))}
+          {ownKnights.filter(vertex => vertex.isEnchantedLand && vertex.knight!.active && !vertex.knight!.actedThisTurn).map(vertex => (
+            <div key={`enchanted-move-${vertex.id}`} className="mb-1 flex gap-1">
+              <select value={knightMoveTarget[`enchanted-${vertex.id}`] || ''} onChange={event => setKnightMoveTarget(previous => ({ ...previous, [`enchanted-${vertex.id}`]: event.target.value }))} className="min-w-0 flex-1 rounded bg-slate-900 px-1">
+                <option value="">יעד בארץ המכושפת</option>
+                {game.vertices.filter(target => target.id !== vertex.id && target.isEnchantedLand && !target.isEnchantedCoast && !target.knight && target.structure === 'NONE' && canReachInEnchantedLand(vertex.id, target.id)).map(target => <option key={target.id} value={target.id}>{target.enchantedDragon?.id || 'צומת פנוי'}</option>)}
+              </select>
+              <button disabled={!isTurn || !knightMoveTarget[`enchanted-${vertex.id}`]} onClick={() => dispatch({ type: 'MOVE_ENCHANTED_KNIGHT', playerId: player.id, fromVertexId: vertex.id, toVertexId: knightMoveTarget[`enchanted-${vertex.id}`] })} className="rounded bg-fuchsia-700 px-2 disabled:opacity-40">זוז</button>
+            </div>
+          ))}
+          {ownKnights.filter(vertex => vertex.enchantedDragon && vertex.knight!.active && !vertex.knight!.actedThisTurn).map(vertex => (
+            <button key={`fight-${vertex.id}`} disabled={!isTurn} onClick={() => dispatch({ type: 'FIGHT_ENCHANTED_DRAGON', playerId: player.id, knightVertexId: vertex.id, dragonId: vertex.enchantedDragon!.id })} className="mr-1 rounded bg-rose-700 px-2 py-1 font-bold disabled:opacity-40">הילחם ב־{vertex.enchantedDragon!.id}</button>
+          ))}
+        </div>
+      )}
 
       <div className="mb-3 flex flex-wrap gap-1">
         {ownCities.filter(vertex => !vertex.cityWall).map(vertex => <button key={vertex.id} disabled={!isTurn} onClick={() => dispatch({ type: 'BUILD_CITY_WALL', playerId: player.id, vertexId: vertex.id })} className="rounded border border-slate-600 bg-slate-800 px-2 py-1 text-[11px] disabled:opacity-40">חומה (2 לבנים)</button>)}

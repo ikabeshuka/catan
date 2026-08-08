@@ -3,6 +3,7 @@ import { useGame } from '../context/GameContext';
 import { useTurnManager } from './useTurnManager';
 import { socketService } from '../services/network/socketService';
 import { dispatchGameAction } from '../services/gameDispatcher';
+import { createScenarioState } from '../types/scenarioState.types';
 
 interface UseOnlineGameSyncProps {
   roomId: string | null;
@@ -25,6 +26,8 @@ export const useOnlineGameSync = ({ roomId, isHost, setBotTimeLimit }: UseOnline
     if (snapshot.resourceBank) game.setResourceBank(snapshot.resourceBank);
     if (snapshot.commodityBank) game.setCommodityBank(snapshot.commodityBank);
     if (snapshot.citiesKnightsState) game.setCitiesKnightsState(snapshot.citiesKnightsState);
+    if (snapshot.scenarioState) game.setScenarioState(snapshot.scenarioState);
+    else if (snapshot.selectedScenario) game.setScenarioState(createScenarioState(snapshot.selectedScenario));
     if (snapshot.goldCoins) game.setGoldCoins(snapshot.goldCoins);
     if (Array.isArray(snapshot.goldSelectionQueue)) game.setGoldSelectionQueue(snapshot.goldSelectionQueue);
     if (Array.isArray(snapshot.currentTurnBuiltShips)) game.setCurrentTurnBuiltShips(snapshot.currentTurnBuiltShips);
@@ -37,7 +40,7 @@ export const useOnlineGameSync = ({ roomId, isHost, setBotTimeLimit }: UseOnline
     if (snapshot.activeExpansion) game.setActiveExpansion(snapshot.activeExpansion);
     if (snapshot.selectedScenario) game.setSelectedScenario(snapshot.selectedScenario);
     if (snapshot.boardType) game.setBoardType(snapshot.boardType);
-    if (snapshot.selectedScenario === 'PIRATE_ISLANDS' && snapshot.turnSubPhase === 'ROBBER_STEAL') {
+    if (['PIRATE_ISLANDS', 'DESERT_DRAGONS'].includes(snapshot.selectedScenario) && snapshot.turnSubPhase === 'ROBBER_STEAL') {
       const activePlayer = snapshot.players?.[snapshot.currentPlayerIndex];
       const targets = (snapshot.players || []).filter((player: any) => player.id !== activePlayer?.id &&
         Object.values(player.resources || {}).reduce((sum: number, amount: any) => sum + Number(amount), 0) > 0);
@@ -129,6 +132,8 @@ export const useOnlineGameSync = ({ roomId, isHost, setBotTimeLimit }: UseOnline
         setCommodityBank: game.setCommodityBank,
         citiesKnightsState: game.citiesKnightsState,
         setCitiesKnightsState: game.setCitiesKnightsState,
+        scenarioState: game.scenarioState,
+        setScenarioState: game.setScenarioState,
         goldCoins: game.goldCoins,
         setGoldCoins: game.setGoldCoins,
         goldSelectionQueue: game.goldSelectionQueue,

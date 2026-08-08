@@ -1,7 +1,22 @@
 import type { DevCardType } from '../types/gameActions.types';
 import type { SeafarersScenario } from '../types/game.types';
+import {
+  getTreasuresDragonsAdventurersVictoryTarget,
+  isTreasuresDragonsAdventurersScenario,
+} from './treasuresDragonsAdventurers';
 
-export type GameExpansion = 'BASE' | 'MERCHANTS_AND_BARBARIANS' | 'SEAFARERS' | 'CITIES_AND_KNIGHTS';
+export type GameExpansion =
+  | 'BASE'
+  | 'MERCHANTS_AND_BARBARIANS'
+  | 'SEAFARERS'
+  | 'CITIES_AND_KNIGHTS'
+  | 'SEAFARERS_AND_CITIES_AND_KNIGHTS';
+
+export const isSeafarersExpansion = (expansion?: GameExpansion | string): boolean =>
+  expansion === 'SEAFARERS' || expansion === 'SEAFARERS_AND_CITIES_AND_KNIGHTS';
+
+export const isCitiesKnightsExpansion = (expansion?: GameExpansion | string): boolean =>
+  expansion === 'CITIES_AND_KNIGHTS' || expansion === 'SEAFARERS_AND_CITIES_AND_KNIGHTS';
 
 export const BASE_VICTORY_POINT_TARGET = 10;
 
@@ -13,16 +28,30 @@ export const SEAFARERS_VICTORY_POINT_TARGETS: Record<SeafarersScenario, number> 
   THE_LOST_TRIBE: 13,
   CLOTH_FOR_CATAN: 14,
   PIRATE_ISLANDS: 10,
+  TREASURE_ISLANDS: 14,
+  INTO_THE_UNKNOWN: 12,
+  GREATER_CATAN: 18,
+  DESERT_DRAGONS: 13,
+  GREAT_CANAL: 18,
+  ENCHANTED_LAND: 18,
 };
 
 export const getVictoryPointTarget = (
   activeExpansion: GameExpansion,
   selectedScenario: SeafarersScenario,
+  playerCount: number = 4,
 ): number => {
+  if (isTreasuresDragonsAdventurersScenario(selectedScenario)) {
+    return getTreasuresDragonsAdventurersVictoryTarget(selectedScenario, activeExpansion, playerCount)
+      ?? SEAFARERS_VICTORY_POINT_TARGETS[selectedScenario];
+  }
+  if (activeExpansion === 'SEAFARERS_AND_CITIES_AND_KNIGHTS') {
+    return 15;
+  }
   if (activeExpansion === 'CITIES_AND_KNIGHTS') {
     return 13;
   }
-  if (activeExpansion !== 'SEAFARERS') {
+  if (!isSeafarersExpansion(activeExpansion)) {
     return BASE_VICTORY_POINT_TARGET;
   }
 

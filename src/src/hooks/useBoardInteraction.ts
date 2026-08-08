@@ -4,6 +4,7 @@ import { getEligibleRobberyTargets } from '../utils/gameEngine/robberSteal';
 import { useVertexInteraction } from './useVertexInteraction';
 import { useEdgeInteraction } from './useEdgeInteraction';
 import { dispatchGameAction } from '../services/gameDispatcher';
+import { isSeafarersExpansion } from '../config/gameRules';
 
 export function useBoardInteraction() {
   const { 
@@ -59,7 +60,7 @@ export function useBoardInteraction() {
     if (players[currentPlayerIndex]?.isBot) return false;
     if (roomId && players[currentPlayerIndex]?.id !== myPlayerId) return false;
 
-    if (activeExpansion === 'SEAFARERS') {
+    if (isSeafarersExpansion(activeExpansion)) {
       if (activeRobberType === 'ROBBER') {
         if (selectedScenario === 'THE_LOST_TRIBE' && (tile.islandId !== 1 || tile.robberStartLocked)) return false;
         if (selectedScenario === 'CLOTH_FOR_CATAN' && tile.islandId !== 1) return false;
@@ -76,7 +77,7 @@ export function useBoardInteraction() {
   const handleTileClick = (tile: any) => {
     if (!isSelectableForRobber(tile)) return;
     
-    const isPirate = activeExpansion === 'SEAFARERS' && activeRobberType === 'PIRATE';
+    const isPirate = isSeafarersExpansion(activeExpansion) && activeRobberType === 'PIRATE';
 
     const currentPlayingPlayer = players[currentPlayerIndex];
     let eligibleTargets: any[] = [];

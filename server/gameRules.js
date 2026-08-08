@@ -19,6 +19,9 @@ const shuffled = deck => {
   return copy;
 };
 const DEV_CARD_TYPES = ['KNIGHT', 'VICTORY_POINT', 'ROAD_BUILDING', 'YEAR_OF_PLENTY', 'MONOPOLY'];
+const TREASURES_DRAGONS_ADVENTURERS_SCENARIOS = new Set([
+  'TREASURE_ISLANDS', 'INTO_THE_UNKNOWN', 'GREATER_CATAN', 'DESERT_DRAGONS', 'GREAT_CANAL', 'ENCHANTED_LAND',
+]);
 const PIRATE_ISLANDS_FLEET_ROUTE = [49, 48, 41, 33, 25, 16, 9, 3, 4, 11, 18, 26, 35, 43];
 const ACTION_TYPES = new Set([
   'ROLL_DICE', 'END_TURN', 'DISCARD_CARDS', 'GIVE_PROGRESS_CARDS',
@@ -28,8 +31,10 @@ const ACTION_TYPES = new Set([
   'EXECUTE_PLAYER_TRADE', 'GOLD_TRADE',
   'MOVE_SHIP', 'PLACE_HARBOR', 'DISCOVER_FOG', 'SELECT_GOLD_RESOURCE',
   'ATTACK_PIRATE_FORTRESS',
+  'DISCOVER_SCENARIO_HEX', 'CLAIM_TREASURE', 'KEEP_TREASURE', 'MOVE_ENCHANTED_KNIGHT', 'FIGHT_ENCHANTED_DRAGON',
   'MOVE_WAGON', 'UPGRADE_WAGON',
   'BUILD_KNIGHT', 'ACTIVATE_KNIGHT', 'UPGRADE_KNIGHT', 'MOVE_KNIGHT', 'DISPLACE_KNIGHT', 'RELOCATE_DISPLACED_KNIGHT', 'SELECT_DESERTER_KNIGHT', 'PLACE_DESERTER_KNIGHT',
+  'EXPEL_PIRATE',
   'BUILD_CITY_WALL', 'UPGRADE_CITY_IMPROVEMENT', 'DOWNGRADE_CITY', 'PLAY_PROGRESS_CARD', 'DISCARD_PROGRESS_CARD',
 ]);
 
@@ -159,6 +164,25 @@ function validateActionShape(action, { authoritative = false } = {}) {
         return { ok: false, message: 'Invalid fortress attack' };
       }
       break;
+    case 'DISCOVER_SCENARIO_HEX':
+      if (!requireId('tileId')) return { ok: false, message: 'Invalid scenario hex discovery' };
+      break;
+    case 'CLAIM_TREASURE':
+    case 'KEEP_TREASURE':
+      if (!requireId('treasureId')) return { ok: false, message: 'Invalid treasure' };
+      if (action.type === 'CLAIM_TREASURE' && action.progressTrack !== undefined && !CITY_IMPROVEMENT_TRACKS.includes(action.progressTrack)) {
+        return { ok: false, message: 'Invalid treasure progress-card stack' };
+      }
+      if (action.type === 'KEEP_TREASURE' && action.harborType !== undefined && !isResource(action.harborType)) return { ok: false, message: 'Invalid treasure harbor' };
+      break;
+    case 'MOVE_ENCHANTED_KNIGHT':
+      if (!requireId('fromVertexId') || !requireId('toVertexId') || action.fromVertexId === action.toVertexId) {
+        return { ok: false, message: 'Invalid enchanted knight move' };
+      }
+      break;
+    case 'FIGHT_ENCHANTED_DRAGON':
+      if (!requireId('knightVertexId') || !requireId('dragonId')) return { ok: false, message: 'Invalid dragon fight' };
+      break;
     case 'MOVE_WAGON':
       if (!requireId('targetVertexId') || ![1, 2].includes(action.movementCost)) return { ok: false, message: 'Invalid wagon move' };
       break;
@@ -179,6 +203,9 @@ function validateActionShape(action, { authoritative = false } = {}) {
       if (!requireId('fromVertexId') || !requireId('toVertexId') || action.fromVertexId === action.toVertexId) {
         return { ok: false, message: 'Invalid knight move' };
       }
+      break;
+    case 'EXPEL_PIRATE':
+      if (!requireId('vertexId') || !requireId('tileId')) return { ok: false, message: 'Invalid pirate expulsion' };
       break;
     case 'RELOCATE_DISPLACED_KNIGHT':
       if (action.toVertexId !== undefined && !requireId('toVertexId')) return { ok: false, message: 'Invalid displaced knight target' };
@@ -209,10 +236,12 @@ const totalResources = (player) => RESOURCE_TYPES.reduce((sum, key) => sum + (pl
 const totalHandCards = (state, player) => totalResources(player) + (isCitiesKnights(state)
   ? COMMODITY_TYPES.reduce((sum, key) => sum + (player.commodities?.[key] || 0), 0)
   : 0);
-const handLimit = (state, player) => 7 + (isCitiesKnights(state)
+const handLimit = (state, player) => (state.selectedScenario === 'INTO_THE_UNKNOWN' && (player.keptTreasureTokens || 0) > 0 ? 9 : 7) + (isCitiesKnights(state)
   ? 2 * (state.vertices || []).filter(vertex => vertex.playerId === player.id && vertex.cityWall).length
   : 0);
-const isCitiesKnights = state => state?.activeExpansion === 'CITIES_AND_KNIGHTS';
+const isCitiesKnights = state => ['CITIES_AND_KNIGHTS', 'SEAFARERS_AND_CITIES_AND_KNIGHTS'].includes(state?.activeExpansion);
+const isSeafarers = state => ['SEAFARERS', 'SEAFARERS_AND_CITIES_AND_KNIGHTS'].includes(state?.activeExpansion);
+const isCombinedSeafarersCitiesKnights = state => state?.activeExpansion === 'SEAFARERS_AND_CITIES_AND_KNIGHTS';
 const ensureCitiesKnightsState = state => {
   state.citiesKnightsState ||= {};
   state.citiesKnightsState.barbarianPosition ??= 0;
@@ -257,6 +286,7 @@ const resolveBarbarianAttack = state => {
   });
   citiesKnights.barbarianPosition = 0;
   citiesKnights.hasBarbarianAttacked = true;
+  introducePirateAfterFirstBarbarianAttack(state);
 
   if (totalStrength >= totalCityCount) {
     const highest = Math.max(0, ...strengths.values());
@@ -287,18 +317,22 @@ const countPieces = (state, playerId, kind) => {
   if (kind === 'ROAD') return (state.edges || []).filter(edge => edge.playerId === playerId && edge.hasRoad).length;
   return (state.edges || []).filter(edge => edge.shipPlayerId === playerId && edge.hasShip).length;
 };
+const cityLimitForState = state => state.selectedScenario === 'GREATER_CATAN' ? 8 : 4;
 const edgeEndpoints = (edge) => {
   const parts = String(edge?.id || '').replace(/^e_/, '').split('_v_');
   return parts.length === 2 ? [parts[0], `v_${parts[1]}`] : [];
 };
 const incidentEdges = (state, vertexId) => (state.edges || []).filter(edge => edgeEndpoints(edge).includes(vertexId));
-const hasOwnedRoadPath = (state, playerId, fromVertexId, toVertexId, { allowOccupiedTarget = false } = {}) => {
+const hasOwnedRoutePath = (state, playerId, fromVertexId, toVertexId, { allowOccupiedTarget = false } = {}) => {
   const pending = [fromVertexId];
   const visited = new Set(pending);
   while (pending.length) {
     const current = pending.shift();
     if (current === toVertexId) return true;
-    incidentEdges(state, current).filter(edge => edge.hasRoad && edge.playerId === playerId).forEach(edge => {
+    incidentEdges(state, current).filter(edge =>
+      (edge.hasRoad && edge.playerId === playerId) ||
+      (isCombinedSeafarersCitiesKnights(state) && edge.hasShip && edge.shipPlayerId === playerId)
+    ).forEach(edge => {
       edgeEndpoints(edge).filter(id => !visited.has(id)).forEach(id => {
         const vertex = state.vertices?.find(candidate => candidate.id === id);
         const opponentPiece = id !== fromVertexId && vertex?.playerId !== playerId &&
@@ -309,6 +343,31 @@ const hasOwnedRoadPath = (state, playerId, fromVertexId, toVertexId, { allowOccu
     });
   }
   return false;
+};
+const hasOwnedRoadPath = (state, playerId, fromVertexId, toVertexId, options) =>
+  hasOwnedRoutePath(state, playerId, fromVertexId, toVertexId, options);
+const isKnightConnectedToOwnStructure = (state, playerId, vertexId) =>
+  (state.vertices || []).some(vertex => vertex.playerId === playerId && ['SETTLEMENT', 'CITY'].includes(vertex.structure) &&
+    hasOwnedRoutePath(state, playerId, vertexId, vertex.id));
+const shipMoveDisconnectsKnight = (state, playerId, sourceEdgeId) => {
+  if (!isCombinedSeafarersCitiesKnights(state)) return false;
+  const connectedKnightIds = (state.vertices || [])
+    .filter(vertex => vertex.knight?.playerId === playerId && isKnightConnectedToOwnStructure(state, playerId, vertex.id))
+    .map(vertex => vertex.id);
+  if (!connectedKnightIds.length) return false;
+  const source = state.edges?.find(edge => edge.id === sourceEdgeId);
+  if (!source) return false;
+  const previousShip = { hasShip: source.hasShip, shipPlayerId: source.shipPlayerId };
+  source.hasShip = false;
+  source.shipPlayerId = null;
+  const disconnects = connectedKnightIds.some(vertexId => !isKnightConnectedToOwnStructure(state, playerId, vertexId));
+  Object.assign(source, previousShip);
+  return disconnects;
+};
+const introducePirateAfterFirstBarbarianAttack = state => {
+  if (!isCombinedSeafarersCitiesKnights(state) || (state.tiles || []).some(tile => tile.hasPirate)) return;
+  const target = (state.tiles || []).find(tile => isRevealedWaterTile(tile) && !tile.isFrameSea);
+  if (target) target.hasPirate = true;
 };
 const hasAdjacentStructure = (state, vertexId) => incidentEdges(state, vertexId).some(edge =>
   edgeEndpoints(edge).some(endpoint => endpoint !== vertexId && state.vertices?.some(vertex => vertex.id === endpoint && vertex.structure !== 'NONE'))
@@ -354,6 +413,27 @@ const tileEdgeIds = (tile) => {
   });
 };
 const isWaterTile = (tile) => ['WATER', 'SEA', 'FOG'].includes(tile.type);
+const isCoastalVertex = (state, vertexId) => (state.tiles || []).some(tile => isWaterTile(tile) && tileVertexIds(tile).includes(vertexId));
+const isEnchantedCoast = (state, vertexId) => {
+  const bordering = (state.tiles || []).filter(tile => tileVertexIds(tile).includes(vertexId));
+  return bordering.some(tile => tile.scenarioMarker?.isEnchantedLand) && bordering.some(tile => ['WATER', 'SEA'].includes(tile.type));
+};
+const enchantedLandDistance = (state, fromVertexId, toVertexId) => {
+  const pending = [[fromVertexId, 0]];
+  const visited = new Set([fromVertexId]);
+  while (pending.length) {
+    const [current, distance] = pending.shift();
+    if (current === toVertexId) return distance;
+    if (distance >= 3) continue;
+    incidentEdges(state, current).forEach(edge => edgeEndpoints(edge).forEach(vertexId => {
+      if (!visited.has(vertexId) && state.vertices?.find(vertex => vertex.id === vertexId)?.isEnchantedLand) {
+        visited.add(vertexId);
+        pending.push([vertexId, distance + 1]);
+      }
+    }));
+  }
+  return Infinity;
+};
 const isRevealedWaterTile = (tile) => ['WATER', 'SEA'].includes(tile.type);
 const borderingTilesForEdge = (state, edgeId) => (state.tiles || []).filter(tile => tileEdgeIds(tile).includes(edgeId));
 const isShipEdge = (state, edgeId) => {
@@ -490,6 +570,7 @@ const advanceTurn = state => {
   state.turnSubPhase = 'BEFORE_ROLL';
   state.hasMovedShipThisTurn = false;
   state.currentTurnBuiltShips = [];
+  state.diplomatRoadBuildingRemaining = 0;
   const next = state.players[state.currentPlayerIndex];
   next.goldTradesThisTurn = 0;
   next.playedDevCardThisTurn = false;
@@ -503,9 +584,22 @@ const advanceTurn = state => {
     delete player.merchantFleetResource;
   });
 };
-const victoryTarget = state => isCitiesKnights(state)
-  ? 13
-  : ({ HEADING_FOR_NEW_SHORES: 14, FOUR_ISLANDS: 13, FOG_ISLAND: 12, THROUGH_THE_DESERT: 14, THE_LOST_TRIBE: 13, CLOTH_FOR_CATAN: 14, PIRATE_ISLANDS: 10 })[state.selectedScenario] || 10;
+const TDA_VICTORY_TARGETS = {
+  TREASURE_ISLANDS: { SEAFARERS: { 3: 15, 4: 14 }, SEAFARERS_AND_CITIES_AND_KNIGHTS: { 3: 16, 4: 17 } },
+  INTO_THE_UNKNOWN: { SEAFARERS: { 3: 12, 4: 12 }, SEAFARERS_AND_CITIES_AND_KNIGHTS: { 3: 14, 4: 14 } },
+  GREATER_CATAN: { SEAFARERS: { 3: 18, 4: 18 }, SEAFARERS_AND_CITIES_AND_KNIGHTS: { 3: 20, 4: 20 } },
+  DESERT_DRAGONS: { SEAFARERS: { 3: 13, 4: 13 } },
+  GREAT_CANAL: { SEAFARERS_AND_CITIES_AND_KNIGHTS: { 3: 21, 4: 18 } },
+  ENCHANTED_LAND: { SEAFARERS_AND_CITIES_AND_KNIGHTS: { 3: 21, 4: 18 } },
+};
+const victoryTarget = state => {
+  const playerCount = state.players?.length === 3 ? 3 : 4;
+  const tdaTarget = TDA_VICTORY_TARGETS[state.selectedScenario]?.[state.activeExpansion]?.[playerCount];
+  if (tdaTarget) return tdaTarget;
+  if (isCombinedSeafarersCitiesKnights(state)) return 15;
+  if (isCitiesKnights(state)) return 13;
+  return ({ HEADING_FOR_NEW_SHORES: 14, FOUR_ISLANDS: 13, FOG_ISLAND: 12, THROUGH_THE_DESERT: 14, THE_LOST_TRIBE: 13, CLOTH_FOR_CATAN: 14, PIRATE_ISLANDS: 10 })[state.selectedScenario] || 10;
+};
 const playerTotalVP = (state, player) => {
   let points = player.victoryPoints || 0;
   if (!isPirateIslands(state)) points += player.developmentCards?.VICTORY_POINT || 0;
@@ -519,12 +613,23 @@ const playerTotalVP = (state, player) => {
     );
     points += visited.size * 2;
   }
+  if (state.selectedScenario === 'DESERT_DRAGONS') {
+    (state.vertices || []).filter(vertex => vertex.playerId === player.id && ['SETTLEMENT', 'CITY'].includes(vertex.structure)).forEach(vertex => {
+      const land = (state.tiles || []).filter(tile => tileVertexIds(tile).includes(vertex.id) && !isWaterTile(tile));
+      if (land.length > 0 && land.every(tile => (tile.scenarioMarker?.dragonIds || []).length > 0)) points -= 1;
+    });
+  }
   return points;
 };
 const maybeEndGame = (state, playerId) => {
   if (state.gamePhase !== 'MAIN_GAME') return;
   const player = state.players.find(candidate => candidate.id === playerId);
   if (!player || (isPirateIslands(state) && !pirateFortressVertex(state, playerId)?.pirateFortress?.conquered)) return;
+  if (state.selectedScenario === 'ENCHANTED_LAND' && (state.scenarioState?.defeatedDragonIdsByPlayerId?.[playerId] || []).length >= 6) {
+    state.gamePhase = 'GAME_OVER';
+    state.winnerPlayerId = playerId;
+    return;
+  }
   if (playerTotalVP(state, player) >= victoryTarget(state)) {
     state.gamePhase = 'GAME_OVER';
     state.winnerPlayerId = playerId;
@@ -558,6 +663,9 @@ const bankTradeRatioForPlayer = (state, playerId, offeredResource) => {
     vertex.isHarbor
   );
   if (ownedHarbors.some(harbor => harbor.harborType === offeredResource)) return 2;
+  if (state.selectedScenario === 'GREAT_CANAL' && (state.vertices || []).some(vertex =>
+    vertex.knight?.playerId === playerId && vertex.isHarbor && vertex.harborType === offeredResource &&
+    vertexIslandIds(state, vertex.id).some(islandId => islandId !== 1))) return 2;
   if (ownedHarbors.some(harbor => harbor.harborType === 'GENERIC')) return 3;
   return 4;
 };
@@ -598,6 +706,8 @@ const distributeRolledResources = (state, total) => {
   (state.tiles || []).filter(tile =>
     tile.numberToken === total &&
     !tile.hasRobber &&
+    !(state.selectedScenario === 'DESERT_DRAGONS' && (tile.scenarioMarker?.dragonIds || []).length > 0) &&
+    !(state.selectedScenario === 'GREAT_CANAL' && tile.scenarioMarker?.infertileField) &&
     !(['THE_LOST_TRIBE', 'CLOTH_FOR_CATAN'].includes(state.selectedScenario) && tile.islandId !== 1)
   ).forEach(tile => {
     const vertexIds = new Set(tileVertexIds(tile));
@@ -612,6 +722,12 @@ const distributeRolledResources = (state, total) => {
       }
     });
   });
+  if (state.selectedScenario === 'GREAT_CANAL' && total === 8 && !state.scenarioState?.isCanalComplete) {
+    const minerIds = new Set((state.vertices || []).filter(vertex => vertex.knight?.playerId &&
+      (state.tiles || []).some(tile => tile.type === 'GOLD_FIELD' && tile.islandId !== 1 && tileVertexIds(tile).includes(vertex.id)))
+      .map(vertex => vertex.knight.playerId));
+    minerIds.forEach(playerId => goldSelections.push({ playerId, amount: 1, tileId: 'great-canal-gold-miner' }));
+  }
 
   RESOURCE_TYPES.forEach(resource => {
     const resourceClaims = claims.filter(claim => claim.resource === resource);
@@ -666,6 +782,69 @@ const distributeRolledResources = (state, total) => {
     });
   }
   if (state.selectedScenario === 'CLOTH_FOR_CATAN') distributeLostTribeCloth(state, total);
+};
+
+/** Dragon placement is deterministic online: use the least populated desert. */
+const addDesertDragons = (state) => {
+  if (state.selectedScenario !== 'DESERT_DRAGONS' || String(state.gamePhase).startsWith('SETUP_')) return;
+  const deserts = (state.tiles || []).filter(tile => tile.type === 'DESERT').slice(0, 3);
+  if (!deserts.length) return;
+  const remaining = Math.max(0, 18 - deserts.reduce((sum, tile) => sum + (tile.scenarioMarker?.dragonIds || []).length, 0));
+  const amount = Math.min(remaining, state.players.length === 3 ? 3 : 2);
+  for (let index = 0; index < amount; index += 1) {
+    deserts.sort((a, b) => (a.scenarioMarker?.dragonIds || []).length - (b.scenarioMarker?.dragonIds || []).length);
+    const target = deserts[0];
+    target.scenarioMarker = { ...target.scenarioMarker, dragonIds: [...(target.scenarioMarker?.dragonIds || []), `desert-dragon-${Date.now()}-${index}`] };
+  }
+  if (remaining <= amount && state.scenarioState) state.scenarioState.dragonsHaveAttacked = true;
+};
+
+const areNeighboringHexes = (first, second) =>
+  (Math.abs(first.coord.q - second.coord.q) + Math.abs(first.coord.r - second.coord.r) + Math.abs(first.coord.s - second.coord.s)) / 2 === 1;
+
+/** Once the reserve is exhausted, a matching roll moves one dragon from each relevant desert. */
+const moveDesertDragons = (state, total) => {
+  if (state.selectedScenario !== 'DESERT_DRAGONS' || !state.scenarioState?.dragonsHaveAttacked || total === 7) return;
+  const deserts = (state.tiles || []).filter(tile => tile.type === 'DESERT' && (tile.scenarioMarker?.dragonIds || []).length > 0);
+  const destinations = (state.tiles || []).filter(tile => tile.numberToken === total && tile.type !== 'WATER' && tile.type !== 'DESERT' && !(tile.scenarioMarker?.dragonIds || []).length &&
+    deserts.some(desert => areNeighboringHexes(desert, tile)));
+  destinations.forEach((destination, index) => {
+    const sources = deserts.filter(desert => (desert.scenarioMarker?.dragonIds || []).length > 0 && areNeighboringHexes(desert, destination));
+    if (!sources.length) return;
+    sources.sort((a, b) => (b.scenarioMarker?.dragonIds || []).length - (a.scenarioMarker?.dragonIds || []).length);
+    const source = sources[0];
+    const dragonId = source.scenarioMarker.dragonIds.pop();
+    destination.scenarioMarker = { ...destination.scenarioMarker, dragonIds: [dragonId || `desert-dragon-move-${total}-${index}`] };
+  });
+};
+
+const buildCanalFromKnight = (state, vertexId) => {
+  if (state.selectedScenario !== 'GREAT_CANAL' || !state.scenarioState) return;
+  const completed = new Set(state.scenarioState.completedCanalIds || []);
+  const candidate = (state.tiles || []).find(tile => tile.scenarioMarker?.canalId && !completed.has(tile.scenarioMarker.canalId) &&
+    tileVertexIds(tile).includes(vertexId) &&
+    tileVertexIds(tile).filter(id => state.vertices.find(vertex => vertex.id === id)?.knight?.active).length >= 2);
+  if (!candidate) return;
+  const knightOwners = tileVertexIds(candidate).map(id => state.vertices.find(vertex => vertex.id === id)?.knight)
+    .filter(knight => knight?.active).slice(0, 2).map(knight => knight.playerId);
+  knightOwners.forEach(ownerId => {
+    const owner = state.players.find(candidatePlayer => candidatePlayer.id === ownerId);
+    if (owner) { owner.canalChits = (owner.canalChits || 0) + 1; owner.victoryPoints = (owner.victoryPoints || 0) + 1; }
+  });
+  candidate.scenarioMarker.canalBuilt = true;
+  completed.add(candidate.scenarioMarker.canalId);
+  // The ninth piece is placed automatically when the eighth is completed.
+  if (completed.size >= 8) {
+    (state.tiles || []).filter(tile => tile.scenarioMarker?.canalId).forEach(tile => {
+      tile.scenarioMarker.canalBuilt = true;
+      completed.add(tile.scenarioMarker.canalId);
+    });
+    (state.tiles || []).filter(tile => tile.scenarioMarker?.infertileField).forEach(tile => {
+      tile.scenarioMarker.infertileField = false;
+    });
+    state.scenarioState.isCanalComplete = true;
+  }
+  state.scenarioState.completedCanalIds = [...completed];
 };
 
 const lostTribeVillages = state => (state.tiles || []).flatMap(tile => (tile.lostTribeVillages || []).map(village => ({
@@ -723,6 +902,76 @@ function validateGameAction(state, action) {
   }
 
   switch (action.type) {
+    case 'DISCOVER_SCENARIO_HEX': {
+      const tile = state.tiles?.find(candidate => candidate.id === action.tileId);
+      const tileVertices = new Set(tileVertexIds(tile));
+      const touchesRoute = state.edges?.some(edge => (edge.hasRoad && edge.playerId === action.playerId || edge.hasShip && edge.shipPlayerId === action.playerId) &&
+        edgeEndpoints(edge).some(vertexId => tileVertices.has(vertexId)));
+      if (state.selectedScenario !== 'GREATER_CATAN' || !tile || tile.numberToken !== null || tile.islandId === undefined || tile.islandId <= 1 ||
+          !RESOURCE_TYPES.includes(tile.type) || !touchesRoute) return { ok: false, message: 'This number chit cannot be discovered' };
+      if (!(state.scenarioState?.numberTokenSupply || []).length) {
+        const canMoveNumber = (candidate) => {
+          if ([6, 8].includes(candidate.numberToken) && state.tiles.some(other => other !== tile && [6, 8].includes(other.numberToken) && areNeighboringHexes(other, tile))) return false;
+          return tileVertexIds(candidate).some(vertexId => {
+            const vertex = state.vertices?.find(entry => entry.id === vertexId);
+            return vertex?.playerId === action.playerId && ['SETTLEMENT', 'CITY'].includes(vertex.structure) &&
+              state.tiles.some(other => other !== candidate && Number.isInteger(other.numberToken) && tileVertexIds(other).includes(vertexId));
+          });
+        };
+        if (!(state.tiles || []).some(candidate => candidate.islandId === 1 && Number.isInteger(candidate.numberToken) && canMoveNumber(candidate))) {
+          return { ok: false, message: 'No legal home-island number token can be depleted' };
+        }
+      }
+      break;
+    }
+    case 'MOVE_ENCHANTED_KNIGHT': {
+      const source = state.vertices?.find(vertex => vertex.id === action.fromVertexId);
+      const destination = state.vertices?.find(vertex => vertex.id === action.toVertexId);
+      const hasCrossed = Boolean(state.scenarioState.knightOnIslandByPlayerId?.[action.playerId]);
+      const legalMove = hasCrossed
+        ? source?.isEnchantedLand && !isEnchantedCoast(state, destination?.id) && enchantedLandDistance(state, source.id, destination?.id) <= 3
+        : isEnchantedCoast(state, destination?.id) && hasOwnedRoutePath(state, action.playerId, source?.id, destination?.id, { allowOccupiedTarget: true });
+      if (state.selectedScenario !== 'ENCHANTED_LAND' || !source?.knight?.active || source.knight.playerId !== action.playerId ||
+          source.knight.actedThisTurn || !destination || destination.structure !== 'NONE' ||
+          (destination.knight && (destination.knight.playerId === action.playerId || source.knight.level <= destination.knight.level)) ||
+          !destination.isEnchantedLand || !legalMove) {
+        return { ok: false, message: 'Illegal enchanted knight move' };
+      }
+      break;
+    }
+    case 'FIGHT_ENCHANTED_DRAGON': {
+      const vertex = state.vertices?.find(candidate => candidate.id === action.knightVertexId);
+      if (state.selectedScenario !== 'ENCHANTED_LAND' || vertex?.knight?.playerId !== action.playerId || !vertex.knight.active ||
+          vertex.knight.actedThisTurn || vertex.enchantedDragon?.id !== action.dragonId) {
+        return { ok: false, message: 'Illegal enchanted dragon fight' };
+      }
+      break;
+    }
+    case 'CLAIM_TREASURE': {
+      const token = state.scenarioState?.treasureTokens?.[action.treasureId];
+      const vertex = state.vertices?.find(candidate => candidate.id === token?.vertexId);
+      const touchesPlayerRoute = incidentEdges(state, token?.vertexId).some(edge =>
+        (edge.hasRoad && edge.playerId === action.playerId) || (edge.hasShip && edge.shipPlayerId === action.playerId));
+      const isTreasureScenario = state.selectedScenario === 'TREASURE_ISLANDS' || state.selectedScenario === 'INTO_THE_UNKNOWN';
+      if (!isTreasureScenario || (state.selectedScenario === 'INTO_THE_UNKNOWN' && action.mode !== 'REVEAL') ||
+          !token || token.status !== 'UNCLAIMED' || !vertex?.treasureToken || !touchesPlayerRoute) {
+        return { ok: false, message: 'Treasure cannot be claimed from this location' };
+      }
+      if (isCitiesKnights(state) && state.scenarioState?.treasureDeck?.[0] === 'DEVELOPMENT_CARD' && !CITY_IMPROVEMENT_TRACKS.includes(action.progressTrack)) {
+        return { ok: false, message: 'Choose a progress-card stack for this treasure' };
+      }
+      break;
+    }
+    case 'KEEP_TREASURE': {
+      const token = state.scenarioState?.treasureTokens?.[action.treasureId];
+      const vertex = state.vertices?.find(candidate => candidate.id === token?.vertexId);
+      const touchesPlayerRoute = incidentEdges(state, token?.vertexId).some(edge =>
+        (edge.hasRoad && edge.playerId === action.playerId) || (edge.hasShip && edge.shipPlayerId === action.playerId));
+      if (state.selectedScenario !== 'INTO_THE_UNKNOWN' || !token || token.status !== 'UNCLAIMED' || !vertex?.treasureToken ||
+          !touchesPlayerRoute || (player.keptTreasureTokens || 0) >= 4 ||
+          ((player.keptTreasureTokens || 0) === 1 && !isResource(action.harborType))) return { ok: false, message: 'Treasure cannot be kept' };
+      break;
+    }
     case 'ROLL_DICE':
       if (state.gamePhase !== 'MAIN_GAME' || state.turnSubPhase !== 'BEFORE_ROLL') return { ok: false, message: 'Dice cannot be rolled now' };
       break;
@@ -783,6 +1032,12 @@ function validateGameAction(state, action) {
       if (borderingTiles.length === 0 || borderingTiles.every(isWaterTile)) return { ok: false, message: 'Settlement must touch land' };
       if ((state.selectedScenario === 'CLOTH_FOR_CATAN' && borderingTiles.some(tile => (tile.lostTribeVillages || []).length)) ||
           (state.selectedScenario === 'THE_LOST_TRIBE' && borderingTiles.some(tile => !isWaterTile(tile) && tile.islandId !== 1))) return { ok: false, message: 'Lost Tribe islands cannot be settled' };
+      if (state.selectedScenario === 'GREAT_CANAL' && borderingTiles.some(tile => !isWaterTile(tile) && tile.islandId !== 1)) {
+        return { ok: false, message: 'The Great Canal small islands cannot be settled' };
+      }
+      if (state.selectedScenario === 'ENCHANTED_LAND' && borderingTiles.some(tile => tile.scenarioMarker?.isEnchantedLand) && !borderingTiles.some(isWaterTile)) {
+        return { ok: false, message: 'Settlements in the Enchanted Land must be on the coast' };
+      }
       if (isPirateIslands(state) && !isSetup && vertexIslandIds(state, action.vertexId).some(islandId => islandId !== 1) &&
           vertex.pirateSettlementTarget !== action.playerId) return { ok: false, message: 'Only the marked Pirate Islands vertex may be settled' };
       if (isSetup && ['HEADING_FOR_NEW_SHORES', 'THROUGH_THE_DESERT', 'THE_LOST_TRIBE', 'CLOTH_FOR_CATAN'].includes(state.selectedScenario) &&
@@ -802,17 +1057,22 @@ function validateGameAction(state, action) {
     }
     case 'BUILD_CITY': {
       const vertex = state.vertices?.find(candidate => candidate.id === action.vertexId);
+      if (state.selectedScenario === 'ENCHANTED_LAND' && (state.tiles || []).some(tile => tile.scenarioMarker?.isEnchantedLand && tileVertexIds(tile).includes(action.vertexId))) {
+        return { ok: false, message: 'Enchanted Land settlements cannot be upgraded to cities' };
+      }
       const isCitiesKnightsSetupCity = isCitiesKnights(state) && state.gamePhase === 'SETUP_ROUND_2';
       if (isCitiesKnightsSetupCity) {
         const borderingTiles = (state.tiles || []).filter(tile => tileVertexIds(tile).includes(action.vertexId));
-        if (!vertex || vertex.structure !== 'NONE' || countPieces(state, action.playerId, 'CITY') >= 4 ||
+        const requiresCoastalStart = ['GREAT_CANAL', 'ENCHANTED_LAND'].includes(state.selectedScenario);
+        const alreadyHasCoastalStructure = (state.vertices || []).some(candidate => candidate.playerId === action.playerId && ['SETTLEMENT', 'CITY'].includes(candidate.structure) && isCoastalVertex(state, candidate.id));
+        if (!vertex || vertex.structure !== 'NONE' || countPieces(state, action.playerId, 'CITY') >= cityLimitForState(state) ||
             !borderingTiles.length || borderingTiles.every(isWaterTile) || hasAdjacentStructure(state, action.vertexId) ||
-            state.setupState?.hasPlacedSettlement) {
+            state.setupState?.hasPlacedSettlement || (requiresCoastalStart && !alreadyHasCoastalStructure && !isCoastalVertex(state, action.vertexId))) {
           return { ok: false, message: 'Illegal Cities & Knights setup city' };
         }
         break;
       }
-      if (!vertex || vertex.structure !== 'SETTLEMENT' || vertex.playerId !== action.playerId || countPieces(state, action.playerId, 'CITY') >= 4 ||
+      if (!vertex || vertex.structure !== 'SETTLEMENT' || vertex.playerId !== action.playerId || countPieces(state, action.playerId, 'CITY') >= cityLimitForState(state) ||
           state.turnSubPhase !== 'TRADE_AND_BUILD' || !hasResources(player, { WHEAT: 2, ORE: 3 })) {
         return { ok: false, message: 'Illegal city upgrade' };
       }
@@ -823,16 +1083,33 @@ function validateGameAction(state, action) {
       const edge = state.edges?.find(candidate => candidate.id === action.edgeId);
       const kind = action.type === 'BUILD_ROAD' ? 'ROAD' : 'SHIP';
       const limit = 15;
-      const free = (state.roadBuildingRemaining || 0) > 0;
+      const free = kind === 'ROAD'
+        ? (state.roadBuildingRemaining || 0) > 0 || (state.diplomatRoadBuildingRemaining || 0) > 0
+        : (state.roadBuildingRemaining || 0) > 0;
       const cost = kind === 'ROAD' ? { WOOD: 1, BRICK: 1 } : { WOOD: 1, SHEEP: 1 };
       if (!edge || edge.hasRoad || edge.hasShip || countPieces(state, action.playerId, kind) >= limit ||
           (!isSetup && state.turnSubPhase !== 'TRADE_AND_BUILD' && !free) || (!isSetup && !free && !hasResources(player, cost))) {
         return { ok: false, message: `Illegal ${kind.toLowerCase()} placement` };
       }
       const borderingTiles = (state.tiles || []).filter(tile => tileEdgeIds(tile).includes(action.edgeId));
+      if (state.selectedScenario === 'DESERT_DRAGONS' && kind === 'ROAD' &&
+          borderingTiles.filter(tile => (tile.scenarioMarker?.dragonIds || []).length > 0).length >= 2) {
+        return { ok: false, message: 'A road between two dragon hexes is blocked' };
+      }
+      if (state.selectedScenario === 'ENCHANTED_LAND' && kind === 'ROAD' && borderingTiles.some(tile => tile.scenarioMarker?.isEnchantedLand)) {
+        return { ok: false, message: 'Roads cannot be built in the Enchanted Land' };
+      }
       const isLandFrame = borderingTiles.length === 1 && !isWaterTile(borderingTiles[0]);
       if (kind === 'SHIP' && !borderingTiles.some(isWaterTile) && !isLandFrame) return { ok: false, message: 'Ship must be built on water or coast' };
       if (kind === 'ROAD' && !borderingTiles.some(tile => !isWaterTile(tile))) return { ok: false, message: 'Road must be built on land or coast' };
+      if (state.selectedScenario === 'GREAT_CANAL' && isSetup && kind === 'ROAD' && state.setupState?.lastSettlementVertexId &&
+          isCoastalVertex(state, state.setupState.lastSettlementVertexId)) {
+        return { ok: false, message: 'Coastal setup buildings in the Great Canal require a ship' };
+      }
+      if (state.selectedScenario === 'GREAT_CANAL' && kind === 'SHIP' && edgeEndpoints(edge).some(vertexId =>
+        incidentEdges(state, vertexId).filter(candidate => candidate.hasShip && candidate.shipPlayerId === action.playerId).length >= 2)) {
+        return { ok: false, message: 'Shipping routes cannot branch in the Great Canal scenario' };
+      }
       if (isSetup) {
         if (state.setupState?.hasPlacedRoad || !state.setupState?.lastSettlementVertexId ||
             !edgeEndpoints(edge).includes(state.setupState.lastSettlementVertexId)) {
@@ -866,6 +1143,10 @@ function validateGameAction(state, action) {
           !pirateShippingLine(state, action.playerId)?.some(edge => !edge.isWarship)) {
         return { ok: false, message: 'A regular ship is required for a warship upgrade' };
       }
+      if (state.selectedScenario === 'DESERT_DRAGONS' && action.cardType === 'KNIGHT' &&
+          !(state.tiles || []).some(tile => tile.islandId === 1 && tile.type !== 'DESERT' && (tile.scenarioMarker?.dragonIds || []).length)) {
+        return { ok: false, message: 'There is no dragon outside the desert to remove' };
+      }
       if (action.cardType === 'YEAR_OF_PLENTY') {
         const requestedResources = action.data.resources.reduce((counts, resource) => {
           counts[resource] = (counts[resource] || 0) + 1;
@@ -895,6 +1176,10 @@ function validateGameAction(state, action) {
     }
     case 'STEAL_RESOURCE': {
       const victim = state.players.find(candidate => candidate.id === action.victimPlayerId);
+      if (state.selectedScenario === 'DESERT_DRAGONS' && state.turnSubPhase === 'ROBBER_STEAL') {
+        if (!victim || victim.id === action.playerId || totalResources(victim) <= 0) return { ok: false, message: 'Illegal Desert Dragons steal' };
+        break;
+      }
       if (isPirateIslands(state) && state.turnSubPhase === 'ROBBER_STEAL') {
         if (!victim || victim.id === action.playerId ||
             (action.stolenResource === 'CLOTH'
@@ -939,6 +1224,7 @@ function validateGameAction(state, action) {
     case 'SELECT_GOLD_RESOURCE': {
       const pending = state.goldSelectionQueue?.[0];
       if (state.turnSubPhase !== 'GOLD_RESOURCE_SELECTION' || pending?.playerId !== action.playerId ||
+          (pending.allowedResources && !pending.allowedResources.includes(action.resource)) ||
           (state.resourceBank?.[action.resource] || 0) < 1) return { ok: false, message: 'Illegal gold selection' };
       break;
     }
@@ -961,7 +1247,8 @@ function validateGameAction(state, action) {
       if (state.turnSubPhase !== 'TRADE_AND_BUILD' || !source?.hasShip || source.shipPlayerId !== action.playerId ||
           !target || target.hasShip || target.hasRoad || state.hasMovedShipThisTurn ||
           (state.currentTurnBuiltShips || []).includes(source.id) || !isOpenShip(state, action.playerId, source) ||
-          !isShipEdge(state, target.id) || isPirateBlockedEdge(state, source.id) || isPirateBlockedEdge(state, target.id)) {
+          !isShipEdge(state, target.id) || isPirateBlockedEdge(state, source.id) || isPirateBlockedEdge(state, target.id) ||
+          shipMoveDisconnectsKnight(state, action.playerId, source.id)) {
         return { ok: false, message: 'Illegal ship move' };
       }
       if (!networkTouchesTarget(state, action.playerId, target, 'SHIP', source.id)) return { ok: false, message: 'Ship destination is disconnected' };
@@ -998,9 +1285,13 @@ function validateGameAction(state, action) {
       break;
     case 'BUILD_KNIGHT': {
       const vertex = state.vertices?.find(candidate => candidate.id === action.vertexId);
-      const ownsRoute = incidentEdges(state, action.vertexId).some(edge => edge.hasRoad && edge.playerId === action.playerId);
+      const ownsRoute = incidentEdges(state, action.vertexId).some(edge =>
+        (edge.hasRoad && edge.playerId === action.playerId) ||
+        (isCombinedSeafarersCitiesKnights(state) && edge.hasShip && edge.shipPlayerId === action.playerId)
+      );
       if (!isCitiesKnights(state) || state.turnSubPhase !== 'TRADE_AND_BUILD' || !vertex || vertex.structure !== 'NONE' || vertex.knight ||
           !ownsRoute || !hasResources(player, { SHEEP: 1, ORE: 1 }) ||
+          (state.selectedScenario === 'GREAT_CANAL' && vertexIslandIds(state, action.vertexId).some(islandId => islandId !== 1)) ||
           (state.vertices || []).filter(candidate => candidate.knight?.playerId === action.playerId).length >= 6) {
         return { ok: false, message: 'Illegal knight placement' };
       }
@@ -1030,6 +1321,16 @@ function validateGameAction(state, action) {
       }
       break;
     }
+    case 'EXPEL_PIRATE': {
+      const vertex = state.vertices?.find(candidate => candidate.id === action.vertexId);
+      const tile = state.tiles?.find(candidate => candidate.id === action.tileId);
+      if (!isCombinedSeafarersCitiesKnights(state) || state.turnSubPhase !== 'TRADE_AND_BUILD' ||
+          !vertex?.knight || vertex.knight.playerId !== action.playerId || !vertex.knight.active || vertex.knight.actedThisTurn ||
+          !tile?.hasPirate || !tileVertexIds(tile).includes(action.vertexId)) {
+        return { ok: false, message: 'Knight cannot expel this pirate' };
+      }
+      break;
+    }
     case 'DISPLACE_KNIGHT': {
       const source = state.vertices?.find(candidate => candidate.id === action.fromVertexId);
       const destination = state.vertices?.find(candidate => candidate.id === action.toVertexId);
@@ -1048,11 +1349,17 @@ function validateGameAction(state, action) {
       }
       if (action.toVertexId) {
         const target = state.vertices?.find(candidate => candidate.id === action.toVertexId);
-        if (!target || target.structure !== 'NONE' || target.knight || !hasOwnedRoadPath(state, action.playerId, pending.originVertexId, action.toVertexId)) {
+        const isEnchantedRelocation = pending.relocationMode === 'ENCHANTED_LAND';
+        const legalTarget = isEnchantedRelocation
+          ? target?.isEnchantedLand && !isEnchantedCoast(state, target.id) && target.structure === 'NONE' && !target.knight
+          : target && target.structure === 'NONE' && !target.knight && hasOwnedRoadPath(state, action.playerId, pending.originVertexId, action.toVertexId);
+        if (!legalTarget) {
           return { ok: false, message: 'Illegal displaced knight target' };
         }
       } else {
-        const canRelocate = (state.vertices || []).some(vertex => vertex.structure === 'NONE' && !vertex.knight && hasOwnedRoadPath(state, action.playerId, pending.originVertexId, vertex.id));
+        const canRelocate = (state.vertices || []).some(vertex => pending.relocationMode === 'ENCHANTED_LAND'
+          ? vertex.isEnchantedLand && !isEnchantedCoast(state, vertex.id) && vertex.structure === 'NONE' && !vertex.knight
+          : vertex.structure === 'NONE' && !vertex.knight && hasOwnedRoadPath(state, action.playerId, pending.originVertexId, vertex.id));
         if (canRelocate) return { ok: false, message: 'A legal relocation exists' };
       }
       break;
@@ -1062,6 +1369,9 @@ function validateGameAction(state, action) {
       const knight = state.vertices?.find(candidate => candidate.id === action.vertexId)?.knight;
       if (state.turnSubPhase !== 'DESERTER_SELECT' || pending?.targetPlayerId !== action.playerId || knight?.playerId !== action.playerId) {
         return { ok: false, message: 'Choose one of the targeted player\'s knights' };
+      }
+      if (state.selectedScenario === 'ENCHANTED_LAND' && state.vertices?.find(candidate => candidate.id === action.vertexId)?.isEnchantedLand) {
+        return { ok: false, message: 'Deserter cannot target knights in the Enchanted Land' };
       }
       break;
     }
@@ -1113,7 +1423,7 @@ function validateGameAction(state, action) {
       if (action.cardId === 'MINING' && terrainHexesAdjacentToPlayer(state, action.playerId, 'ORE').length === 0) return { ok: false, message: 'Mining needs an adjacent mountain' };
       if (action.cardId === 'MEDICINE') {
         const vertex = state.vertices?.find(candidate => candidate.id === action.data?.vertexId);
-        if (!vertex || vertex.playerId !== action.playerId || vertex.structure !== 'SETTLEMENT' || countPieces(state, action.playerId, 'CITY') >= 4 || !hasResources(player, { WHEAT: 1, ORE: 2 })) {
+        if (!vertex || vertex.playerId !== action.playerId || vertex.structure !== 'SETTLEMENT' || countPieces(state, action.playerId, 'CITY') >= cityLimitForState(state) || !hasResources(player, { WHEAT: 1, ORE: 2 })) {
           return { ok: false, message: 'Medicine needs an eligible settlement and payment' };
         }
       }
@@ -1121,7 +1431,8 @@ function validateGameAction(state, action) {
         const tileA = state.tiles?.find(tile => tile.id === action.data?.tileAId);
         const tileB = state.tiles?.find(tile => tile.id === action.data?.tileBId);
         if (!tileA || !tileB || tileA === tileB || [2, 12].includes(tileA.numberToken) || [2, 12].includes(tileB.numberToken) ||
-            !Number.isInteger(tileA.numberToken) || !Number.isInteger(tileB.numberToken)) {
+            !Number.isInteger(tileA.numberToken) || !Number.isInteger(tileB.numberToken) ||
+            (state.selectedScenario === 'ENCHANTED_LAND' && (tileA.scenarioMarker?.isEnchantedLand || tileB.scenarioMarker?.isEnchantedLand))) {
           return { ok: false, message: 'Inventor needs two different numbered tiles, neither 2 nor 12' };
         }
       }
@@ -1166,11 +1477,13 @@ function validateGameAction(state, action) {
           const knight = state.vertices?.find(vertex => vertex.id === neighbourId)?.knight;
           return knight?.playerId === action.playerId && knight.active;
         });
-        if (!target?.knight || target.knight.playerId === action.playerId || !adjacentOwnActiveKnight) return { ok: false, message: 'Intrigue needs an opponent knight beside one of your active knights' };
+        if (!target?.knight || target.knight.playerId === action.playerId || !adjacentOwnActiveKnight ||
+            (state.selectedScenario === 'ENCHANTED_LAND' && target.isEnchantedLand)) return { ok: false, message: 'Intrigue needs an opponent knight beside one of your active knights' };
       }
       if (action.cardId === 'DESERTER') {
         const target = state.players.find(candidate => candidate.id === action.data?.targetPlayerId);
-        if (!target || target.id === action.playerId || !(state.vertices || []).some(vertex => vertex.knight?.playerId === target.id)) {
+        if (!target || target.id === action.playerId || !(state.vertices || []).some(vertex => vertex.knight?.playerId === target.id &&
+            !(state.selectedScenario === 'ENCHANTED_LAND' && vertex.isEnchantedLand))) {
           return { ok: false, message: 'Deserter needs an opponent with a knight' };
         }
       }
@@ -1199,6 +1512,109 @@ function applyReservedAction(state, action) {
     if (state.resourceBank) state.resourceBank[key] = (state.resourceBank[key] || 0) + amount;
   });
   switch (action.type) {
+    case 'CLAIM_TREASURE': {
+      const scenario = state.scenarioState;
+      const token = scenario.treasureTokens[action.treasureId];
+      const reward = scenario.treasureDeck.shift();
+      token.status = 'CLAIMED';
+      token.claimedBy = action.playerId;
+      const vertex = state.vertices.find(candidate => candidate.id === token.vertexId);
+      if (vertex?.treasureToken) vertex.treasureToken.claimedBy = action.playerId;
+      action.reward = reward;
+      if (reward === 'RESOURCE_CHOICE' || reward === 'GRAIN_OR_BRICK') {
+        state.goldSelectionQueue = [...(state.goldSelectionQueue || []), {
+          playerId: action.playerId,
+          amount: 1,
+          tileId: token.vertexId,
+          source: 'TREASURE',
+          allowedResources: reward === 'GRAIN_OR_BRICK' ? ['WHEAT', 'BRICK'] : undefined,
+        }];
+        state.turnSubPhase = 'GOLD_RESOURCE_SELECTION';
+      } else if (reward === 'TWO_RESOURCES') {
+        state.goldSelectionQueue = [...(state.goldSelectionQueue || []), { playerId: action.playerId, amount: 2, tileId: token.vertexId, source: 'TREASURE' }];
+        state.turnSubPhase = 'GOLD_RESOURCE_SELECTION';
+      } else if (reward === 'DEVELOPMENT_CARD' && isCitiesKnights(state)) {
+        const progressDeck = ensureCitiesKnightsState(state).progressDecks?.[action.progressTrack];
+        const card = progressDeck?.shift();
+        if (card) player.progressCards = [...(player.progressCards || []), card];
+      } else if (reward === 'DEVELOPMENT_CARD' && state.devCardDeck.length) {
+        const card = state.devCardDeck.shift();
+        player.developmentCards[card] = (player.developmentCards[card] || 0) + 1;
+      } else if (reward === 'FREE_BUILD') {
+        state.roadBuildingRemaining = (state.roadBuildingRemaining || 0) + 2;
+      }
+      break;
+    }
+    case 'KEEP_TREASURE': {
+      const scenario = state.scenarioState;
+      const token = scenario.treasureTokens[action.treasureId];
+      token.status = 'KEPT';
+      token.claimedBy = action.playerId;
+      const vertex = state.vertices.find(candidate => candidate.id === token.vertexId);
+      if (vertex?.treasureToken) vertex.treasureToken.claimedBy = action.playerId;
+      player.keptTreasureTokens = (player.keptTreasureTokens || 0) + 1;
+      if (player.keptTreasureTokens === 2) {
+        player.unplacedHarbors = [...(player.unplacedHarbors || []), action.harborType];
+        state.turnSubPhase = 'HARBOR_PLACEMENT';
+      }
+      if (player.keptTreasureTokens === 3 || player.keptTreasureTokens === 4) {
+        player.victoryPoints = (player.victoryPoints || 0) + 1;
+      }
+      break;
+    }
+    case 'MOVE_ENCHANTED_KNIGHT': {
+      const source = state.vertices.find(vertex => vertex.id === action.fromVertexId);
+      const destination = state.vertices.find(vertex => vertex.id === action.toVertexId);
+      const displacedKnight = destination.knight;
+      destination.knight = { ...source.knight, active: false, actedThisTurn: true };
+      delete source.knight;
+      state.scenarioState.knightOnIslandByPlayerId[action.playerId] = destination.id;
+      if (displacedKnight) {
+        const citiesKnights = ensureCitiesKnightsState(state);
+        citiesKnights.pendingDisplacedKnight = {
+          ownerId: displacedKnight.playerId,
+          knight: { ...displacedKnight },
+          originVertexId: destination.id,
+          relocationMode: 'ENCHANTED_LAND',
+        };
+        state.turnSubPhase = 'KNIGHT_DISPLACEMENT';
+      }
+      break;
+    }
+    case 'FIGHT_ENCHANTED_DRAGON': {
+      const vertex = state.vertices.find(candidate => candidate.id === action.knightVertexId);
+      const dragon = vertex.enchantedDragon;
+      vertex.knight = { ...vertex.knight, active: false, actedThisTurn: true };
+      if (vertex.knight.level >= dragon.strength) {
+        delete vertex.enchantedDragon;
+        const defeated = state.scenarioState.defeatedDragonIdsByPlayerId[action.playerId] || [];
+        state.scenarioState.defeatedDragonIdsByPlayerId[action.playerId] = [...defeated, dragon.id];
+        player.victoryPoints = (player.victoryPoints || 0) + 1;
+      }
+      break;
+    }
+    case 'DISCOVER_SCENARIO_HEX': {
+      const target = state.tiles.find(tile => tile.id === action.tileId);
+      const scenario = state.scenarioState;
+      let number = scenario.numberTokenSupply.shift();
+      if (number === undefined) {
+        const homeCandidates = state.tiles.filter(candidate => candidate.islandId === 1 && Number.isInteger(candidate.numberToken) &&
+          !([6, 8].includes(candidate.numberToken) && state.tiles.some(other => other !== target && [6, 8].includes(other.numberToken) && areNeighboringHexes(other, target))) &&
+          tileVertexIds(candidate).some(vertexId => {
+            const vertex = state.vertices.find(entry => entry.id === vertexId);
+            return vertex?.playerId === action.playerId && ['SETTLEMENT', 'CITY'].includes(vertex.structure) &&
+              state.tiles.some(other => other !== candidate && Number.isInteger(other.numberToken) && tileVertexIds(other).includes(vertexId));
+          }));
+        const source = homeCandidates.find(candidate => ![6, 8].includes(candidate.numberToken)) || homeCandidates[0];
+        if (!source) break;
+        number = source.numberToken;
+        source.numberToken = null;
+        scenario.depletedHomeTileIds = [...(scenario.depletedHomeTileIds || []), source.id];
+      }
+      target.numberToken = number;
+      action.numberToken = number;
+      break;
+    }
     case 'ROLL_DICE': {
       const total = action.diceValues[0] + action.diceValues[1];
       state.lastRoll = total;
@@ -1275,14 +1691,20 @@ function applyReservedAction(state, action) {
           });
         });
         const cAndKNoRobberYet = isCitiesKnights(state) && !ensureCitiesKnightsState(state).hasBarbarianAttacked;
+        if (state.selectedScenario === 'DESERT_DRAGONS') {
+          state.eligibleStealPlayerIds = state.players.filter(candidate => candidate.id !== action.playerId && totalResources(candidate) > 0).map(candidate => candidate.id);
+        }
         state.turnSubPhase = state.players.some(candidate => totalHandCards(state, candidate) > handLimit(state, candidate))
           ? 'DISCARD_PHASE'
+          : state.selectedScenario === 'DESERT_DRAGONS' && state.players.some(candidate => candidate.id !== action.playerId && totalResources(candidate) > 0)
+            ? 'ROBBER_STEAL'
           : isPirateIslands(state) && state.players.some(candidate => candidate.id !== action.playerId && totalResources(candidate) > 0)
             ? 'ROBBER_STEAL'
             : (isPirateIslands(state) || cAndKNoRobberYet) ? 'TRADE_AND_BUILD' : 'ROBBER_PLACEMENT';
       } else {
         state.turnSubPhase = 'TRADE_AND_BUILD';
         distributeRolledResources(state, total);
+        moveDesertDragons(state, total);
       }
       if (barbarianAttackPending && total !== 7) state.turnSubPhase = 'BARBARIAN_LOSS';
       if (isCitiesKnights(state)) {
@@ -1304,7 +1726,7 @@ function applyReservedAction(state, action) {
         else state.gamePhase = 'SETUP_ROUND_2';
       } else if (state.gamePhase === 'SETUP_ROUND_2') {
         if (state.currentPlayerIndex > 0) state.currentPlayerIndex -= 1;
-        else if (state.selectedScenario === 'CLOTH_FOR_CATAN') state.gamePhase = 'SETUP_ROUND_3';
+        else if (['CLOTH_FOR_CATAN', 'INTO_THE_UNKNOWN'].includes(state.selectedScenario)) state.gamePhase = 'SETUP_ROUND_3';
         else state.gamePhase = 'MAIN_GAME';
       } else if (state.gamePhase === 'SETUP_ROUND_3') {
         if (state.currentPlayerIndex < state.players.length - 1) state.currentPlayerIndex += 1;
@@ -1377,14 +1799,16 @@ function applyReservedAction(state, action) {
           player.homeIslandIds = [...new Set([...(player.homeIslandIds || []), ...islandIds])];
         }
       }
-      if (state.gamePhase === 'SETUP_ROUND_2' || state.gamePhase === 'SETUP_ROUND_3') {
-        (state.tiles || []).filter(tile => tileVertexIds(tile).includes(action.vertexId) && RESOURCE_TYPES.includes(tile.type))
-          .forEach(tile => {
-            if ((state.resourceBank[tile.type] || 0) > 0) {
-              player.resources[tile.type] += 1;
-              state.resourceBank[tile.type] -= 1;
-            }
-          });
+      if (state.gamePhase === 'SETUP_ROUND_3' || (state.gamePhase === 'SETUP_ROUND_2' && state.selectedScenario !== 'INTO_THE_UNKNOWN')) {
+        if (state.selectedScenario !== 'INTO_THE_UNKNOWN') {
+          (state.tiles || []).filter(tile => tileVertexIds(tile).includes(action.vertexId) && RESOURCE_TYPES.includes(tile.type))
+            .forEach(tile => {
+              if ((state.resourceBank[tile.type] || 0) > 0) {
+                player.resources[tile.type] += 1;
+                state.resourceBank[tile.type] -= 1;
+              }
+            });
+        }
       }
       if (!String(state.gamePhase).startsWith('SETUP_')) {
         player.victoryPoints = (player.victoryPoints || 0) + 1;
@@ -1394,6 +1818,16 @@ function applyReservedAction(state, action) {
           player.harborReturnSubPhase = 'TRADE_AND_BUILD';
           state.turnSubPhase = 'HARBOR_PLACEMENT';
         }
+        if (state.selectedScenario === 'TREASURE_ISLANDS') {
+          const homeIslands = player.homeIslandIds?.length ? player.homeIslandIds : [player.homeIslandId];
+          const foreignIslandIds = vertexIslandIds(state, action.vertexId).filter(id => !homeIslands.includes(id));
+          const newIslandId = foreignIslandIds.find(id => !(player.treasureIslandIds || []).includes(id));
+          if (newIslandId !== undefined) {
+            player.treasureIslandIds = [...(player.treasureIslandIds || []), newIslandId];
+            player.victoryPoints += 1;
+          }
+        }
+        addDesertDragons(state);
       }
       break;
     case 'BUILD_CITY':
@@ -1417,16 +1851,19 @@ function applyReservedAction(state, action) {
         player.victoryPoints = (player.victoryPoints || 0) + 1;
         spend({ WHEAT: 2, ORE: 3 });
         returnToBank({ WHEAT: 2, ORE: 3 });
+        addDesertDragons(state);
       }
       break;
     case 'BUILD_ROAD': {
       const edge = state.edges.find(candidate => candidate.id === action.edgeId);
       Object.assign(edge, { hasRoad: true, playerId: action.playerId });
-      if (!String(state.gamePhase).startsWith('SETUP_') && !(state.roadBuildingRemaining > 0)) {
+      const freeRoad = (state.roadBuildingRemaining || 0) > 0 || (state.diplomatRoadBuildingRemaining || 0) > 0;
+      if (!String(state.gamePhase).startsWith('SETUP_') && !freeRoad) {
         spend({ WOOD: 1, BRICK: 1 });
         returnToBank({ WOOD: 1, BRICK: 1 });
       }
-      if (state.roadBuildingRemaining > 0) state.roadBuildingRemaining -= 1;
+      if (state.diplomatRoadBuildingRemaining > 0) state.diplomatRoadBuildingRemaining -= 1;
+      else if (state.roadBuildingRemaining > 0) state.roadBuildingRemaining -= 1;
       if (String(state.gamePhase).startsWith('SETUP_')) state.setupState = { ...(state.setupState || {}), hasPlacedRoad: true };
       break;
     }
@@ -1500,6 +1937,12 @@ function applyReservedAction(state, action) {
       player.developmentCards[action.cardType] -= 1;
       player.playedDevCardThisTurn = true;
       if (action.cardType === 'KNIGHT' || (isPirateIslands(state) && action.cardType === 'VICTORY_POINT')) {
+        if (state.selectedScenario === 'DESERT_DRAGONS') {
+          const dragonTile = state.tiles.find(tile => tile.islandId === 1 && tile.type !== 'DESERT' && (tile.scenarioMarker?.dragonIds || []).length);
+          dragonTile.scenarioMarker.dragonIds.pop();
+          if (!dragonTile.scenarioMarker.dragonIds.length) delete dragonTile.scenarioMarker.dragonIds;
+          break;
+        }
         if (isPirateIslands(state)) {
           const ship = pirateShippingLine(state, action.playerId)?.find(edge => !edge.isWarship);
           ship.isWarship = true;
@@ -1703,6 +2146,7 @@ function applyReservedAction(state, action) {
       vertex.knight = { ...vertex.knight, active: true, actedThisTurn: false };
       spend({ WHEAT: 1 });
       returnToBank({ WHEAT: 1 });
+      buildCanalFromKnight(state, action.vertexId);
       break;
     }
     case 'UPGRADE_KNIGHT': {
@@ -1719,6 +2163,13 @@ function applyReservedAction(state, action) {
       delete source.knight;
       break;
     }
+    case 'EXPEL_PIRATE': {
+      const vertex = state.vertices.find(candidate => candidate.id === action.vertexId);
+      const tile = state.tiles.find(candidate => candidate.id === action.tileId);
+      tile.hasPirate = false;
+      vertex.knight = { ...vertex.knight, active: false, actedThisTurn: true };
+      break;
+    }
     case 'DISPLACE_KNIGHT': {
       const source = state.vertices.find(candidate => candidate.id === action.fromVertexId);
       const target = state.vertices.find(candidate => candidate.id === action.toVertexId);
@@ -1733,6 +2184,10 @@ function applyReservedAction(state, action) {
       const citiesKnights = ensureCitiesKnightsState(state);
       const pending = citiesKnights.pendingDisplacedKnight;
       if (action.toVertexId) state.vertices.find(candidate => candidate.id === action.toVertexId).knight = { ...pending.knight };
+      if (pending.relocationMode === 'ENCHANTED_LAND') {
+        if (action.toVertexId) state.scenarioState.knightOnIslandByPlayerId[pending.ownerId] = action.toVertexId;
+        else delete state.scenarioState.knightOnIslandByPlayerId[pending.ownerId];
+      }
       delete citiesKnights.pendingDisplacedKnight;
       state.turnSubPhase = 'TRADE_AND_BUILD';
       break;
@@ -1951,7 +2406,7 @@ function applyReservedAction(state, action) {
         const edge = state.edges.find(candidate => candidate.id === action.data.targetEdgeId);
         edge.hasRoad = false;
         edge.playerId = null;
-        state.roadBuildingRemaining = (state.roadBuildingRemaining || 0) + 1;
+        state.diplomatRoadBuildingRemaining = (state.diplomatRoadBuildingRemaining || 0) + 1;
       }
       if (action.cardId === 'INTRIGUE') {
         const target = state.vertices.find(candidate => candidate.id === action.data.targetVertexId);
@@ -1996,6 +2451,7 @@ module.exports = {
   ACTION_TYPES,
   DEV_CARD_TYPES,
   RESOURCE_TYPES,
+  TREASURES_DRAGONS_ADVENTURERS_SCENARIOS,
   applyReservedAction,
   validateActionShape,
   validateGameAction,

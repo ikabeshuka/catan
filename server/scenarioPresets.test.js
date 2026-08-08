@@ -101,6 +101,141 @@ test('Heading for New Shores 4-player detached right island is not marked as the
   }
 });
 
+test('Enchanted Land uses its dedicated 56-hex setup and published component inventory', async () => {
+  await modulesReady;
+  const tiles = playableTiles(generateBoard({}, 'STARTER', 'SEAFARERS_AND_CITIES_AND_KNIGHTS', 'ENCHANTED_LAND', 4));
+  const home = tiles.filter(tile => tile.islandId === 1);
+  const enchanted = tiles.filter(tile => tile.scenarioMarker?.isEnchantedLand);
+
+  assert.equal(tiles.length, 56);
+  assert.equal(home.length, 19);
+  assert.equal(tiles.filter(tile => tile.type === 'WATER').length, 21);
+  assert.deepEqual(countBy(enchanted.map(tile => tile.type)), {
+    BRICK: 2, DESERT: 5, GOLD_FIELD: 2, ORE: 2, SHEEP: 1, WHEAT: 2, WOOD: 2,
+  });
+  assert.deepEqual(tokenValues(enchanted), [2, 3, 3, 4, 5, 5, 6, 8, 9, 10, 10]);
+  const enchantedVertexIds = new Set(enchanted.flatMap(tile => generateEdges([tile], 'SEAFARERS').flatMap(edge => edge.id.match(/v_-?\d+(?:\.\d+)?_-?\d+(?:\.\d+)?/g) || [])));
+  assert.ok(enchantedVertexIds.size >= 19, 'the island must provide a position for every dragon');
+  assert.equal(tiles.filter(tile => tile.harbors?.length).length, 8);
+  assert.equal(tiles.filter(tile => tile.hasRobber).length, 1);
+  assert.equal(tiles.some(tile => tile.hasPirate), false);
+});
+
+test('Great Canal uses its dedicated home island, small islands, and nine canal sites', async () => {
+  await modulesReady;
+  const tiles = playableTiles(generateBoard({}, 'STARTER', 'SEAFARERS_AND_CITIES_AND_KNIGHTS', 'GREAT_CANAL', 4));
+  const home = tiles.filter(tile => tile.islandId === 1);
+  const small = tiles.filter(tile => tile.islandId === 2);
+
+  assert.equal(tiles.length, 49);
+  assert.equal(home.length, 25);
+  assert.equal(tiles.filter(tile => tile.type === 'WATER').length, 19);
+  assert.deepEqual(countBy(home.map(tile => tile.type)), {
+    BRICK: 4, DESERT: 1, ORE: 5, SHEEP: 5, WHEAT: 6, WOOD: 4,
+  });
+  assert.deepEqual(countBy(small.map(tile => tile.type)), { DESERT: 3, GOLD_FIELD: 2 });
+  assert.deepEqual(tokenValues(small), [8, 8]);
+  assert.equal(tiles.filter(tile => tile.scenarioMarker?.canalId).length, 9);
+  assert.equal(tiles.filter(tile => tile.scenarioMarker?.infertileField).length, 6);
+  assert.equal(tiles.filter(tile => tile.harbors?.length).length, 8);
+  assert.equal(tiles.filter(tile => tile.hasRobber).length, 1);
+  assert.equal(tiles.some(tile => tile.hasPirate), false);
+});
+
+test('Greater Catan keeps every new-island terrain hex unnumbered until discovery', async () => {
+  await modulesReady;
+  for (const playerCount of [3, 4]) {
+    const tiles = playableTiles(board('GREATER_CATAN', playerCount));
+    const undiscoveredTerrain = tiles.filter(tile => tile.islandId && tile.islandId > 1 && !['WATER', 'DESERT'].includes(tile.type));
+    assert.ok(undiscoveredTerrain.length > 0);
+    assert.ok(undiscoveredTerrain.every(tile => tile.numberToken === null));
+  }
+});
+
+test('Greater Catan uses the published 3- and 4-player component inventories', async () => {
+  await modulesReady;
+  const expectations = {
+    3: { length: 49, water: 21, home: { BRICK: 2, ORE: 3, SHEEP: 3, WHEAT: 3, WOOD: 3 }, newLand: { BRICK: 3, ORE: 3, SHEEP: 2, WHEAT: 3, WOOD: 3 }, harbors: 8 },
+    4: { length: 63, water: 25, home: { BRICK: 3, DESERT: 1, ORE: 3, SHEEP: 4, WHEAT: 4, WOOD: 4 }, newLand: { BRICK: 3, DESERT: 1, ORE: 4, SHEEP: 4, WHEAT: 3, WOOD: 4 }, harbors: 9 },
+  };
+  for (const playerCount of [3, 4]) {
+    const tiles = playableTiles(board('GREATER_CATAN', playerCount));
+    const expected = expectations[playerCount];
+    assert.equal(tiles.length, expected.length);
+    assert.equal(tiles.filter(tile => tile.type === 'WATER').length, expected.water);
+    assert.deepEqual(countBy(tiles.filter(tile => tile.islandId === 1).map(tile => tile.type)), expected.home);
+    assert.deepEqual(countBy(tiles.filter(tile => tile.islandId === 2).map(tile => tile.type)), expected.newLand);
+    assert.equal(activeHarborCount(tiles), expected.harbors);
+    assert.equal(tiles.filter(tile => tile.hasRobber).length, playerCount === 4 ? 1 : 0);
+    assert.equal(tiles.filter(tile => tile.hasPirate).length, 1);
+  }
+});
+
+test('Into the Unknown uses its published home and face-down treasure-island inventories', async () => {
+  await modulesReady;
+  const expectations = {
+    3: {
+      length: 49,
+      home: { BRICK: 2, DESERT: 1, ORE: 2, SHEEP: 4, WHEAT: 2, WOOD: 3 },
+      fog: { BRICK: 3, ORE: 3, SHEEP: 1, WATER: 6, WHEAT: 3, WOOD: 2 },
+      fogTokens: [2, 3, 3, 4, 5, 5, 9, 9, 10, 11, 11, 12],
+      faceUpDeserts: 2,
+    },
+    4: {
+      length: 63,
+      home: { BRICK: 3, ORE: 3, SHEEP: 4, WHEAT: 2, WOOD: 4 },
+      fog: { BRICK: 4, ORE: 4, SHEEP: 3, WATER: 9, WHEAT: 4, WOOD: 3 },
+      fogTokens: [2, 3, 3, 3, 4, 4, 5, 5, 5, 9, 9, 9, 10, 10, 11, 11, 11, 12],
+      faceUpDeserts: 3,
+    }
+  };
+
+  for (const playerCount of [3, 4]) {
+    const tiles = board('INTO_THE_UNKNOWN', playerCount);
+    const fog = tiles.filter(tile => tile.type === 'FOG');
+    const home = tiles.filter(tile => tile.islandId === 1);
+    const revealedTreasureLand = tiles.filter(tile => tile.islandId === 2 && tile.type !== 'FOG');
+    const expected = expectations[playerCount];
+    assert.equal(tiles.length, expected.length);
+    assert.deepEqual(countBy(home.map(tile => tile.type)), expected.home);
+    assert.deepEqual(countBy(fog.map(tile => tile.originalType)), expected.fog);
+    assert.deepEqual(fog.map(tile => tile.originalNumberToken).filter(token => token !== null).sort((a, b) => a - b), expected.fogTokens);
+    assert.equal(revealedTreasureLand.filter(tile => tile.type === 'DESERT').length, expected.faceUpDeserts);
+    assert.deepEqual(revealedTreasureLand.filter(tile => tile.type === 'GOLD_FIELD').map(tile => tile.numberToken).sort((a, b) => a - b), [6, 8]);
+    assert.equal(tiles.filter(tile => tile.hasRobber).length, 1);
+    assert.equal(tiles.some(tile => tile.hasPirate), false);
+  }
+});
+
+test('Desert Dragons uses its dedicated home and neighboring-island inventories', async () => {
+  await modulesReady;
+  const expectations = {
+    3: {
+      water: 18,
+      neighbor: { BRICK: 3, GOLD_FIELD: 1, ORE: 3, SHEEP: 4, WHEAT: 4, WOOD: 4 },
+      neighborTokens: [2, 3, 3, 4, 4, 4, 5, 5, 6, 6, 8, 8, 9, 9, 10, 10, 11, 11, 12],
+    },
+    4: {
+      water: 15,
+      neighbor: { BRICK: 4, GOLD_FIELD: 2, ORE: 4, SHEEP: 4, WHEAT: 4, WOOD: 4 },
+      neighborTokens: [2, 3, 3, 4, 4, 4, 5, 5, 5, 6, 6, 8, 8, 9, 9, 9, 10, 10, 10, 11, 11, 12],
+    },
+  };
+  for (const playerCount of [3, 4]) {
+    const tiles = board('DESERT_DRAGONS', playerCount);
+    const home = tiles.filter(tile => tile.islandId === 1);
+    const neighbor = tiles.filter(tile => tile.islandId === 2);
+    const expected = expectations[playerCount];
+    assert.equal(tiles.length, 56);
+    assert.equal(tiles.filter(tile => tile.type === 'WATER').length, expected.water);
+    assert.deepEqual(countBy(home.map(tile => tile.type)), { BRICK: 3, DESERT: 3, ORE: 3, SHEEP: 4, WHEAT: 3, WOOD: 3 });
+    assert.deepEqual(countBy(neighbor.map(tile => tile.type)), expected.neighbor);
+    assert.deepEqual(tokenValues(neighbor), expected.neighborTokens);
+    assert.equal(activeHarborCount(tiles), 9);
+    assert.equal(tiles.some(tile => tile.hasRobber || tile.hasPirate), false);
+  }
+});
+
 test('Heading for New Shores setup bot only evaluates vertices on the main island', async () => {
   await modulesReady;
   const tiles = board('HEADING_FOR_NEW_SHORES', 4);

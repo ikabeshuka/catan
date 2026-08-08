@@ -20,13 +20,13 @@ const coordForIndex = (index: number) => {
 type TileSpec = Pick<HexTile, 'type' | 'numberToken' | 'harbors' | 'islandId'>;
 
 const specs: TileSpec[] = [
-  { type: 'GOLD_FIELD', numberToken: 11, islandId: 2 }, { type: 'ORE', numberToken: 6, islandId: 2 }, { type: 'WATER', numberToken: null }, { type: 'WATER', numberToken: null }, { type: 'WHEAT', numberToken: 4, islandId: 1, harbors: [{ type: 'GENERIC', edgeIndex: 5 }] }, { type: 'BRICK', numberToken: 5, islandId: 1, harbors: [{ type: 'GENERIC', edgeIndex: 5 }, { type: 'GENERIC', edgeIndex: 1 }] },
-  { type: 'BRICK', numberToken: null, islandId: 2 }, { type: 'WATER', numberToken: null }, { type: 'WATER', numberToken: null }, { type: 'DESERT', numberToken: null }, { type: 'WATER', numberToken: null }, { type: 'ORE', numberToken: 9, islandId: 1 }, { type: 'WOOD', numberToken: 10, islandId: 1, harbors: [{ type: 'GENERIC', edgeIndex: 1 }] },
+  { type: 'GOLD_FIELD', numberToken: 11, islandId: 2 }, { type: 'ORE', numberToken: 6, islandId: 2 }, { type: 'WATER', numberToken: null }, { type: 'WATER', numberToken: null }, { type: 'WHEAT', numberToken: 4, islandId: 1, harbors: [{ type: 'GENERIC', edgeIndex: 4 }] }, { type: 'BRICK', numberToken: 5, islandId: 1, harbors: [{ type: 'GENERIC', edgeIndex: 4 }, { type: 'GENERIC', edgeIndex: 0 }] },
+  { type: 'BRICK', numberToken: null, islandId: 2 }, { type: 'WATER', numberToken: null }, { type: 'WATER', numberToken: null }, { type: 'DESERT', numberToken: null }, { type: 'WATER', numberToken: null }, { type: 'ORE', numberToken: 9, islandId: 1 }, { type: 'WOOD', numberToken: 10, islandId: 1, harbors: [{ type: 'GENERIC', edgeIndex: 0 }] },
   { type: 'WHEAT', numberToken: 4, islandId: 2 }, { type: 'WATER', numberToken: null }, { type: 'WATER', numberToken: null }, { type: 'DESERT', numberToken: null }, { type: 'WATER', numberToken: null }, { type: 'WOOD', numberToken: 3, islandId: 1 }, { type: 'SHEEP', numberToken: 8, islandId: 1 }, { type: 'WOOD', numberToken: 5, islandId: 1 },
-  { type: 'WATER', numberToken: null }, { type: 'WATER', numberToken: null }, { type: 'ORE', numberToken: 8, islandId: 2 }, { type: 'WATER', numberToken: null }, { type: 'WATER', numberToken: null }, { type: 'WHEAT', numberToken: 6, islandId: 1 }, { type: 'BRICK', numberToken: 9, islandId: 1 }, { type: 'SHEEP', numberToken: 12, islandId: 1, harbors: [{ type: 'GENERIC', edgeIndex: 1 }] }, { type: 'WATER', numberToken: null },
-  { type: 'WHEAT', numberToken: 10, islandId: 2 }, { type: 'WATER', numberToken: null }, { type: 'WATER', numberToken: null }, { type: 'DESERT', numberToken: null }, { type: 'WATER', numberToken: null }, { type: 'SHEEP', numberToken: null, islandId: 3 }, { type: 'WOOD', numberToken: 8, islandId: 1 }, { type: 'SHEEP', numberToken: 9, islandId: 1, harbors: [{ type: 'GENERIC', edgeIndex: 2 }] },
-  { type: 'BRICK', numberToken: null, islandId: 2 }, { type: 'WATER', numberToken: null }, { type: 'WATER', numberToken: null }, { type: 'SHEEP', numberToken: null, islandId: 3 }, { type: 'WATER', numberToken: null }, { type: 'ORE', numberToken: 5, islandId: 1 }, { type: 'WOOD', numberToken: 2, islandId: 1, harbors: [{ type: 'GENERIC', edgeIndex: 2 }] },
-  { type: 'GOLD_FIELD', numberToken: 3, islandId: 2 }, { type: 'ORE', numberToken: 6, islandId: 2 }, { type: 'WATER', numberToken: null }, { type: 'WATER', numberToken: null }, { type: 'WHEAT', numberToken: 10, islandId: 1, harbors: [{ type: 'GENERIC', edgeIndex: 2 }] }, { type: 'BRICK', numberToken: 4, islandId: 1 },
+  { type: 'WATER', numberToken: null }, { type: 'WATER', numberToken: null }, { type: 'ORE', numberToken: 8, islandId: 2 }, { type: 'WATER', numberToken: null }, { type: 'WATER', numberToken: null }, { type: 'WHEAT', numberToken: 6, islandId: 1 }, { type: 'BRICK', numberToken: 9, islandId: 1 }, { type: 'SHEEP', numberToken: 12, islandId: 1, harbors: [{ type: 'GENERIC', edgeIndex: 0 }] }, { type: 'WATER', numberToken: null },
+  { type: 'WHEAT', numberToken: 10, islandId: 2 }, { type: 'WATER', numberToken: null }, { type: 'WATER', numberToken: null }, { type: 'DESERT', numberToken: null }, { type: 'WATER', numberToken: null }, { type: 'SHEEP', numberToken: null, islandId: 3 }, { type: 'WOOD', numberToken: 8, islandId: 1 }, { type: 'SHEEP', numberToken: 9, islandId: 1, harbors: [{ type: 'GENERIC', edgeIndex: 1 }] },
+  { type: 'BRICK', numberToken: null, islandId: 2 }, { type: 'WATER', numberToken: null }, { type: 'WATER', numberToken: null }, { type: 'SHEEP', numberToken: null, islandId: 3 }, { type: 'WATER', numberToken: null }, { type: 'ORE', numberToken: 5, islandId: 1 }, { type: 'WOOD', numberToken: 2, islandId: 1, harbors: [{ type: 'GENERIC', edgeIndex: 1 }] },
+  { type: 'GOLD_FIELD', numberToken: 3, islandId: 2 }, { type: 'ORE', numberToken: 6, islandId: 2 }, { type: 'WATER', numberToken: null }, { type: 'WATER', numberToken: null }, { type: 'WHEAT', numberToken: 10, islandId: 1, harbors: [{ type: 'GENERIC', edgeIndex: 1 }] }, { type: 'BRICK', numberToken: 4, islandId: 1 },
 ];
 
 export const seafarersPirateIslands: HexTile[] = specs.map((spec, zeroIndex) => {
@@ -37,9 +37,9 @@ export const seafarersPirateIslands: HexTile[] = specs.map((spec, zeroIndex) => 
 export const PIRATE_ISLANDS_FLEET_ROUTE = [49, 48, 41, 33, 25, 16, 9, 3, 4, 11, 18, 26, 35, 43];
 export const PIRATE_ISLANDS_FORTRESSES = [
   { playerIndex: 0, color: 'RED', tileIds: [1], vertexIndex: 0 },
-  { playerIndex: 1, color: 'WHITE', tileIds: [15, 16, 24] },
+  { playerIndex: 1, color: 'YELLOW', tileIds: [15, 16, 24] },
   { playerIndex: 2, color: 'BLUE', tileIds: [31, 32, 39] },
-  { playerIndex: 3, color: 'ORANGE', tileIds: [46], vertexIndex: 3 },
+  { playerIndex: 3, color: 'GREEN', tileIds: [46], vertexIndex: 3 },
 ] as const;
 // The two prose references that do not form a shared vertex are corrected
 // here from the resource labels supplied with the scenario.

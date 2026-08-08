@@ -8,6 +8,7 @@ import { validateShipPlacement } from '../../utils/validation/validateShipPlacem
 import { useGame } from '../../context/GameContext';
 import { getOpenShipsForPlayer } from '../../utils/gameEngine/getOpenShipsForPlayer';
 import { getCachedEdgeGeometry } from '../../utils/hexMath/boardRenderCache';
+import { isSeafarersExpansion } from '../../config/gameRules';
 
 interface EdgeLineProps {
   edge: BoardEdge;
@@ -159,7 +160,7 @@ export const EdgeLine: React.FC<EdgeLineProps> = ({
       );
       isValidPlacement = validateShipPlacement(edge.id, currentPlayer.id, vertices, edgesWithoutMovingShip, tiles || [], gamePhase);
     }
-  } else if (roadBuildingRemaining > 0 && activeExpansion === 'SEAFARERS') {
+  } else if (roadBuildingRemaining > 0 && isSeafarersExpansion(activeExpansion)) {
     const isValidRoad = currentPlayer && !isBlockedBySetup && validateRoadPlacement(edge.id, currentPlayer.id, vertices, edges, tiles, gamePhase);
     const isValidShip = currentPlayer && !isBlockedBySetup && validateShipPlacement(edge.id, currentPlayer.id, vertices, edges, tiles || [], gamePhase);
     isValidPlacement = isValidRoad || isValidShip;
@@ -167,7 +168,7 @@ export const EdgeLine: React.FC<EdgeLineProps> = ({
     const isValidRoad = currentPlayer && !isBlockedBySetup && validateRoadPlacement(edge.id, currentPlayer.id, vertices, edges, tiles, gamePhase);
     const isValidShip = currentPlayer && !isBlockedBySetup && validateShipPlacement(edge.id, currentPlayer.id, vertices, edges, tiles || [], gamePhase);
     isValidPlacement = isValidRoad || isValidShip;
-  } else if (activeExpansion === 'SEAFARERS' && bordersWater && !isCoast) {
+  } else if (isSeafarersExpansion(activeExpansion) && bordersWater && !isCoast) {
     isValidPlacement = currentPlayer && !isBlockedBySetup
       ? validateShipPlacement(edge.id, currentPlayer.id, vertices, edges, tiles || [], gamePhase)
       : false;
@@ -256,7 +257,7 @@ export const EdgeLine: React.FC<EdgeLineProps> = ({
     const canBuildFreeShipBeforeRoll = turnSubPhase === 'BEFORE_ROLL' && roadBuildingRemaining > 0;
     if (turnSubPhase !== 'TRADE_AND_BUILD' && !canBuildFreeShipBeforeRoll) return;
 
-    const isFreeShip = roadBuildingRemaining > 0 && activeExpansion === 'SEAFARERS';
+    const isFreeShip = roadBuildingRemaining > 0 && isSeafarersExpansion(activeExpansion);
     const hasResources = isFreeShip || (currentPlayer.resources.WOOD >= 1 && currentPlayer.resources.SHEEP >= 1);
     showBuildingCostToast('SHIP', hasResources, isFreeShip);
 
@@ -338,7 +339,7 @@ export const EdgeLine: React.FC<EdgeLineProps> = ({
       return;
     }
 
-    if (activeExpansion === 'SEAFARERS' && bordersWater && !isCoast) {
+    if (isSeafarersExpansion(activeExpansion) && bordersWater && !isCoast) {
       const isValid = currentPlayer && validateShipPlacement(edge.id, currentPlayer.id, vertices, edges, tiles || [], gamePhase);
       if (isValid) {
         buildShipOnEdge();
@@ -346,7 +347,7 @@ export const EdgeLine: React.FC<EdgeLineProps> = ({
       return;
     }
 
-    if (roadBuildingRemaining > 0 && activeExpansion === 'SEAFARERS') {
+    if (roadBuildingRemaining > 0 && isSeafarersExpansion(activeExpansion)) {
       const isValidRoad = currentPlayer && !isBlockedBySetup && validateRoadPlacement(edge.id, currentPlayer.id, vertices, edges, tiles, gamePhase);
       const isValidShip = currentPlayer && !isBlockedBySetup && validateShipPlacement(edge.id, currentPlayer.id, vertices, edges, tiles || [], gamePhase);
       if (isValidRoad && !isValidShip) {

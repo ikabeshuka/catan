@@ -11,6 +11,7 @@ import { socketService } from '../../services/network/socketService';
 import { dispatchGameAction } from '../../services/gameDispatcher';
 import { GameRulesModal } from '../modals/GameRulesModal';
 import { CitiesKnightsPanel } from './CitiesKnightsPanel';
+import { isCitiesKnightsExpansion } from '../../config/gameRules';
 
 interface ChatMessage {
   text: string;
@@ -286,7 +287,7 @@ export const ActionSidebar: React.FC = () => {
         <WagonUpgradePanel />
       )}
 
-      {activeExpansion === 'CITIES_AND_KNIGHTS' && <CitiesKnightsPanel />}
+      {isCitiesKnightsExpansion(activeExpansion) && <CitiesKnightsPanel />}
 
       {/* פאנל הצעות לבנייה */}
       <BuildActionsPanel />

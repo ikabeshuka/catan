@@ -28,7 +28,13 @@ export interface CitiesKnightsState {
   hasBarbarianAttacked?: boolean;
   /** Three separate, finite 18-card progress stacks. */
   progressDecks?: Record<CityImprovementTrack, string[]>;
-  pendingDisplacedKnight?: { ownerId: string; knight: KnightPiece; originVertexId: string };
+  pendingDisplacedKnight?: {
+    ownerId: string;
+    knight: KnightPiece;
+    originVertexId: string;
+    /** Enchanted Land uses an island-only relocation rule. */
+    relocationMode?: 'ENCHANTED_LAND';
+  };
   progressDiscardQueue?: string[];
   merchant?: { playerId: string; resource: 'WOOD' | 'BRICK' | 'SHEEP' | 'WHEAT' | 'ORE' };
   sabotageDiscardQueue?: { playerId: string; amount: number }[];

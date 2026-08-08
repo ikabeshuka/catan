@@ -41,4 +41,13 @@ export interface HexTile {
   /** The shared reserve of ten cloth rolls for this scenario (stored on one tile). */
   lostTribeGeneralCloth?: number;
   robberStartLocked?: boolean;
+  /** Scenario-specific markers are data-only until a scenario renderer is added. */
+  scenarioMarker?: {
+    treasureId?: string;
+    dragonIds?: string[];
+    canalId?: string;
+    canalBuilt?: boolean;
+    infertileField?: boolean;
+    isEnchantedLand?: boolean;
+  };
 }

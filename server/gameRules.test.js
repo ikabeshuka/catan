@@ -42,6 +42,193 @@ test('accepts outcome-free dice requests and rejects client-supplied outcomes', 
   assert.equal(validateActionShape({ type: 'ADMIN_WIN', playerId: 'p1' }).ok, false);
 });
 
+test('reserves typed scenario actions without enabling them before their rules exist', () => {
+  const state = baseState();
+  state.selectedScenario = 'TREASURE_ISLANDS';
+  assert.equal(validateActionShape({ type: 'CLAIM_TREASURE', playerId: 'p1', treasureId: 'treasure-1' }).ok, true);
+  assert.equal(validateActionShape({ type: 'CLAIM_TREASURE', playerId: 'p1' }).ok, false);
+  const result = validateGameAction(state, { type: 'CLAIM_TREASURE', playerId: 'p1', treasureId: 'treasure-1' });
+  assert.equal(result.ok, false);
+  assert.match(result.message, /cannot be claimed/i);
+});
+
+test('Treasure Islands claims an adjacent chest and restricts grain-or-brick rewards', () => {
+  const state = baseState();
+  state.selectedScenario = 'TREASURE_ISLANDS';
+  state.vertices[1].treasureToken = { id: 'treasure-1' };
+  state.scenarioState = {
+    version: 1,
+    scenarioId: 'TREASURE_ISLANDS',
+    kind: 'TREASURE_ISLANDS',
+    numberTokenSupply: [],
+    treasureDeck: ['GRAIN_OR_BRICK'],
+    treasureTokens: {
+      'treasure-1': { id: 'treasure-1', vertexId: 'v_52_30', status: 'UNCLAIMED' },
+    },
+  };
+  const action = { type: 'CLAIM_TREASURE', playerId: 'p1', treasureId: 'treasure-1' };
+  assert.equal(validateGameAction(state, action).ok, true);
+  applyReservedAction(state, action);
+  assert.equal(state.scenarioState.treasureTokens['treasure-1'].claimedBy, 'p1');
+  assert.equal(state.vertices[1].treasureToken.claimedBy, 'p1');
+  assert.deepEqual(state.goldSelectionQueue[0].allowedResources, ['WHEAT', 'BRICK']);
+  assert.equal(validateGameAction(state, { type: 'SELECT_GOLD_RESOURCE', playerId: 'p1', resource: 'ORE' }).ok, false);
+  assert.equal(validateGameAction(state, { type: 'SELECT_GOLD_RESOURCE', playerId: 'p1', resource: 'WHEAT' }).ok, true);
+});
+
+test('Into the Unknown lets a player keep up to four reached treasures', () => {
+  const state = baseState();
+  state.selectedScenario = 'INTO_THE_UNKNOWN';
+  state.vertices[1].treasureToken = { id: 'treasure-1' };
+  state.scenarioState = {
+    version: 1, scenarioId: 'INTO_THE_UNKNOWN', kind: 'INTO_THE_UNKNOWN', numberTokenSupply: [], treasureDeck: [],
+    treasureTokens: { 'treasure-1': { id: 'treasure-1', vertexId: 'v_52_30', status: 'UNCLAIMED' } },
+  };
+  const action = { type: 'KEEP_TREASURE', playerId: 'p1', treasureId: 'treasure-1' };
+  assert.equal(validateGameAction(state, action).ok, true);
+  applyReservedAction(state, action);
+  assert.equal(state.scenarioState.treasureTokens['treasure-1'].status, 'KEPT');
+  assert.equal(state.players[0].keptTreasureTokens, 1);
+  assert.equal(validateGameAction(state, { type: 'CLAIM_TREASURE', playerId: 'p1', treasureId: 'treasure-1', mode: 'REVEAL' }).ok, false);
+  state.vertices[2].treasureToken = { id: 'treasure-2' };
+  state.edges[1] = { ...state.edges[1], hasRoad: true, playerId: 'p1' };
+  state.scenarioState.treasureTokens['treasure-2'] = { id: 'treasure-2', vertexId: 'v_0_60', status: 'UNCLAIMED' };
+  const secondTreasure = { type: 'KEEP_TREASURE', playerId: 'p1', treasureId: 'treasure-2', harborType: 'ORE' };
+  assert.equal(validateGameAction(state, secondTreasure).ok, true);
+  applyReservedAction(state, secondTreasure);
+  assert.deepEqual(state.players[0].unplacedHarbors, ['ORE']);
+  assert.equal(state.turnSubPhase, 'HARBOR_PLACEMENT');
+});
+
+test('Into the Unknown development treasure gives a chosen progress card with Cities & Knights', () => {
+  const state = baseState();
+  state.selectedScenario = 'INTO_THE_UNKNOWN';
+  state.activeExpansion = 'SEAFARERS_AND_CITIES_AND_KNIGHTS';
+  state.vertices[1].treasureToken = { id: 'treasure-1' };
+  state.scenarioState = {
+    version: 1, scenarioId: 'INTO_THE_UNKNOWN', kind: 'INTO_THE_UNKNOWN', numberTokenSupply: [],
+    treasureDeck: ['DEVELOPMENT_CARD'],
+    treasureTokens: { 'treasure-1': { id: 'treasure-1', vertexId: 'v_52_30', status: 'UNCLAIMED' } },
+  };
+  state.citiesKnightsState = { progressDecks: { SCIENCE: ['ALCHEMIST'], POLITICS: ['SPY'], TRADE: ['MERCHANT'] } };
+  state.players[0].progressCards = [];
+  const action = { type: 'CLAIM_TREASURE', playerId: 'p1', treasureId: 'treasure-1', mode: 'REVEAL', progressTrack: 'TRADE' };
+  assert.equal(validateGameAction(state, action).ok, true);
+  applyReservedAction(state, action);
+  assert.deepEqual(state.players[0].progressCards, ['MERCHANT']);
+  assert.deepEqual(state.citiesKnightsState.progressDecks.TRADE, []);
+  assert.deepEqual(state.devCardDeck, ['KNIGHT']);
+});
+
+test('Desert Dragons add dragons after a normal settlement and block their hex', () => {
+  const state = baseState();
+  state.selectedScenario = 'DESERT_DRAGONS';
+  state.tiles = [
+    { id: 'desert-a', type: 'DESERT', numberToken: null, coord: { q: 0, r: 0, s: 0 } },
+    { id: 'wood-a', type: 'WOOD', numberToken: 8, islandId: 1, coord: { q: 1, r: 0, s: -1 } },
+  ];
+  state.scenarioState = { version: 1, scenarioId: 'DESERT_DRAGONS', kind: 'DESERT_DRAGONS', dragonTileIds: {}, dragonsHaveAttacked: false };
+  applyReservedAction(state, { type: 'BUILD_SETTLEMENT', playerId: 'p1', vertexId: 'v_52_30' });
+  assert.equal(state.tiles[0].scenarioMarker.dragonIds.length, 2);
+  state.tiles[1].scenarioMarker = { dragonIds: ['dragon-1'] };
+  state.players[0].developmentCards.KNIGHT = 1;
+  applyReservedAction(state, { type: 'PLAY_DEV_CARD', playerId: 'p1', cardType: 'KNIGHT', data: {} });
+  assert.equal((state.tiles[1].scenarioMarker.dragonIds || []).length, 0);
+  state.tiles.push({ id: 'small-island-dragon', type: 'WOOD', numberToken: 5, islandId: 2, coord: { q: 2, r: 0, s: -2 }, scenarioMarker: { dragonIds: ['dragon-small'] } });
+  state.players[0].developmentCards.KNIGHT = 1;
+  state.players[0].playedDevCardThisTurn = false;
+  assert.equal(validateGameAction(state, { type: 'PLAY_DEV_CARD', playerId: 'p1', cardType: 'KNIGHT', data: {} }).ok, false);
+});
+
+test('Great Canal awards CATAN chits when a second active knight reaches a canal hex', () => {
+  const state = baseState();
+  state.selectedScenario = 'GREAT_CANAL';
+  state.activeExpansion = 'SEAFARERS_AND_CITIES_AND_KNIGHTS';
+  state.tiles = [{ id: 'canal-tile', type: 'WHEAT', numberToken: 6, coord: { q: 0, r: 0, s: 0 }, scenarioMarker: { canalId: 'canal-1' } }];
+  state.vertices[0].knight = { playerId: 'p1', level: 1, active: false };
+  state.vertices[1].knight = { playerId: 'p2', level: 1, active: true };
+  state.scenarioState = { version: 1, scenarioId: 'GREAT_CANAL', kind: 'GREAT_CANAL', completedCanalIds: [], isCanalComplete: false };
+  applyReservedAction(state, { type: 'ACTIVATE_KNIGHT', playerId: 'p1', vertexId: 'v_52_-30' });
+  assert.deepEqual(state.scenarioState.completedCanalIds, ['canal-1']);
+  assert.equal(state.players[0].canalChits, 1);
+  assert.equal(state.players[1].canalChits, 1);
+});
+
+test('Enchanted Land moves a knight to a dragon and awards a point for a legal fight', () => {
+  const state = baseState();
+  state.selectedScenario = 'ENCHANTED_LAND';
+  state.activeExpansion = 'SEAFARERS_AND_CITIES_AND_KNIGHTS';
+  state.vertices[0].knight = { playerId: 'p1', level: 2, active: true, actedThisTurn: false };
+  state.vertices[1].isEnchantedLand = true;
+  state.vertices[1].enchantedDragon = { id: 'enchanted-dragon-1', strength: 2 };
+  state.tiles[0].scenarioMarker = { isEnchantedLand: true };
+  state.tiles.push({ id: 'enchanted-sea', type: 'WATER', coord: { q: 1, r: 0, s: -1 } });
+  state.scenarioState = { version: 1, scenarioId: 'ENCHANTED_LAND', kind: 'ENCHANTED_LAND', dragonVertexIds: { 'enchanted-dragon-1': 'v_52_30' }, knightOnIslandByPlayerId: {}, defeatedDragonIdsByPlayerId: {} };
+  const move = { type: 'MOVE_ENCHANTED_KNIGHT', playerId: 'p1', fromVertexId: 'v_52_-30', toVertexId: 'v_52_30' };
+  assert.equal(validateGameAction(state, move).ok, true);
+  applyReservedAction(state, move);
+  state.vertices[1].knight.active = true;
+  state.vertices[1].knight.actedThisTurn = false;
+  const fight = { type: 'FIGHT_ENCHANTED_DRAGON', playerId: 'p1', knightVertexId: 'v_52_30', dragonId: 'enchanted-dragon-1' };
+  assert.equal(validateGameAction(state, fight).ok, true);
+  applyReservedAction(state, fight);
+  assert.equal(state.vertices[1].enchantedDragon, undefined);
+  assert.deepEqual(state.scenarioState.defeatedDragonIdsByPlayerId.p1, ['enchanted-dragon-1']);
+});
+
+test('Enchanted Land displaces a weaker knight and relocates it inside the island', () => {
+  const state = baseState();
+  state.selectedScenario = 'ENCHANTED_LAND';
+  state.activeExpansion = 'SEAFARERS_AND_CITIES_AND_KNIGHTS';
+  state.vertices[0].knight = { playerId: 'p1', level: 2, active: true, actedThisTurn: false };
+  state.vertices[1].isEnchantedLand = true;
+  state.vertices[1].knight = { playerId: 'p2', level: 1, active: true, actedThisTurn: false };
+  state.vertices[2].isEnchantedLand = true;
+  state.tiles[0].scenarioMarker = { isEnchantedLand: true };
+  state.tiles.push({ id: 'enchanted-sea', type: 'WATER', coord: { q: 1, r: 0, s: -1 } });
+  state.scenarioState = { version: 1, scenarioId: 'ENCHANTED_LAND', kind: 'ENCHANTED_LAND', dragonVertexIds: {}, knightOnIslandByPlayerId: {}, defeatedDragonIdsByPlayerId: {} };
+
+  const displace = { type: 'MOVE_ENCHANTED_KNIGHT', playerId: 'p1', fromVertexId: 'v_52_-30', toVertexId: 'v_52_30' };
+  const displacementValidation = validateGameAction(state, displace);
+  assert.equal(displacementValidation.ok, true, displacementValidation.message);
+  applyReservedAction(state, displace);
+  assert.equal(state.turnSubPhase, 'KNIGHT_DISPLACEMENT');
+  assert.equal(state.citiesKnightsState.pendingDisplacedKnight.relocationMode, 'ENCHANTED_LAND');
+
+  const relocate = { type: 'RELOCATE_DISPLACED_KNIGHT', playerId: 'p2', toVertexId: 'v_0_60' };
+  assert.equal(validateGameAction(state, relocate).ok, true);
+  applyReservedAction(state, relocate);
+  assert.equal(state.vertices[2].knight.playerId, 'p2');
+  assert.equal(state.scenarioState.knightOnIslandByPlayerId.p2, 'v_0_60');
+});
+
+test('Greater Catan assigns a number chit when a route reaches a new island', () => {
+  const state = baseState();
+  state.selectedScenario = 'GREATER_CATAN';
+  state.tiles = [{ id: 'new-island', type: 'WOOD', numberToken: null, islandId: 2, coord: { q: 0, r: 0, s: 0 } }];
+  state.scenarioState = { version: 1, scenarioId: 'GREATER_CATAN', kind: 'GREATER_CATAN', numberTokenSupply: [4], depletedHomeTileIds: [] };
+  const action = { type: 'DISCOVER_SCENARIO_HEX', playerId: 'p1', tileId: 'new-island' };
+  assert.equal(validateGameAction(state, action).ok, true);
+  applyReservedAction(state, action);
+  assert.equal(state.tiles[0].numberToken, 4);
+  assert.deepEqual(state.scenarioState.numberTokenSupply, []);
+});
+
+test('Greater Catan depletes an owned home-island number once the supply is empty', () => {
+  const state = baseState();
+  state.selectedScenario = 'GREATER_CATAN';
+  state.tiles = [
+    { id: 'new-island', type: 'WOOD', numberToken: null, islandId: 2, coord: { q: 0, r: 0, s: 0 } },
+    { id: 'home-island', type: 'BRICK', numberToken: 5, islandId: 1, coord: { q: 0, r: 0, s: 0 } },
+    { id: 'home-support', type: 'WHEAT', numberToken: 9, islandId: 1, coord: { q: 1, r: 0, s: -1 } },
+  ];
+  state.scenarioState = { version: 1, scenarioId: 'GREATER_CATAN', kind: 'GREATER_CATAN', numberTokenSupply: [], depletedHomeTileIds: [] };
+  applyReservedAction(state, { type: 'DISCOVER_SCENARIO_HEX', playerId: 'p1', tileId: 'new-island' });
+  assert.equal(state.tiles[0].numberToken, 5);
+  assert.equal(state.tiles[1].numberToken, null);
+  assert.deepEqual(state.scenarioState.depletedHomeTileIds, ['home-island']);
+});
+
 test('Cities & Knights awards commodities instead of a second resource for a commodity city', () => {
   const state = baseState();
   state.activeExpansion = 'CITIES_AND_KNIGHTS';
@@ -709,4 +896,63 @@ test('rejects closed, newly-built, landlocked, and pirate-blocked ship moves', (
   const landlocked = shipMoveState();
   landlocked.tiles = [];
   assert.equal(validateGameAction(landlocked, action).ok, false);
+});
+
+test('combined Seafarers and Cities & Knights enables both systems and delays the pirate', () => {
+  const state = baseState();
+  state.activeExpansion = 'SEAFARERS_AND_CITIES_AND_KNIGHTS';
+  state.turnSubPhase = 'BEFORE_ROLL';
+  state.citiesKnightsState = { barbarianPosition: 6, hasBarbarianAttacked: false, metropolisOwners: {}, barbarianLossQueue: [] };
+  state.tiles = [
+    { id: 'land-1', type: 'WOOD', coord: { q: 0, r: 0, s: 0 }, hasRobber: false, hasPirate: false },
+    { id: 'sea-1', type: 'WATER', coord: { q: 1, r: 0, s: -1 }, hasRobber: false, hasPirate: false },
+  ];
+  state.vertices[0] = { ...state.vertices[0], structure: 'CITY' };
+
+  applyReservedAction(state, { type: 'ROLL_DICE', playerId: 'p1', diceValues: [3, 4, 1], eventDie: 'BARBARIAN' });
+
+  assert.equal(state.citiesKnightsState.hasBarbarianAttacked, true);
+  assert.equal(state.tiles.find(tile => tile.id === 'sea-1').hasPirate, true);
+});
+
+test('combined rules let knights use ships but prevent moving a ship that strands one', () => {
+  const state = baseState();
+  state.activeExpansion = 'SEAFARERS_AND_CITIES_AND_KNIGHTS';
+  state.vertices = [
+    { id: 'v_52_-30', structure: 'SETTLEMENT', playerId: 'p1' },
+    { id: 'v_52_30', structure: 'NONE' },
+    { id: 'v_0_60', structure: 'NONE', knight: { playerId: 'p1', level: 1, active: true, actedThisTurn: false } },
+    { id: 'v_103.9_60', structure: 'SETTLEMENT', playerId: 'p1' },
+  ];
+  state.edges = [
+    { id: 'e_v_52_-30_v_52_30', hasRoad: true, playerId: 'p1', hasShip: false },
+    { id: 'e_v_0_60_v_52_30', hasRoad: false, hasShip: true, shipPlayerId: 'p1' },
+    { id: 'e_v_103.9_60_v_52_30', hasRoad: false, hasShip: false },
+  ];
+  state.tiles = [
+    { id: 'sea-a', type: 'WATER', coord: { q: 0, r: 0, s: 0 } },
+    { id: 'sea-b', type: 'WATER', coord: { q: 1, r: 0, s: -1 } },
+  ];
+  state.currentTurnBuiltShips = [];
+  state.hasMovedShipThisTurn = false;
+
+  assert.equal(validateGameAction(state, {
+    type: 'MOVE_KNIGHT', playerId: 'p1', fromVertexId: 'v_0_60', toVertexId: 'v_52_30',
+  }).ok, true);
+  assert.equal(validateGameAction(state, {
+    type: 'MOVE_SHIP', playerId: 'p1', fromEdgeId: 'e_v_0_60_v_52_30', toEdgeId: 'e_v_103.9_60_v_52_30',
+  }).ok, false);
+});
+
+test('a Diplomat road credit cannot be spent to build a ship', () => {
+  const state = baseState();
+  state.activeExpansion = 'SEAFARERS_AND_CITIES_AND_KNIGHTS';
+  state.diplomatRoadBuildingRemaining = 1;
+  state.players[0].resources = resources();
+  state.vertices[1] = { ...state.vertices[1], structure: 'SETTLEMENT', playerId: 'p1' };
+  state.tiles = [{ id: 'sea-1', type: 'WATER', coord: { q: 0, r: 0, s: 0 } }];
+
+  assert.equal(validateGameAction(state, {
+    type: 'BUILD_SHIP', playerId: 'p1', edgeId: 'e_v_0_60_v_52_30',
+  }).ok, false);
 });

@@ -96,13 +96,20 @@ export function validateSettlementPlacement(
     if (selectedScenario === 'THE_LOST_TRIBE' && borderingTiles.some(tile => tile.type !== 'WATER' && tile.islandId !== 1)) {
       return false;
     }
+    if (selectedScenario === 'GREAT_CANAL' && borderingTiles.some(tile => tile.type !== 'WATER' && tile.islandId !== 1)) {
+      return false;
+    }
 
     if (borderingTiles.length > 0 && borderingTiles.every(tile => tile.type === 'WATER')) {
       return false;
     }
+    if (selectedScenario === 'ENCHANTED_LAND' && borderingTiles.some(tile => tile.scenarioMarker?.isEnchantedLand) &&
+        !borderingTiles.some(tile => tile.type === 'WATER')) {
+      return false;
+    }
 
     // Scenario-specific setup restrictions must never leak into the base map.
-    if (activeExpansion === 'SEAFARERS' && ['SETUP_ROUND_1', 'SETUP_ROUND_2', 'SETUP_ROUND_3'].includes(gamePhase)) {
+    if (['SEAFARERS', 'SEAFARERS_AND_CITIES_AND_KNIGHTS'].includes(activeExpansion || '') && ['SETUP_ROUND_1', 'SETUP_ROUND_2', 'SETUP_ROUND_3'].includes(gamePhase)) {
       const borderingLandTiles = borderingTiles.filter(tile => tile.type !== 'WATER');
       
       if (selectedScenario === 'THROUGH_THE_DESERT' || selectedScenario === 'HEADING_FOR_NEW_SHORES' || selectedScenario === 'THE_LOST_TRIBE' || selectedScenario === 'CLOTH_FOR_CATAN' || selectedScenario === 'PIRATE_ISLANDS') {

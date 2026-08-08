@@ -3,9 +3,11 @@ import { socketService } from './network/socketService';
 import { cubeToPixel } from '../utils/hexMath/cubeToPixel';
 import type { ResourceCards } from '../types/resources.types';
 import { validateSettlementPlacement } from '../utils/validation/validateSettlementPlacement';
-import { getEdgeVertices } from '../utils/hexMath/boardGeometryHelpers';
+import { getEdgeVertices, getTileVertexIds } from '../utils/hexMath/boardGeometryHelpers';
+import { getTileEdgeIds } from '../utils/gameEngine/generateEdges';
 import { claimLostTribeReward, getEligibleHarborEdges, getLostTribeRewardLog, getReachedLostTribeVillageIds } from '../utils/gameEngine/lostTribeHelpers';
 import { getPirateShippingLine, getPirateShippingPath } from '../utils/gameEngine/pirateIslands';
+import { isCitiesKnightsExpansion, isSeafarersExpansion } from '../config/gameRules';
 
 export interface DispatcherContext {
   roomId?: string;
@@ -44,6 +46,52 @@ showBuildingCostToast?: (type: any, success: boolean, free?: boolean, errorMessa
   setGoldSelectionQueue?: React.Dispatch<React.SetStateAction<any[]>>;
   [key: string]: any;
 }
+
+const addLocalDesertDragons = (context: DispatcherContext) => {
+  if (context.selectedScenario !== 'DESERT_DRAGONS' || String(context.gamePhase).startsWith('SETUP_')) return;
+  const existingCount = (context.tiles || []).filter((tile: any) => tile.type === 'DESERT')
+    .reduce((sum: number, tile: any) => sum + (tile.scenarioMarker?.dragonIds || []).length, 0);
+  const plannedAmount = Math.min(18 - existingCount, (context.players?.length || 4) === 3 ? 3 : 2);
+  context.setTiles?.((previous: any[]) => {
+    const deserts = previous.filter(tile => tile.type === 'DESERT').slice(0, 3);
+    const placed = deserts.reduce((sum, tile) => sum + (tile.scenarioMarker?.dragonIds || []).length, 0);
+    const amount = Math.min(18 - placed, (context.players?.length || 4) === 3 ? 3 : 2);
+    const addedByTile = new Map<string, string[]>();
+    for (let index = 0; index < amount; index += 1) {
+      deserts.sort((a, b) => ((a.scenarioMarker?.dragonIds || []).length + (addedByTile.get(a.id)?.length || 0)) - ((b.scenarioMarker?.dragonIds || []).length + (addedByTile.get(b.id)?.length || 0)));
+      const target = deserts[0];
+      addedByTile.set(target.id, [...(addedByTile.get(target.id) || []), `desert-dragon-${Date.now()}-${index}`]);
+    }
+    return previous.map(tile => addedByTile.has(tile.id) ? {
+      ...tile,
+      scenarioMarker: { ...tile.scenarioMarker, dragonIds: [...(tile.scenarioMarker?.dragonIds || []), ...addedByTile.get(tile.id)!] },
+    } : tile);
+  });
+  if (existingCount + plannedAmount >= 18) {
+    context.setScenarioState?.((previous: any) => ({ ...previous, dragonsHaveAttacked: true }));
+  }
+};
+
+const tryBuildLocalCanal = (context: DispatcherContext, vertexId: string) => {
+  if (context.selectedScenario !== 'GREAT_CANAL' || !context.scenarioState) return;
+  const completed = new Set(context.scenarioState.completedCanalIds || []);
+  const canalTile = (context.tiles || []).find((tile: any) => tile.scenarioMarker?.canalId && !completed.has(tile.scenarioMarker.canalId) &&
+    getTileVertexIds(tile).includes(vertexId) && getTileVertexIds(tile).filter(id => id === vertexId || context.vertices?.find((vertex: any) => vertex.id === id)?.knight?.active).length >= 2);
+  if (!canalTile) return;
+  const owners = getTileVertexIds(canalTile).map(id => id === vertexId ? context.players?.find((player: any) => player.id === context.myPlayerId)?.id : context.vertices?.find((vertex: any) => vertex.id === id)?.knight?.playerId)
+    .filter(Boolean).slice(0, 2);
+  completed.add(canalTile.scenarioMarker.canalId);
+  const allCanalIds = (context.tiles || []).flatMap((tile: any) => tile.scenarioMarker?.canalId ? [tile.scenarioMarker.canalId] : []);
+  const complete = completed.size >= 8;
+  const finalCompleted = complete ? allCanalIds : [...completed];
+  context.setScenarioState?.((previous: any) => ({ ...previous, completedCanalIds: finalCompleted, isCanalComplete: complete }));
+  context.setTiles?.((previous: any[]) => previous.map(tile => tile.id === canalTile.id || (complete && tile.scenarioMarker?.canalId)
+    ? { ...tile, scenarioMarker: { ...tile.scenarioMarker, canalBuilt: true, ...(complete ? { infertileField: false } : {}) } }
+    : complete && tile.scenarioMarker?.infertileField ? { ...tile, scenarioMarker: { ...tile.scenarioMarker, infertileField: false } }
+    : tile));
+  context.setPlayers?.((previous: any[]) => previous.map(player => owners.includes(player.id)
+    ? { ...player, canalChits: (player.canalChits || 0) + 1, victoryPoints: (player.victoryPoints || 0) + 1 } : player));
+};
 
 /**
  * Dispatches a game action, executing local logic and broadcasting to the network if in an active room.
@@ -95,8 +143,8 @@ export function dispatchGameAction(action: GameAction, context?: DispatcherConte
       if (!player) return;
       const entries = Object.entries(resourcesToDiscard);
       const handSize = Object.values(player.resources).reduce((sum: number, count: any) => sum + Number(count || 0), 0) +
-        (context.activeExpansion === 'CITIES_AND_KNIGHTS' ? Object.values(player.commodities || {}).reduce((sum: number, count: any) => sum + Number(count || 0), 0) : 0);
-      const handLimit = 7 + (context.activeExpansion === 'CITIES_AND_KNIGHTS'
+        (isCitiesKnightsExpansion(context.activeExpansion) ? Object.values(player.commodities || {}).reduce((sum: number, count: any) => sum + Number(count || 0), 0) : 0);
+      const handLimit = 7 + (isCitiesKnightsExpansion(context.activeExpansion)
         ? 2 * (context.vertices || []).filter((vertex: any) => vertex.playerId === playerId && vertex.cityWall).length : 0);
       const sabotageEntry = context.turnSubPhase === 'SABOTEUR_DISCARD'
         ? context.citiesKnightsState?.sabotageDiscardQueue?.[0] : null;
@@ -128,7 +176,7 @@ export function dispatchGameAction(action: GameAction, context?: DispatcherConte
 
         if (!sabotageEntry && !othersStillNeedToDiscard && context.setTurnSubPhase) {
           context.addLog?.(`כל השחקנים סיימו לזרוק קלפים. השודד הופעל! יש למקם את השודד באריח חדש.`);
-          if (context.selectedScenario === 'PIRATE_ISLANDS') {
+          if (context.selectedScenario === 'PIRATE_ISLANDS' || context.selectedScenario === 'DESERT_DRAGONS') {
             const targets = updatedPlayers.filter(candidate => candidate.id !== playerId && Object.values(candidate.resources).reduce((sum: number, amount: any) => sum + Number(amount), 0) > 0);
             context.setRobberyState?.(targets.length ? { tile: context.tiles?.find((tile: any) => tile.hasPirate) || context.tiles?.[0], targets } : null);
             context.setTurnSubPhase(targets.length ? 'ROBBER_STEAL' : 'TRADE_AND_BUILD');
@@ -218,7 +266,7 @@ export function dispatchGameAction(action: GameAction, context?: DispatcherConte
     case 'BUILD_SETTLEMENT': {
       const { vertexId } = action;
       const isSetupPhase = ['SETUP_ROUND_1', 'SETUP_ROUND_2', 'SETUP_ROUND_3'].includes(context.gamePhase || '');
-      if (context.activeExpansion === 'CITIES_AND_KNIGHTS' && context.gamePhase === 'SETUP_ROUND_2') return;
+      if (isCitiesKnightsExpansion(context.activeExpansion) && context.gamePhase === 'SETUP_ROUND_2') return;
       const player = context.players?.find((p: any) => p.id === playerId);
       if (!player) return;
       const targetVertex = context.vertices?.find((vertex: any) => vertex.id === vertexId);
@@ -307,6 +355,17 @@ export function dispatchGameAction(action: GameAction, context?: DispatcherConte
             }
           }
         }
+        if (context.selectedScenario === 'TREASURE_ISLANDS') {
+          const targetIslandIds = (context.tiles || [])
+            .filter((tile: any) => getTileVertexIds(tile).includes(vertexId) && tile.islandId !== undefined)
+            .map((tile: any) => tile.islandId as number);
+          const homeIslands = player.homeIslandIds?.length ? player.homeIslandIds : [player.homeIslandId];
+          const newIslandId = targetIslandIds.find((id: number) => !homeIslands.includes(id) && !(player.treasureIslandIds || []).includes(id));
+          if (newIslandId !== undefined) {
+            targetIslandId = newIslandId;
+            specialVPBonus = 1;
+          }
+        }
 
         const verticesAfterSettlement = (context.vertices || []).map((vertex: any) =>
           vertex.id === vertexId ? { ...vertex, structure: 'SETTLEMENT', playerId } : vertex);
@@ -316,7 +375,9 @@ export function dispatchGameAction(action: GameAction, context?: DispatcherConte
         context.setPlayers?.((prev: any[]) => prev.map(p => p.id === playerId
           ? {
               ...p,
-              victoryPoints: p.victoryPoints + 1,
+              victoryPoints: p.victoryPoints + 1 + specialVPBonus,
+              treasureIslandIds: specialVPBonus === 1 && targetIslandId !== undefined
+                ? [...(p.treasureIslandIds || []), targetIslandId] : p.treasureIslandIds,
               harborReturnSubPhase: storedHarborCanBePlaced ? 'TRADE_AND_BUILD' : p.harborReturnSubPhase,
               resources: {
                 ...p.resources,
@@ -335,6 +396,7 @@ export function dispatchGameAction(action: GameAction, context?: DispatcherConte
           SHEEP: previous.SHEEP + 1,
           WHEAT: previous.WHEAT + 1,
         }));
+        addLocalDesertDragons(context);
         context.showBuildingCostToast?.('SETTLEMENT', true);
         if (storedHarborCanBePlaced) {
           context.setTurnSubPhase?.('HARBOR_PLACEMENT');
@@ -354,12 +416,15 @@ export function dispatchGameAction(action: GameAction, context?: DispatcherConte
       const player = context.players?.find((p: any) => p.id === playerId);
       if (!player) return;
       const cityTarget = context.vertices?.find((vertex: any) => vertex.id === vertexId);
-      const isSetupCity = context.activeExpansion === 'CITIES_AND_KNIGHTS' && context.gamePhase === 'SETUP_ROUND_2';
+      const isSetupCity = isCitiesKnightsExpansion(context.activeExpansion) && context.gamePhase === 'SETUP_ROUND_2';
       if (isSetupCity) {
+        const requiresCoastalStart = ['GREAT_CANAL', 'ENCHANTED_LAND'].includes(context.selectedScenario || '');
+        const isCoastal = (id: string) => (context.tiles || []).some((tile: any) => ['WATER', 'SEA', 'FOG'].includes(tile.type) && getTileVertexIds(tile).includes(id));
+        const alreadyHasCoastalStructure = (context.vertices || []).some((vertex: any) => vertex.playerId === playerId && ['SETTLEMENT', 'CITY'].includes(vertex.structure) && isCoastal(vertex.id));
         if (!cityTarget || cityTarget.structure !== 'NONE' || !context.setVertices || !validateSettlementPlacement(
           vertexId, playerId, context.gamePhase as any, context.vertices || [], context.edges || [], context.tiles,
           context.selectedScenario, context.activeExpansion
-        )) return;
+        ) || (requiresCoastalStart && !alreadyHasCoastalStructure && !isCoastal(vertexId))) return;
         context.setVertices(prev => prev.map(v => v.id === vertexId ? { ...v, structure: 'CITY', playerId } : v));
         context.showBuildingCostToast?.('CITY', true, true);
         context.addLog?.(`${player.name} בנה עיר בשלב ההקמה (חינם).`);
@@ -385,6 +450,7 @@ export function dispatchGameAction(action: GameAction, context?: DispatcherConte
         v.id === vertexId ? { ...v, structure: 'CITY' } : v
       ));
       context.setResourceBank?.(previous => ({ ...previous, WHEAT: previous.WHEAT + 2, ORE: previous.ORE + 3 }));
+      addLocalDesertDragons(context);
       context.showBuildingCostToast?.('CITY', true);
       context.addLog?.(`שחקן ${player.name} שדרג יישוב לעיר!`);
       break;
@@ -398,8 +464,24 @@ export function dispatchGameAction(action: GameAction, context?: DispatcherConte
       if (!player) return;
       const roadTarget = context.edges?.find((edge: any) => edge.id === edgeId);
       if (!roadTarget || roadTarget.hasRoad || roadTarget.hasShip || !context.setEdges) return;
+      if (context.selectedScenario === 'DESERT_DRAGONS' && (context.tiles || []).filter((tile: any) =>
+        getTileEdgeIds(tile).includes(edgeId) && (tile.scenarioMarker?.dragonIds || []).length > 0).length >= 2) {
+        context.addLog?.('דרך בין שני אריחים עם דרקונים חסומה.');
+        return;
+      }
+      if (context.selectedScenario === 'ENCHANTED_LAND' && (context.tiles || []).some((tile: any) =>
+        tile.scenarioMarker?.isEnchantedLand && getTileEdgeIds(tile).includes(edgeId))) {
+        context.addLog?.('אי אפשר לבנות דרכים בארץ המכושפת.');
+        return;
+      }
+      if (context.selectedScenario === 'GREAT_CANAL' && isSetupPhase && context.setupState?.lastSettlementVertexId &&
+          (context.tiles || []).some((tile: any) => ['WATER', 'SEA', 'FOG'].includes(tile.type) && getTileVertexIds(tile).includes(context.setupState.lastSettlementVertexId))) {
+        context.addLog?.('בשלב ההקמה של התעלה הגדולה, מבנה חוף חייב לקבל ספינה.');
+        return;
+      }
 
-      const isFreeRoad = !isSetupPhase && (context.roadBuildingRemaining || 0) > 0;
+      const isDiplomatRoad = (player.diplomatRoadBuildingRemaining || 0) > 0;
+      const isFreeRoad = !isSetupPhase && ((context.roadBuildingRemaining || 0) > 0 || isDiplomatRoad);
       if (!isSetupPhase && !isFreeRoad && (
         context.turnSubPhase !== 'TRADE_AND_BUILD' ||
         player.resources.WOOD < 1 ||
@@ -419,7 +501,13 @@ export function dispatchGameAction(action: GameAction, context?: DispatcherConte
         }
       } else {
         if (isFreeRoad) {
-          context.setRoadBuildingRemaining?.((prev: number) => prev - 1);
+          if (isDiplomatRoad) {
+            context.setPlayers?.((previous: any[]) => previous.map(candidate => candidate.id === playerId
+              ? { ...candidate, diplomatRoadBuildingRemaining: Math.max(0, (candidate.diplomatRoadBuildingRemaining || 0) - 1) }
+              : candidate));
+          } else {
+            context.setRoadBuildingRemaining?.((prev: number) => prev - 1);
+          }
         } else {
           context.setPlayers!((prev: any[]) => prev.map(p => p.id === playerId
             ? {
@@ -447,9 +535,14 @@ export function dispatchGameAction(action: GameAction, context?: DispatcherConte
       const player = context.players?.find((p: any) => p.id === playerId);
       if (!player) return;
       const shipTarget = context.edges?.find((edge: any) => edge.id === edgeId);
+      if (context.selectedScenario === 'GREAT_CANAL' && shipTarget && getEdgeVertices(shipTarget.id).some(vertexId =>
+        (context.edges || []).filter((edge: any) => getEdgeVertices(edge.id).includes(vertexId) && edge.hasShip && edge.shipPlayerId === playerId).length >= 2)) {
+        context.addLog?.('נתיבי ספינות אינם יכולים להתפצל בתרחיש התעלה הגדולה.');
+        return;
+      }
       if (!shipTarget || shipTarget.hasRoad || shipTarget.hasShip || !context.setEdges) return;
 
-      const isFreeShip = !isSetupPhase && (context.roadBuildingRemaining || 0) > 0 && context.activeExpansion === 'SEAFARERS';
+      const isFreeShip = !isSetupPhase && (context.roadBuildingRemaining || 0) > 0 && isSeafarersExpansion(context.activeExpansion);
       if (!isSetupPhase && !isFreeShip && (
         context.turnSubPhase !== 'TRADE_AND_BUILD' ||
         player.resources.WOOD < 1 ||
@@ -590,6 +683,25 @@ export function dispatchGameAction(action: GameAction, context?: DispatcherConte
       const availableCardCount = (player.developmentCards?.[cardType] || 0) - (player.boughtDevCardsThisTurn?.[cardType] || 0);
       if ((cardType === 'VICTORY_POINT' && context.selectedScenario !== 'PIRATE_ISLANDS') || availableCardCount <= 0 || player.playedDevCardThisTurn ||
           !['BEFORE_ROLL', 'TRADE_AND_BUILD'].includes(context.turnSubPhase || '')) return;
+
+      if (context.selectedScenario === 'DESERT_DRAGONS' && cardType === 'KNIGHT') {
+        const dragonTile = (context.tiles || []).find((tile: any) => tile.islandId === 1 && tile.type !== 'DESERT' && (tile.scenarioMarker?.dragonIds || []).length);
+        if (!dragonTile) {
+          context.addLog?.('אין דרקון מחוץ למדבר שאפשר לסלק.');
+          return;
+        }
+        context.setTiles?.((previous: any[]) => previous.map(tile => tile.id === dragonTile.id ? {
+          ...tile,
+          scenarioMarker: { ...tile.scenarioMarker, dragonIds: (tile.scenarioMarker?.dragonIds || []).slice(0, -1) },
+        } : tile));
+        context.setPlayers?.((previous: any[]) => previous.map(candidate => candidate.id === playerId ? {
+          ...candidate,
+          playedDevCardThisTurn: true,
+          developmentCards: { ...candidate.developmentCards, KNIGHT: Math.max(0, (candidate.developmentCards?.KNIGHT || 0) - 1) },
+        } : candidate));
+        context.addLog?.(`🐉 ${player.name} סילק דרקון באמצעות אביר.`);
+        break;
+      }
 
       if (context.selectedScenario === 'PIRATE_ISLANDS' && (cardType === 'KNIGHT' || cardType === 'VICTORY_POINT')) {
         const warshipTarget = getPirateShippingLine(context.tiles || [], context.vertices || [], context.edges || [], playerId)
@@ -784,7 +896,7 @@ export function dispatchGameAction(action: GameAction, context?: DispatcherConte
 
       context.setPlayers?.((prevPlayers: any[]) => prevPlayers.map(p => {
         if (p.id === victimPlayerId) {
-          if (stolenResource === 'CLOTH' && context.activeExpansion !== 'CITIES_AND_KNIGHTS') return { ...p, clothRolls: Math.max(0, (p.clothRolls || 0) - 1) };
+          if (stolenResource === 'CLOTH' && !isCitiesKnightsExpansion(context.activeExpansion)) return { ...p, clothRolls: Math.max(0, (p.clothRolls || 0) - 1) };
           if (['COIN', 'PAPER', 'CLOTH'].includes(stolenResource)) return { ...p, commodities: { ...p.commodities, [stolenResource]: Math.max(0, (p.commodities?.[stolenResource] || 0) - 1) } };
           return {
             ...p,
@@ -795,7 +907,7 @@ export function dispatchGameAction(action: GameAction, context?: DispatcherConte
           };
         }
         if (p.id === playerId) {
-          if (stolenResource === 'CLOTH' && context.activeExpansion !== 'CITIES_AND_KNIGHTS') return { ...p, devCardReturnSubPhase: undefined, clothRolls: (p.clothRolls || 0) + 1 };
+          if (stolenResource === 'CLOTH' && !isCitiesKnightsExpansion(context.activeExpansion)) return { ...p, devCardReturnSubPhase: undefined, clothRolls: (p.clothRolls || 0) + 1 };
           if (['COIN', 'PAPER', 'CLOTH'].includes(stolenResource)) return { ...p, devCardReturnSubPhase: undefined, commodities: { ...p.commodities, [stolenResource]: (p.commodities?.[stolenResource] || 0) + 1 } };
           return {
             ...p,
@@ -914,6 +1026,31 @@ export function dispatchGameAction(action: GameAction, context?: DispatcherConte
       break;
     }
 
+    case 'DISCOVER_SCENARIO_HEX': {
+      if (context.selectedScenario !== 'GREATER_CATAN' || context.scenarioState?.kind !== 'GREATER_CATAN') return;
+      const target = context.tiles?.find((tile: any) => tile.id === action.tileId);
+      if (!target || target.numberToken !== null) return;
+      const [fromSupply, ...remaining] = context.scenarioState.numberTokenSupply;
+      const homeSource = fromSupply === undefined ? (context.tiles || []).find((tile: any) => {
+        if (tile.islandId !== 1 || !Number.isInteger(tile.numberToken)) return false;
+        const createsRedAdjacency = [6, 8].includes(tile.numberToken) && (context.tiles || []).some((other: any) => other.id !== target.id && [6, 8].includes(other.numberToken) &&
+          (Math.abs(other.coord.q - target.coord.q) + Math.abs(other.coord.r - target.coord.r) + Math.abs(other.coord.s - target.coord.s)) / 2 === 1);
+        return !createsRedAdjacency && getTileVertexIds(tile).some(vertexId => context.vertices?.some((vertex: any) => vertex.id === vertexId && vertex.playerId === playerId && ['SETTLEMENT', 'CITY'].includes(vertex.structure)) &&
+          (context.tiles || []).some((other: any) => other.id !== tile.id && Number.isInteger(other.numberToken) && getTileVertexIds(other).includes(vertexId)));
+      }) : undefined;
+      const number = fromSupply ?? homeSource?.numberToken;
+      if (number === undefined) return;
+      context.setTiles?.((previous: any[]) => previous.map(tile => {
+        if (tile.id === action.tileId) return { ...tile, numberToken: number };
+        if (tile.id === homeSource?.id) return { ...tile, numberToken: null };
+        return tile;
+      }));
+      context.setScenarioState?.((previous: any) => ({ ...previous, numberTokenSupply: remaining,
+        depletedHomeTileIds: homeSource ? [...(previous.depletedHomeTileIds || []), homeSource.id] : previous.depletedHomeTileIds }));
+      context.addLog?.(`🌍 הונח אסימון מספר ${number} באי החדש.`);
+      break;
+    }
+
     // --- 10. בחירת משאב ממכרה זהב ---
     case 'SELECT_GOLD_RESOURCE': {
       const { resource } = action;
@@ -922,6 +1059,7 @@ export function dispatchGameAction(action: GameAction, context?: DispatcherConte
       if ((context.resourceBank?.[resource] || 0) < 1) return;
       const pendingSelection = context.goldSelectionQueue?.[0];
       if (pendingSelection && pendingSelection.playerId !== playerId) return;
+      if (pendingSelection?.allowedResources && !pendingSelection.allowedResources.includes(resource)) return;
       context.setPlayers?.((prev: any[]) => prev.map(p =>
         p.id === playerId
           ? {
@@ -943,6 +1081,135 @@ export function dispatchGameAction(action: GameAction, context?: DispatcherConte
       });
 
       context.addLog?.(`🪙 ${player?.name || 'שחקן'} קיבל משאב ${resource} ממכרה זהב.`);
+      break;
+    }
+
+    // --- Treasure Islands: a route arriving at a chest takes it immediately. ---
+    case 'CLAIM_TREASURE': {
+      const scenario = context.scenarioState;
+      const token = scenario?.treasureTokens?.[action.treasureId];
+      const player = context.players?.find((candidate: any) => candidate.id === playerId);
+      if (!token || token.status !== 'UNCLAIMED' || !player) return;
+
+      const [reward, ...remainingDeck] = scenario.treasureDeck || [];
+      if (!reward) return;
+      context.setScenarioState?.((previous: any) => ({
+        ...previous,
+        treasureDeck: remainingDeck,
+        treasureTokens: {
+          ...previous.treasureTokens,
+          [action.treasureId]: { ...previous.treasureTokens[action.treasureId], status: 'CLAIMED', claimedBy: playerId },
+        },
+      }));
+      context.setVertices?.((previous: any[]) => previous.map(vertex =>
+        vertex.id === token.vertexId && vertex.treasureToken
+          ? { ...vertex, treasureToken: { ...vertex.treasureToken, claimedBy: playerId } }
+          : vertex
+      ));
+
+      if (reward === 'RESOURCE_CHOICE' || reward === 'GRAIN_OR_BRICK' || reward === 'TWO_RESOURCES') {
+        context.setGoldSelectionQueue?.((previous: any[]) => [...previous, {
+          playerId,
+          amount: reward === 'TWO_RESOURCES' ? 2 : 1,
+          tileId: token.vertexId,
+          source: 'TREASURE',
+          allowedResources: reward === 'GRAIN_OR_BRICK' ? ['WHEAT', 'BRICK'] : undefined,
+        }]);
+        context.setTurnSubPhase?.('GOLD_RESOURCE_SELECTION');
+      } else if (reward === 'DEVELOPMENT_CARD' && context.citiesKnightsState) {
+        context.setCitiesKnightsState?.((previous: any) => {
+          const stack = [...(previous.progressDecks?.[action.progressTrack!] || [])];
+          const card = stack.shift();
+          if (card) context.setPlayers?.((players: any[]) => players.map(candidate => candidate.id === playerId ? {
+            ...candidate,
+            progressCards: [...(candidate.progressCards || []), card],
+          } : candidate));
+          return { ...previous, progressDecks: { ...previous.progressDecks, [action.progressTrack!]: stack } };
+        });
+      } else if (reward === 'DEVELOPMENT_CARD') {
+        context.setDevCardDeck?.((previous: string[]) => {
+          const [card, ...rest] = previous;
+          if (!card) return previous;
+          context.setPlayers?.((players: any[]) => players.map(candidate => candidate.id === playerId ? {
+            ...candidate,
+            developmentCards: { ...candidate.developmentCards, [card]: (candidate.developmentCards?.[card] || 0) + 1 },
+          } : candidate));
+          return rest;
+        });
+      } else if (reward === 'FREE_BUILD') {
+        context.setRoadBuildingRemaining?.((previous: number) => previous + 2);
+      }
+      context.addLog?.(`🧰 ${player.name} מצא אוצר: ${reward}.`);
+      break;
+    }
+
+    case 'KEEP_TREASURE': {
+      const scenario = context.scenarioState;
+      const token = scenario?.treasureTokens?.[action.treasureId];
+      const player = context.players?.find((candidate: any) => candidate.id === playerId);
+      if (!token || token.status !== 'UNCLAIMED' || !player || (player.keptTreasureTokens || 0) >= 4) return;
+      context.setScenarioState?.((previous: any) => ({
+        ...previous,
+        treasureTokens: { ...previous.treasureTokens, [action.treasureId]: { ...token, status: 'KEPT', claimedBy: playerId } },
+      }));
+      context.setVertices?.((previous: any[]) => previous.map(vertex => vertex.id === token.vertexId && vertex.treasureToken
+        ? { ...vertex, treasureToken: { ...vertex.treasureToken, claimedBy: playerId } } : vertex));
+      context.setPlayers?.((previous: any[]) => previous.map(candidate => {
+        if (candidate.id !== playerId) return candidate;
+        const kept = (candidate.keptTreasureTokens || 0) + 1;
+        return {
+          ...candidate,
+          keptTreasureTokens: kept,
+          unplacedHarbors: kept === 2 ? [...(candidate.unplacedHarbors || []), action.harborType] : candidate.unplacedHarbors,
+          victoryPoints: (candidate.victoryPoints || 0) + (kept === 3 || kept === 4 ? 1 : 0),
+        };
+      }));
+      if ((player.keptTreasureTokens || 0) === 1) {
+        context.setTurnSubPhase?.('HARBOR_PLACEMENT');
+        context.addLog?.('בחר צלע חוף ליד יישוב שלך להצבת נמל מיוחד.');
+      }
+      context.addLog?.(`🧰 ${player.name} שמר אוצר סגור.`);
+      break;
+    }
+
+    case 'MOVE_ENCHANTED_KNIGHT': {
+      const source = context.vertices?.find((vertex: any) => vertex.id === action.fromVertexId);
+      const destination = context.vertices?.find((vertex: any) => vertex.id === action.toVertexId);
+      if (!source?.knight || !destination || context.selectedScenario !== 'ENCHANTED_LAND') return;
+      const displacedKnight = destination.knight;
+      context.setVertices?.((previous: any[]) => previous.map(vertex => {
+        if (vertex.id === action.fromVertexId) return { ...vertex, knight: undefined };
+        if (vertex.id === action.toVertexId) return { ...vertex, knight: { ...source.knight, active: false, actedThisTurn: true } };
+        return vertex;
+      }));
+      context.setScenarioState?.((previous: any) => ({ ...previous, knightOnIslandByPlayerId: { ...previous.knightOnIslandByPlayerId, [playerId]: action.toVertexId } }));
+      if (displacedKnight) {
+        context.setCitiesKnightsState?.((previous: any) => ({ ...previous, pendingDisplacedKnight: {
+          ownerId: displacedKnight.playerId,
+          knight: { ...displacedKnight },
+          originVertexId: action.toVertexId,
+          relocationMode: 'ENCHANTED_LAND',
+        } }));
+        context.setTurnSubPhase?.('KNIGHT_DISPLACEMENT');
+      }
+      break;
+    }
+
+    case 'FIGHT_ENCHANTED_DRAGON': {
+      const vertex = context.vertices?.find((candidate: any) => candidate.id === action.knightVertexId);
+      if (context.selectedScenario !== 'ENCHANTED_LAND' || vertex?.knight?.playerId !== playerId || vertex.enchantedDragon?.id !== action.dragonId) return;
+      const won = vertex.knight.level >= vertex.enchantedDragon.strength;
+      context.setVertices?.((previous: any[]) => previous.map(candidate => candidate.id === action.knightVertexId ? {
+        ...candidate, ...(won ? { enchantedDragon: undefined } : {}), knight: { ...candidate.knight, active: false, actedThisTurn: true },
+      } : candidate));
+      if (won) {
+        context.setScenarioState?.((previous: any) => ({ ...previous, defeatedDragonIdsByPlayerId: {
+          ...previous.defeatedDragonIdsByPlayerId,
+          [playerId]: [...(previous.defeatedDragonIdsByPlayerId?.[playerId] || []), action.dragonId],
+        } }));
+        context.setPlayers?.((previous: any[]) => previous.map(candidate => candidate.id === playerId ? { ...candidate, victoryPoints: (candidate.victoryPoints || 0) + 1 } : candidate));
+        context.addLog?.(`🐲 ${vertex.knight.playerId} הביס דרקון בארץ המכושפת.`);
+      } else context.addLog?.('🐲 הדרקון גבר על האביר; אפשר לשדרג ולנסות שוב בתור הבא.');
       break;
     }
 
@@ -1042,6 +1309,11 @@ export function dispatchGameAction(action: GameAction, context?: DispatcherConte
 
     // --- Cities & Knights ---
     case 'BUILD_KNIGHT': {
+      if (context.selectedScenario === 'GREAT_CANAL' && (context.tiles || []).some((tile: any) =>
+        tile.islandId !== 1 && getTileVertexIds(tile).includes(action.vertexId))) {
+        context.addLog?.('אבירים בתרחיש התעלה הגדולה נבנים רק באי הבית.');
+        return;
+      }
       context.setVertices?.((previous: any[]) => previous.map(vertex => vertex.id === action.vertexId
         ? { ...vertex, knight: { playerId, level: 1, active: false, actedThisTurn: false } }
         : vertex));
@@ -1060,6 +1332,7 @@ export function dispatchGameAction(action: GameAction, context?: DispatcherConte
         ...player, resources: { ...player.resources, WHEAT: player.resources.WHEAT - 1 },
       } : player));
       context.setResourceBank?.(bank => ({ ...bank, WHEAT: bank.WHEAT + 1 }));
+      tryBuildLocalCanal(context, action.vertexId);
       break;
     }
     case 'UPGRADE_KNIGHT': {
@@ -1085,6 +1358,13 @@ export function dispatchGameAction(action: GameAction, context?: DispatcherConte
       }));
       break;
     }
+    case 'EXPEL_PIRATE': {
+      context.setTiles?.((previous: any[]) => previous.map(tile => tile.id === action.tileId ? { ...tile, hasPirate: false } : tile));
+      context.setVertices?.((previous: any[]) => previous.map(vertex => vertex.id === action.vertexId && vertex.knight
+        ? { ...vertex, knight: { ...vertex.knight, active: false, actedThisTurn: true } } : vertex));
+      context.addLog?.('אביר גירש את שודד הים והפך ללא פעיל.');
+      break;
+    }
     case 'DISPLACE_KNIGHT': {
       const source = context.vertices?.find((vertex: any) => vertex.id === action.fromVertexId);
       const target = context.vertices?.find((vertex: any) => vertex.id === action.toVertexId);
@@ -1105,6 +1385,12 @@ export function dispatchGameAction(action: GameAction, context?: DispatcherConte
       const pending = context.citiesKnightsState?.pendingDisplacedKnight;
       if (!pending) return;
       if (action.toVertexId) context.setVertices?.((previous: any[]) => previous.map(vertex => vertex.id === action.toVertexId ? { ...vertex, knight: { ...pending.knight } } : vertex));
+      if (pending.relocationMode === 'ENCHANTED_LAND') context.setScenarioState?.((previous: any) => {
+        const knightOnIslandByPlayerId = { ...previous.knightOnIslandByPlayerId };
+        if (action.toVertexId) knightOnIslandByPlayerId[pending.ownerId] = action.toVertexId;
+        else delete knightOnIslandByPlayerId[pending.ownerId];
+        return { ...previous, knightOnIslandByPlayerId };
+      });
       context.setCitiesKnightsState?.((previous: any) => ({ ...previous, pendingDisplacedKnight: undefined }));
       context.setTurnSubPhase?.('TRADE_AND_BUILD');
       break;
@@ -1352,7 +1638,9 @@ export function dispatchGameAction(action: GameAction, context?: DispatcherConte
         if (queue.length) context.setTurnSubPhase?.('COMMERCIAL_HARBOR_GIVE');
       } else if (action.cardId === 'DIPLOMAT' && action.data?.targetEdgeId) {
         context.setEdges?.((previous: any[]) => previous.map(edge => edge.id === action.data!.targetEdgeId ? { ...edge, hasRoad: false, playerId: null } : edge));
-        context.setRoadBuildingRemaining?.((previous: number) => previous + 1);
+        context.setPlayers?.((previous: any[]) => previous.map(candidate => candidate.id === playerId
+          ? { ...candidate, diplomatRoadBuildingRemaining: (candidate.diplomatRoadBuildingRemaining || 0) + 1 }
+          : candidate));
       } else if (action.cardId === 'INTRIGUE' && action.data?.targetVertexId) {
         const target = context.vertices?.find((vertex: any) => vertex.id === action.data!.targetVertexId);
         if (!target?.knight) return;

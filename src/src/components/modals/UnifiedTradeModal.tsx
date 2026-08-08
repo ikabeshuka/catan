@@ -3,7 +3,7 @@ import { useGame, getPlayerTotalVP } from '../../context/GameContext';
 import { useTurnManager } from '../../hooks/useTurnManager';
 import { useAppTrade } from '../../hooks/useAppTrade';
 import { dispatchGameAction } from '../../services/gameDispatcher';
-import { CrossIcon, DealIcon, WarningIcon } from '../common/Icons';
+import { CrossIcon, DealIcon } from '../common/Icons';
 import { TransparentImage } from '../common/TransparentImage';
 
 const RESOURCE_IMAGES: Record<string, string> = {
@@ -42,31 +42,29 @@ export const UnifiedTradeModal: React.FC<UnifiedTradeModalProps> = ({ onClose })
     resourceBank,
   } = useGame();
   const { tradeWithBank, turnSubPhase, currentPlayer } = useTurnManager();
-  const {
-    giveRes,
-    setGiveRes,
-    giveAmt,
-    setGiveAmt,
-    receiveRes,
-    setReceiveRes,
-    receiveAmt,
-    setReceiveAmt,
-    evaluateBotTradeDecision,
-  } = useAppTrade();
+  const { evaluateBotTradeDecision } = useAppTrade();
 
-  // Pre-select harbor resource if opened via clicking a specific harbor node
-  React.useEffect(() => {
-    if (activePortTrade && activePortTrade.harborType && activePortTrade.harborType !== 'GENERIC') {
-      const res = activePortTrade.harborType as 'WOOD' | 'BRICK' | 'SHEEP' | 'WHEAT' | 'ORE';
-      setGiveRes(res);
-    }
-  }, [activePortTrade, setGiveRes]);
+  // Multi-resource offer and request states
+  const [offer, setOffer] = useState<Record<'WOOD' | 'BRICK' | 'SHEEP' | 'WHEAT' | 'ORE', number>>({
+    WOOD: 0, BRICK: 0, SHEEP: 0, WHEAT: 0, ORE: 0
+  });
+  const [request, setRequest] = useState<Record<'WOOD' | 'BRICK' | 'SHEEP' | 'WHEAT' | 'ORE', number>>({
+    WOOD: 0, BRICK: 0, SHEEP: 0, WHEAT: 0, ORE: 0
+  });
 
   const humanPlayer = (roomId
     ? players.find(p => p.id === myPlayerId)
     : players.find(p => !p.isBot) || players[0])!;
   const otherPlayers = players.filter(p => p.id !== humanPlayer.id);
   const isWrongOnlinePlayer = !!roomId && (!myPlayerId || currentPlayer?.id !== myPlayerId);
+
+  // Pre-select harbor resource if opened via clicking a specific harbor node
+  React.useEffect(() => {
+    if (activePortTrade && activePortTrade.harborType && activePortTrade.harborType !== 'GENERIC') {
+      const res = activePortTrade.harborType as 'WOOD' | 'BRICK' | 'SHEEP' | 'WHEAT' | 'ORE';
+      setOffer(prev => ({ ...prev, [res]: 2 }));
+    }
+  }, [activePortTrade]);
 
   // Initialize targets mapping state (default: all checked)
   const [checkedTargets, setCheckedTargets] = useState<Record<string, boolean>>(() => {
@@ -85,18 +83,66 @@ export const UnifiedTradeModal: React.FC<UnifiedTradeModalProps> = ({ onClose })
   );
 
   const hasGenericHarbor = ownedHarbors.some(h => h.harborType === 'GENERIC');
-  const hasSpecializedHarbor = ownedHarbors.some(h => h.harborType === giveRes);
+
+  // Extract non-zero entries for single-resource checks (for bank/port trade)
+  const offerEntries = Object.entries(offer).filter(([_, amt]) => amt > 0) as ['WOOD' | 'BRICK' | 'SHEEP' | 'WHEAT' | 'ORE', number][];
+  const requestEntries = Object.entries(request).filter(([_, amt]) => amt > 0) as ['WOOD' | 'BRICK' | 'SHEEP' | 'WHEAT' | 'ORE', number][];
+
+  const isSingleResourceTrade = offerEntries.length === 1 && requestEntries.length === 1;
+  const singleGiveRes = offerEntries[0]?.[0];
+  const singleGiveAmt = offerEntries[0]?.[1] || 0;
+  const singleReceiveRes = requestEntries[0]?.[0];
+  const singleReceiveAmt = requestEntries[0]?.[1] || 0;
+
+  const hasSpecializedHarbor = singleGiveRes ? ownedHarbors.some(h => h.harborType === singleGiveRes) : false;
+
+  const handleOfferCardClick = (res: 'WOOD' | 'BRICK' | 'SHEEP' | 'WHEAT' | 'ORE') => {
+    const isCurrentlyActive = (offer[res] || 0) > 0;
+    if (isCurrentlyActive) {
+      setOffer({ WOOD: 0, BRICK: 0, SHEEP: 0, WHEAT: 0, ORE: 0 });
+    } else {
+      setOffer({
+        WOOD: res === 'WOOD' ? 1 : 0,
+        BRICK: res === 'BRICK' ? 1 : 0,
+        SHEEP: res === 'SHEEP' ? 1 : 0,
+        WHEAT: res === 'WHEAT' ? 1 : 0,
+        ORE: res === 'ORE' ? 1 : 0,
+      });
+    }
+  };
+
+  const handleRequestCardClick = (res: 'WOOD' | 'BRICK' | 'SHEEP' | 'WHEAT' | 'ORE') => {
+    const isCurrentlyActive = (request[res] || 0) > 0;
+    if (isCurrentlyActive) {
+      setRequest({ WOOD: 0, BRICK: 0, SHEEP: 0, WHEAT: 0, ORE: 0 });
+    } else {
+      setRequest({
+        WOOD: res === 'WOOD' ? 1 : 0,
+        BRICK: res === 'BRICK' ? 1 : 0,
+        SHEEP: res === 'SHEEP' ? 1 : 0,
+        WHEAT: res === 'WHEAT' ? 1 : 0,
+        ORE: res === 'ORE' ? 1 : 0,
+      });
+    }
+  };
 
   const handleProposeTradeToPlayers = () => {
     if (isWrongOnlinePlayer) return;
-    const playerStock = humanPlayer.resources[giveRes] || 0;
-    if (playerStock < giveAmt) {
-      alert(`אין לך מספיק משאבים מסוג ${RESOURCE_LABELS[giveRes]} (יש לך ${playerStock})!`);
-      return;
+
+    // Verify player has enough resources
+    for (const [res, amt] of Object.entries(offer)) {
+      const stock = humanPlayer.resources[res as keyof typeof humanPlayer.resources] || 0;
+      if (stock < amt) {
+        alert(`אין לך מספיק משאבים מסוג ${RESOURCE_LABELS[res]} (יש לך ${stock}, נדרש ${amt})!`);
+        return;
+      }
     }
 
-    if (giveRes === receiveRes) {
-      alert("לא ניתן לבצע עסקה על אותו משאב!");
+    const totalOfferAmt = Object.values(offer).reduce((sum, a) => sum + a, 0);
+    const totalRequestAmt = Object.values(request).reduce((sum, a) => sum + a, 0);
+
+    if (totalOfferAmt === 0 || totalRequestAmt === 0) {
+      alert("הצעת המסחר חייבת לכלול לפחות משאב אחד מוצע ומשאב אחד מבוקש!");
       return;
     }
 
@@ -119,45 +165,19 @@ export const UnifiedTradeModal: React.FC<UnifiedTradeModalProps> = ({ onClose })
     for (const bot of botsToTrade) {
       const botAgreed = evaluateBotTradeDecision(
         bot,
-        giveRes,
-        giveAmt,
-        receiveRes,
-        receiveAmt
+        offer,
+        request
       );
 
       if (botAgreed) {
         dispatchGameAction({
           type: 'EXECUTE_PLAYER_TRADE', playerId: humanPlayer.id, targetPlayerId: bot.id,
-          offer: { [giveRes]: giveAmt }, request: { [receiveRes]: receiveAmt },
+          offer, request,
         }, {
           roomId: roomId || undefined, isRemote: false,
           myPlayerId: roomId ? myPlayerId : humanPlayer.id,
           turnSubPhase, players, setPlayers, addLog,
         });
-        /* Direct mutation replaced by dispatchGameAction.
-        setPlayers((prevPlayers: any[]) => prevPlayers.map(p => {
-          if (p.id === humanPlayer.id) {
-            return {
-              ...p,
-              resources: {
-                ...p.resources,
-                [giveRes]: (p.resources[giveRes] || 0) - giveAmt,
-                [receiveRes]: (p.resources[receiveRes] || 0) + receiveAmt
-              }
-            };
-          } else if (p.id === bot.id) {
-            return {
-              ...p,
-              resources: {
-                ...p.resources,
-                [giveRes]: (p.resources[giveRes] || 0) + giveAmt,
-                [receiveRes]: (p.resources[receiveRes] || 0) - receiveAmt
-              }
-            };
-          }
-          return p;
-        }));
-        */
 
         addLog(`[מסחר] בוט ${bot.name} קיבל את ההצעה שלך והעסקה בוצעה!`);
         tradeExecuted = true;
@@ -174,19 +194,19 @@ export const UnifiedTradeModal: React.FC<UnifiedTradeModalProps> = ({ onClose })
   };
 
   const isBankTradeEnabled = (() => {
-    if (isWrongOnlinePlayer || giveRes === receiveRes || turnSubPhase !== 'TRADE_AND_BUILD') return false;
-    const playerStock = humanPlayer.resources[giveRes] || 0;
-    return giveAmt >= 4 && giveAmt % 4 === 0 && receiveAmt === giveAmt / 4 && playerStock >= giveAmt;
+    if (isWrongOnlinePlayer || !isSingleResourceTrade || singleGiveRes === singleReceiveRes || turnSubPhase !== 'TRADE_AND_BUILD') return false;
+    const playerStock = humanPlayer.resources[singleGiveRes] || 0;
+    return singleGiveAmt >= 4 && singleGiveAmt % 4 === 0 && singleReceiveAmt === singleGiveAmt / 4 && playerStock >= singleGiveAmt;
   })();
 
   const isHarborTradeEnabled = (() => {
-    if (isWrongOnlinePlayer || giveRes === receiveRes || turnSubPhase !== 'TRADE_AND_BUILD') return false;
-    const playerStock = humanPlayer.resources[giveRes] || 0;
-    if (playerStock < giveAmt) return false;
-    if (hasSpecializedHarbor && giveAmt >= 2 && giveAmt % 2 === 0 && receiveAmt === giveAmt / 2) {
+    if (isWrongOnlinePlayer || !isSingleResourceTrade || singleGiveRes === singleReceiveRes || turnSubPhase !== 'TRADE_AND_BUILD') return false;
+    const playerStock = humanPlayer.resources[singleGiveRes] || 0;
+    if (playerStock < singleGiveAmt) return false;
+    if (hasSpecializedHarbor && singleGiveAmt >= 2 && singleGiveAmt % 2 === 0 && singleReceiveAmt === singleGiveAmt / 2) {
       return true;
     }
-    if (hasGenericHarbor && giveAmt >= 3 && giveAmt % 3 === 0 && receiveAmt === giveAmt / 3) {
+    if (hasGenericHarbor && singleGiveAmt >= 3 && singleGiveAmt % 3 === 0 && singleReceiveAmt === singleGiveAmt / 3) {
       return true;
     }
     return false;
@@ -194,18 +214,22 @@ export const UnifiedTradeModal: React.FC<UnifiedTradeModalProps> = ({ onClose })
 
   const handleTradeWithBank = () => {
     if (isWrongOnlinePlayer) return;
+    if (!isSingleResourceTrade) {
+      alert("לא ניתן לבצע מסחר בנמל/בנק המורכב מכמה סוגי משאבים!");
+      return;
+    }
     if (turnSubPhase !== 'TRADE_AND_BUILD') {
       alert("ניתן לסחור רק בשלב המסחר והבנייה!");
       return;
     }
 
-    const playerStock = humanPlayer.resources[giveRes] || 0;
-    if (playerStock < giveAmt) {
-      alert(`אין לך מספיק משאבים מסוג ${RESOURCE_LABELS[giveRes]} (יש לך ${playerStock})!`);
+    const playerStock = humanPlayer.resources[singleGiveRes] || 0;
+    if (playerStock < singleGiveAmt) {
+      alert(`אין לך מספיק משאבים מסוג ${RESOURCE_LABELS[singleGiveRes]} (יש לך ${playerStock})!`);
       return;
     }
 
-    const success = tradeWithBank(giveRes, receiveRes, giveAmt, receiveAmt);
+    const success = tradeWithBank(singleGiveRes, singleReceiveRes, singleGiveAmt, singleReceiveAmt);
     if (success) {
       onClose();
     }
@@ -258,75 +282,132 @@ export const UnifiedTradeModal: React.FC<UnifiedTradeModalProps> = ({ onClose })
         <div className="space-y-4">
           {/* GIVING RESOURCE ROW */}
           <div>
-            <label className="block text-slate-300 text-sm font-bold mb-2">אני מציע לתת (Offering):</label>
+            <div className="flex justify-between items-center mb-2">
+              <label className="block text-slate-300 text-sm font-bold">אני מציע לתת (Offering):</label>
+              <button
+                type="button"
+                onClick={() => setOffer({ WOOD: 0, BRICK: 0, SHEEP: 0, WHEAT: 0, ORE: 0 })}
+                className="text-[10px] bg-slate-800 hover:bg-slate-700 text-slate-300 px-2 py-0.5 rounded transition-colors font-bold cursor-pointer"
+              >
+                איפוס
+              </button>
+            </div>
             <div className="grid grid-cols-5 gap-2 mb-2">
               {(['WOOD', 'BRICK', 'SHEEP', 'WHEAT', 'ORE'] as const).map((res) => {
-                const isActive = giveRes === res;
+                const count = offer[res] || 0;
                 const stock = humanPlayer.resources[res] || 0;
+                
+                const bgStyle = count > 0
+                  ? { background: 'linear-gradient(to top, rgba(245, 158, 11, 0.25) 0%, rgba(245, 158, 11, 0.15) 42%, rgba(245, 158, 11, 0.01) 50%, transparent 100%)' }
+                  : undefined;
+                const borderClass = count > 0
+                  ? 'border-amber-500/80 shadow-[0_0_8px_rgba(245,158,11,0.15)] scale-[1.01]'
+                  : 'border-slate-800/80 hover:border-slate-700/80';
+
                 return (
-                  <button
+                  <div
                     key={res}
-                    type="button"
-                    onClick={() => {
-                      setGiveRes(res);
-                      setGiveAmt(1);
-                    }}
-                    className={`flex flex-col items-center justify-center p-2 rounded-xl border text-[10px] font-black transition-all cursor-pointer gap-1
-                      ${isActive ? 'bg-amber-950/45 border-amber-500 ring-1 ring-amber-500/40 text-white' : 'bg-slate-950/40 border-slate-800/80 text-slate-400 hover:bg-slate-950/70'}`}
+                    style={bgStyle}
+                    onClick={() => handleOfferCardClick(res)}
+                    className={`flex flex-col items-center justify-center p-2 rounded-xl border bg-slate-950/40 text-slate-400 gap-1 transition-all duration-200 cursor-pointer select-none ${borderClass}`}
                   >
-                    <div className="w-10 h-10 bg-slate-100/90 rounded-xl flex items-center justify-center p-1 shadow-sm">
+                    <div className="w-10 h-10 bg-slate-100/90 rounded-xl flex items-center justify-center p-1 shadow-sm pointer-events-none">
                       <TransparentImage src={RESOURCE_IMAGES[res]} className="object-contain w-full h-full" alt={RESOURCE_LABELS[res]} />
                     </div>
-                    <span className="text-[10px] text-slate-300 font-bold">{RESOURCE_LABELS[res]}</span>
-                    <span className="text-sm font-black text-amber-400">{stock}</span>
-                  </button>
+                    <span className="text-[10px] text-slate-300 font-bold pointer-events-none">{RESOURCE_LABELS[res]}</span>
+                    <span className="text-[10px] text-slate-400 font-semibold pointer-events-none">(מלאי: {stock})</span>
+                    <div className="flex items-center gap-1 mt-1">
+                      <button
+                        type="button"
+                        disabled={count <= 0}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setOffer(prev => ({ ...prev, [res]: Math.max(0, count - 1) }));
+                        }}
+                        className="w-5 h-5 bg-slate-800 hover:bg-slate-700 disabled:opacity-45 text-slate-100 rounded flex items-center justify-center font-bold text-xs cursor-pointer select-none"
+                      >
+                        -
+                      </button>
+                      <span className={`text-xs font-black min-w-[14px] text-center ${count > 0 ? 'text-amber-400' : 'text-slate-500'}`}>{count}</span>
+                      <button
+                        type="button"
+                        disabled={count >= stock}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setOffer(prev => ({ ...prev, [res]: Math.min(stock, count + 1) }));
+                        }}
+                        className="w-5 h-5 bg-slate-800 hover:bg-slate-700 disabled:opacity-45 text-slate-100 rounded flex items-center justify-center font-bold text-xs cursor-pointer select-none"
+                      >
+                        +
+                      </button>
+                    </div>
+                  </div>
                 );
               })}
-            </div>
-            <div className="flex items-center gap-3">
-              <span className="text-xs text-slate-400 font-bold">כמות להצעה:</span>
-              <input
-                type="number"
-                min={1}
-                max={humanPlayer.resources[giveRes] || 0}
-                value={giveAmt}
-                onChange={(e) => setGiveAmt(Math.max(1, parseInt(e.target.value) || 1))}
-                className="flex-1 bg-slate-950 border border-slate-800 text-slate-100 p-2 rounded-xl text-sm text-center focus:outline-none focus:ring-1 focus:ring-amber-500 font-bold"
-              />
             </div>
           </div>
 
           {/* REQUESTING RESOURCE ROW */}
           <div>
-            <label className="block text-slate-300 text-sm font-bold mb-2">אני מבקש לקבל (Requesting):</label>
+            <div className="flex justify-between items-center mb-2">
+              <label className="block text-slate-300 text-sm font-bold">אני מבקש לקבל (Requesting):</label>
+              <button
+                type="button"
+                onClick={() => setRequest({ WOOD: 0, BRICK: 0, SHEEP: 0, WHEAT: 0, ORE: 0 })}
+                className="text-[10px] bg-slate-800 hover:bg-slate-700 text-slate-300 px-2 py-0.5 rounded transition-colors font-bold cursor-pointer"
+              >
+                איפוס
+              </button>
+            </div>
             <div className="grid grid-cols-5 gap-2 mb-2">
               {(['WOOD', 'BRICK', 'SHEEP', 'WHEAT', 'ORE'] as const).map((res) => {
-                const isActive = receiveRes === res;
+                const count = request[res] || 0;
+                
+                const bgStyle = count > 0
+                  ? { background: 'linear-gradient(to top, rgba(16, 185, 129, 0.25) 0%, rgba(16, 185, 129, 0.15) 42%, rgba(16, 185, 129, 0.01) 50%, transparent 100%)' }
+                  : undefined;
+                const borderClass = count > 0
+                  ? 'border-emerald-500/80 shadow-[0_0_8px_rgba(16,185,129,0.15)] scale-[1.01]'
+                  : 'border-slate-800/80 hover:border-slate-700/80';
+
                 return (
-                  <button
+                  <div
                     key={res}
-                    type="button"
-                    onClick={() => setReceiveRes(res)}
-                    className={`flex flex-col items-center justify-center p-2 rounded-xl border text-[10px] font-black transition-all cursor-pointer gap-1
-                      ${isActive ? 'bg-amber-950/45 border-amber-500 ring-1 ring-amber-500/40 text-white' : 'bg-slate-950/40 border-slate-800/80 text-slate-400 hover:bg-slate-950/70'}`}
+                    style={bgStyle}
+                    onClick={() => handleRequestCardClick(res)}
+                    className={`flex flex-col items-center justify-center p-2 rounded-xl border bg-slate-950/40 text-slate-400 gap-1 transition-all duration-200 cursor-pointer select-none ${borderClass}`}
                   >
-                    <div className="w-10 h-10 bg-slate-100/90 rounded-xl flex items-center justify-center p-1 shadow-sm">
+                    <div className="w-10 h-10 bg-slate-100/90 rounded-xl flex items-center justify-center p-1 shadow-sm pointer-events-none">
                       <TransparentImage src={RESOURCE_IMAGES[res]} className="object-contain w-full h-full" alt={RESOURCE_LABELS[res]} />
                     </div>
-                    <span className="text-[10px] text-slate-300 font-bold">{RESOURCE_LABELS[res]}</span>
-                  </button>
+                    <span className="text-[10px] text-slate-300 font-bold pointer-events-none">{RESOURCE_LABELS[res]}</span>
+                    <div className="flex items-center gap-1 mt-1">
+                      <button
+                        type="button"
+                        disabled={count <= 0}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setRequest(prev => ({ ...prev, [res]: Math.max(0, count - 1) }));
+                        }}
+                        className="w-5 h-5 bg-slate-800 hover:bg-slate-700 disabled:opacity-45 text-slate-100 rounded flex items-center justify-center font-bold text-xs cursor-pointer select-none"
+                      >
+                        -
+                      </button>
+                      <span className={`text-xs font-black min-w-[14px] text-center ${count > 0 ? 'text-amber-400' : 'text-slate-500'}`}>{count}</span>
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setRequest(prev => ({ ...prev, [res]: count + 1 }));
+                        }}
+                        className="w-5 h-5 bg-slate-800 hover:bg-slate-700 text-slate-100 rounded flex items-center justify-center font-bold text-xs cursor-pointer select-none"
+                      >
+                        +
+                      </button>
+                    </div>
+                  </div>
                 );
               })}
-            </div>
-            <div className="flex items-center gap-3">
-              <span className="text-xs text-slate-400 font-bold">כמות מבוקשת:</span>
-              <input
-                type="number"
-                min={1}
-                value={receiveAmt}
-                onChange={(e) => setReceiveAmt(Math.max(1, parseInt(e.target.value) || 1))}
-                className="flex-1 bg-slate-950 border border-slate-800 text-slate-100 p-2 rounded-xl text-sm text-center focus:outline-none focus:ring-1 focus:ring-amber-500 font-bold"
-              />
             </div>
           </div>
 
@@ -389,14 +470,6 @@ export const UnifiedTradeModal: React.FC<UnifiedTradeModalProps> = ({ onClose })
               </div>
             )}
           </div>
-
-          {/* VALIDATION WARNING */}
-          {(humanPlayer.resources[giveRes] || 0) < giveAmt && (
-            <div className="text-red-400 text-xs font-bold bg-red-500/10 p-2.5 rounded-xl border border-red-500/25 flex items-center gap-2">
-              <WarningIcon size={16} className="text-red-500 inline-block" />
-              <span>שים לב: אין לך מספיק משאבים מסוג {RESOURCE_LABELS[giveRes]} להצעה זו!</span>
-            </div>
-          )}
         </div>
 
         {/* TRADE ACTIONS */}
@@ -404,7 +477,7 @@ export const UnifiedTradeModal: React.FC<UnifiedTradeModalProps> = ({ onClose })
           {/* Button 1: Propose Trade */}
           <button
             onClick={handleProposeTradeToPlayers}
-            disabled={isWrongOnlinePlayer || giveAmt <= 0 || receiveAmt <= 0 || giveRes === receiveRes || (humanPlayer.resources[giveRes] || 0) < giveAmt}
+            disabled={isWrongOnlinePlayer || Object.values(offer).reduce((sum, a) => sum + a, 0) <= 0 || Object.values(request).reduce((sum, a) => sum + a, 0) <= 0}
             className="bg-gradient-to-r from-amber-500 to-orange-500 text-slate-950 font-extrabold py-3 px-1 rounded-xl shadow-lg hover:brightness-110 active:scale-95 disabled:opacity-45 disabled:cursor-not-allowed transition-all text-xs cursor-pointer flex flex-col items-center justify-center gap-1 min-h-[64px]"
           >
             <span className="font-black text-center leading-tight">הצע מסחר לשחקנים</span>
@@ -419,9 +492,10 @@ export const UnifiedTradeModal: React.FC<UnifiedTradeModalProps> = ({ onClose })
                 ? 'bg-gradient-to-l from-emerald-500 to-teal-500 text-slate-950 border-emerald-400 hover:brightness-110 active:scale-95'
                 : 'bg-slate-800/40 text-slate-500 border-slate-800/50 opacity-45 cursor-not-allowed'
               }`}
+            title={!isSingleResourceTrade && (Object.values(offer).reduce((s, x) => s + (x > 0 ? 1 : 0), 0) > 1 || Object.values(request).reduce((s, x) => s + (x > 0 ? 1 : 0), 0) > 1) ? 'מסחר מול הבנק אינו זמין במסחר של סוגי משאבים שונים' : ''}
           >
             <span className="font-black text-center leading-tight">מסחר מול הבנק</span>
-            <span className="text-[9px] opacity-75">(יחס {giveAmt}:{receiveAmt})</span>
+            {isSingleResourceTrade && <span className="text-[9px] opacity-75">(יחס {singleGiveAmt}:{singleReceiveAmt})</span>}
           </button>
 
           {/* Button 3: Harbor Trade */}
@@ -433,9 +507,10 @@ export const UnifiedTradeModal: React.FC<UnifiedTradeModalProps> = ({ onClose })
                 ? 'bg-gradient-to-l from-emerald-500 to-teal-500 text-slate-950 border-emerald-400 hover:brightness-110 active:scale-95'
                 : 'bg-slate-800/40 text-slate-500 border-slate-800/50 opacity-45 cursor-not-allowed'
               }`}
+            title={!isSingleResourceTrade && (Object.values(offer).reduce((s, x) => s + (x > 0 ? 1 : 0), 0) > 1 || Object.values(request).reduce((s, x) => s + (x > 0 ? 1 : 0), 0) > 1) ? 'מסחר בנמל אינו זמין במסחר של סוגי משאבים שונים' : ''}
           >
             <span className="font-black text-center leading-tight">מסחר בנמל</span>
-            <span className="text-[9px] opacity-75">(יחס {giveAmt}:{receiveAmt})</span>
+            {isSingleResourceTrade && <span className="text-[9px] opacity-75">(יחס {singleGiveAmt}:{singleReceiveAmt})</span>}
           </button>
         </div>
 

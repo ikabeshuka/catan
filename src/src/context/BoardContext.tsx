@@ -6,6 +6,7 @@ import { SeafarersScenario } from '../types/game.types';
 import { BoardRenderCache, createBoardRenderCache } from '../utils/hexMath/boardRenderCache';
 import { CitiesKnightsState, createCitiesKnightsState } from '../types/citiesKnights.types';
 import { GameExpansion } from '../config/gameRules';
+import { ScenarioState, createScenarioState } from '../types/scenarioState.types';
 
 export interface RobberyState {
   tile: HexTile;
@@ -22,6 +23,7 @@ interface BoardContextType {
   selectedScenario: SeafarersScenario;
   activeRobberType: 'ROBBER' | 'PIRATE' | null;
   citiesKnightsState: CitiesKnightsState;
+  scenarioState: ScenarioState;
   boardRenderCache: BoardRenderCache;
 
   setTiles: React.Dispatch<React.SetStateAction<HexTile[]>>;
@@ -33,6 +35,7 @@ interface BoardContextType {
   setSelectedScenario: React.Dispatch<React.SetStateAction<SeafarersScenario>>;
   setActiveRobberType: React.Dispatch<React.SetStateAction<'ROBBER' | 'PIRATE' | null>>;
   setCitiesKnightsState: React.Dispatch<React.SetStateAction<CitiesKnightsState>>;
+  setScenarioState: React.Dispatch<React.SetStateAction<ScenarioState>>;
 }
 
 const BoardContext = createContext<BoardContextType | undefined>(undefined);
@@ -47,6 +50,7 @@ export const BoardProvider: React.FC<{ children: ReactNode }> = ({ children }) =
   const [selectedScenario, setSelectedScenario] = useState<SeafarersScenario>('HEADING_FOR_NEW_SHORES');
   const [activeRobberType, setActiveRobberType] = useState<'ROBBER' | 'PIRATE' | null>(null);
   const [citiesKnightsState, setCitiesKnightsState] = useState<CitiesKnightsState>(createCitiesKnightsState());
+  const [scenarioState, setScenarioState] = useState<ScenarioState>(() => createScenarioState('HEADING_FOR_NEW_SHORES'));
   const boardRenderCache = useMemo(
     () => createBoardRenderCache(tiles, vertices, edges),
     [tiles, vertices, edges]
@@ -64,6 +68,7 @@ export const BoardProvider: React.FC<{ children: ReactNode }> = ({ children }) =
         selectedScenario,
         activeRobberType,
         citiesKnightsState,
+        scenarioState,
         boardRenderCache,
         setTiles,
         setVertices,
@@ -74,6 +79,7 @@ export const BoardProvider: React.FC<{ children: ReactNode }> = ({ children }) =
         setSelectedScenario,
         setActiveRobberType,
         setCitiesKnightsState,
+        setScenarioState,
       }}
     >
       {children}
