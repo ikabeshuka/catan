@@ -3,6 +3,8 @@ export type TurnSubPhase = 'BEFORE_ROLL' | 'DISCARD_PHASE' | 'SABOTEUR_DISCARD' 
 export type SeafarersScenario = 'HEADING_FOR_NEW_SHORES' | 'FOUR_ISLANDS' | 'FOG_ISLAND' | 'THROUGH_THE_DESERT' | 'THE_LOST_TRIBE' | 'CLOTH_FOR_CATAN' | 'PIRATE_ISLANDS'
   | 'TREASURE_ISLANDS' | 'INTO_THE_UNKNOWN' | 'GREATER_CATAN' | 'DESERT_DRAGONS' | 'GREAT_CANAL' | 'ENCHANTED_LAND';
 
+export type MBScenario = 'FISHERMEN_OF_CATAN' | 'RIVERS_OF_CATAN' | 'CARAVAN_ROUTE' | 'BARBARIAN_ATTACK' | 'MERCHANTS_AND_BARBARIANS';
+
 // מצב מעקב ייעודי עבור סבבי ההקמה הראשוניים
 export interface SetupTurnState {
   hasPlacedSettlement: boolean;

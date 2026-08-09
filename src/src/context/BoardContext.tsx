@@ -2,7 +2,7 @@
 import React, { createContext, useContext, useMemo, useState, ReactNode } from 'react';
 import { HexTile } from '../types/hex.types';
 import { BoardVertex, BoardEdge } from '../types/boardElements.types';
-import { SeafarersScenario } from '../types/game.types';
+import { SeafarersScenario, MBScenario } from '../types/game.types';
 import { BoardRenderCache, createBoardRenderCache } from '../utils/hexMath/boardRenderCache';
 import { CitiesKnightsState, createCitiesKnightsState } from '../types/citiesKnights.types';
 import { GameExpansion } from '../config/gameRules';
@@ -21,6 +21,8 @@ interface BoardContextType {
   boardType: 'RANDOM' | 'STARTER';
   activeExpansion: GameExpansion;
   selectedScenario: SeafarersScenario;
+  mbScenarioId: MBScenario;
+  selectedMBScenario: MBScenario;
   activeRobberType: 'ROBBER' | 'PIRATE' | null;
   citiesKnightsState: CitiesKnightsState;
   scenarioState: ScenarioState;
@@ -33,6 +35,7 @@ interface BoardContextType {
   setBoardType: React.Dispatch<React.SetStateAction<'RANDOM' | 'STARTER'>>;
   setActiveExpansion: React.Dispatch<React.SetStateAction<GameExpansion>>;
   setSelectedScenario: React.Dispatch<React.SetStateAction<SeafarersScenario>>;
+  setSelectedMBScenario: React.Dispatch<React.SetStateAction<MBScenario>>;
   setActiveRobberType: React.Dispatch<React.SetStateAction<'ROBBER' | 'PIRATE' | null>>;
   setCitiesKnightsState: React.Dispatch<React.SetStateAction<CitiesKnightsState>>;
   setScenarioState: React.Dispatch<React.SetStateAction<ScenarioState>>;
@@ -48,6 +51,7 @@ export const BoardProvider: React.FC<{ children: ReactNode }> = ({ children }) =
   const [boardType, setBoardType] = useState<'RANDOM' | 'STARTER'>('RANDOM');
   const [activeExpansion, setActiveExpansion] = useState<GameExpansion>('BASE');
   const [selectedScenario, setSelectedScenario] = useState<SeafarersScenario>('HEADING_FOR_NEW_SHORES');
+  const [selectedMBScenario, setSelectedMBScenario] = useState<MBScenario>('FISHERMEN_OF_CATAN');
   const [activeRobberType, setActiveRobberType] = useState<'ROBBER' | 'PIRATE' | null>(null);
   const [citiesKnightsState, setCitiesKnightsState] = useState<CitiesKnightsState>(createCitiesKnightsState());
   const [scenarioState, setScenarioState] = useState<ScenarioState>(() => createScenarioState('HEADING_FOR_NEW_SHORES'));
@@ -66,6 +70,8 @@ export const BoardProvider: React.FC<{ children: ReactNode }> = ({ children }) =
         boardType,
         activeExpansion,
         selectedScenario,
+        mbScenarioId: selectedMBScenario,
+        selectedMBScenario,
         activeRobberType,
         citiesKnightsState,
         scenarioState,
@@ -77,6 +83,7 @@ export const BoardProvider: React.FC<{ children: ReactNode }> = ({ children }) =
         setBoardType,
         setActiveExpansion,
         setSelectedScenario,
+        setSelectedMBScenario,
         setActiveRobberType,
         setCitiesKnightsState,
         setScenarioState,

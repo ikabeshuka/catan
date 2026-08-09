@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import type { SeafarersScenario } from '../../../types/game.types';
+import type { SeafarersScenario, MBScenario } from '../../../types/game.types';
 import type { GameExpansion } from '../../../config/gameRules';
 
 interface LobbyStep2ExpansionProps {
@@ -7,6 +7,8 @@ interface LobbyStep2ExpansionProps {
   setActiveExpansion: (exp: GameExpansion) => void;
   selectedScenario: SeafarersScenario;
   setSelectedScenario: (scen: SeafarersScenario) => void;
+  selectedMBScenario: MBScenario;
+  setSelectedMBScenario: (scen: MBScenario) => void;
   boardType: 'RANDOM' | 'STARTER';
   setBoardType: (type: 'RANDOM' | 'STARTER') => void;
   onNext: () => void;
@@ -18,14 +20,17 @@ export const LobbyStep2_Expansion: React.FC<LobbyStep2ExpansionProps> = ({
   setActiveExpansion,
   selectedScenario,
   setSelectedScenario,
+  selectedMBScenario,
+  setSelectedMBScenario,
   boardType,
   setBoardType,
   onNext,
   onPrev,
 }) => {
   // Local state to allow multiple selections visually, as requested by the user
-  const [selectedExpansions, setSelectedExpansions] = useState<('SEAFARERS' | 'CITIES_AND_KNIGHTS')[]>(() => {
+  const [selectedExpansions, setSelectedExpansions] = useState<('SEAFARERS' | 'CITIES_AND_KNIGHTS' | 'MERCHANTS_AND_BARBARIANS')[]>(() => {
     if (activeExpansion === 'SEAFARERS_AND_CITIES_AND_KNIGHTS') return ['SEAFARERS', 'CITIES_AND_KNIGHTS'];
+    if (activeExpansion === 'MERCHANTS_AND_BARBARIANS') return ['MERCHANTS_AND_BARBARIANS'];
     return activeExpansion === 'SEAFARERS' || activeExpansion === 'CITIES_AND_KNIGHTS' ? [activeExpansion] : [];
   });
   const [showTreasuresRequirement, setShowTreasuresRequirement] = useState(false);
@@ -38,6 +43,8 @@ export const LobbyStep2_Expansion: React.FC<LobbyStep2ExpansionProps> = ({
       setActiveExpansion('CITIES_AND_KNIGHTS');
     } else if (selectedExpansions.includes('SEAFARERS')) {
       setActiveExpansion('SEAFARERS');
+    } else if (selectedExpansions.includes('MERCHANTS_AND_BARBARIANS')) {
+      setActiveExpansion('MERCHANTS_AND_BARBARIANS');
     } else {
       setActiveExpansion('BASE');
     }
@@ -49,7 +56,7 @@ export const LobbyStep2_Expansion: React.FC<LobbyStep2ExpansionProps> = ({
     return () => window.clearTimeout(timeoutId);
   }, [showTreasuresRequirement]);
 
-  const toggleExpansion = (exp: 'SEAFARERS' | 'CITIES_AND_KNIGHTS') => {
+  const toggleExpansion = (exp: 'SEAFARERS' | 'CITIES_AND_KNIGHTS' | 'MERCHANTS_AND_BARBARIANS') => {
     setSelectedExpansions(prev => prev.includes(exp)
       ? prev.filter(selected => selected !== exp)
       : [...prev, exp]);
@@ -57,6 +64,15 @@ export const LobbyStep2_Expansion: React.FC<LobbyStep2ExpansionProps> = ({
 
   const isSeafarersSelected = selectedExpansions.includes('SEAFARERS');
   const isCitiesKnightsSelected = selectedExpansions.includes('CITIES_AND_KNIGHTS');
+  const isMBSelected = selectedExpansions.includes('MERCHANTS_AND_BARBARIANS');
+
+  const MB_SCENARIOS_UI = [
+    { id: 'FISHERMEN_OF_CATAN', name: 'הדייגים של קטאן', icon: '🎣', desc: 'דוגו דגים באגמים ובחופים עבור הטבות מיוחדות ומשאבים.' },
+    { id: 'RIVERS_OF_CATAN', name: 'הנהרות של קטאן', icon: '🌊', desc: 'בנו גשרים מעל נהרות וצברו מטבעות זהב ועושר רב.' },
+    { id: 'CARAVAN_ROUTE', name: 'נתיב השיירות', icon: '🐪', desc: 'הובילו גמלים החוצות את האי כדי לשפר את דרכי המסחר.' },
+    { id: 'BARBARIAN_ATTACK', name: 'התקפת הברברים', icon: '⚔️', desc: 'הדפו את פלישות הברברים ושחררו ערי חוף בעזרת אבירים.' },
+    { id: 'MERCHANTS_AND_BARBARIANS', name: 'סוחרים וברברים', icon: '🏰', desc: 'הובילו סחורות יקרות ערך לטירת קטאן תחת איומי שודדים.' },
+  ] as const;
 
   const selectTreasuresDragonsAdventurers = () => {
     setSelectedExpansions(['SEAFARERS', 'CITIES_AND_KNIGHTS']);
@@ -162,14 +178,23 @@ export const LobbyStep2_Expansion: React.FC<LobbyStep2ExpansionProps> = ({
         {/* סוחרים וברברים - תחתון שמאלי */}
         <button
           type="button"
-          disabled
-          title="הרחבה זו עדיין אינה זמינה עד להשלמת תרחיש רשמי מלא."
-          className="group relative flex min-h-[264px] flex-col items-center gap-4 overflow-hidden rounded-2xl border border-slate-800 bg-slate-900/40 p-4 text-center opacity-50 cursor-not-allowed"
+          onClick={() => toggleExpansion('MERCHANTS_AND_BARBARIANS')}
+          className={`group relative flex min-h-[264px] flex-col items-center gap-4 overflow-hidden rounded-2xl border p-4 text-center transition-all duration-300 hover:scale-[1.02] ${
+            isMBSelected
+              ? 'border-violet-500 bg-slate-900/60 shadow-[0_0_30px_rgba(139,92,246,0.15)]'
+              : 'border-slate-800 bg-slate-900/40 hover:border-slate-700'
+          }`}
         >
           <div className="relative h-40 w-full overflow-hidden rounded-xl bg-slate-950">
-            <img src="/traders_barbarians.png" alt="Traders & Barbarians" className="h-full w-full object-cover transition-transform duration-500 group-hover:scale-105" />
+            <img src="/traders_barbarians.png" alt="Traders & Barbarians" className={`h-full w-full object-cover transition-transform duration-500 group-hover:scale-105 ${isMBSelected ? '' : 'grayscale'}`} />
             <div className="absolute inset-0 bg-gradient-to-t from-slate-950 via-transparent to-transparent opacity-60" />
-            <span className="absolute right-3 top-3 rounded-full border border-amber-500/30 bg-slate-950/80 px-2 py-1 text-[10px] font-black text-amber-400">בקרוב</span>
+            {isMBSelected && (
+              <div className="absolute top-3 right-3 bg-violet-500 text-slate-950 rounded-full p-1 shadow-lg z-10">
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M5 13l4 4L19 7" />
+                </svg>
+              </div>
+            )}
           </div>
           <div className="flex flex-col items-center">
             <span className="text-xl font-black text-slate-100">סוחרים וברברים</span>
@@ -181,6 +206,47 @@ export const LobbyStep2_Expansion: React.FC<LobbyStep2ExpansionProps> = ({
       {showTreasuresRequirement && (
         <div role="status" className="w-full max-w-2xl rounded-xl border border-amber-400/60 bg-amber-950/55 px-4 py-3 text-center text-sm font-bold text-amber-100 shadow-lg">
           להרחבה זו נדרשות שתי ההרחבות „יורדי הים” ו„ערים ואבירים”.
+        </div>
+      )}
+
+      {/* ממשק בחירת תרחיש מרהיב עבור סוחרים וברברים */}
+      {isMBSelected && (
+        <div className="w-full mt-2 p-5 rounded-2xl border border-slate-800/80 bg-slate-900/60 shadow-[0_0_30px_rgba(139,92,246,0.15)] flex flex-col gap-4 animate-fade-in max-w-2xl">
+          <div className="text-center">
+            <h3 className="text-base font-black text-violet-400 flex items-center justify-center gap-2">
+              <span>🏰</span> בחר תרחיש להרפתקת סוחרים וברברים:
+            </h3>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4 w-full">
+            {MB_SCENARIOS_UI.map((scen) => (
+              <button
+                key={scen.id}
+                type="button"
+                onClick={() => setSelectedMBScenario(scen.id)}
+                className={`group/scenario p-3 rounded-xl border text-center transition-all duration-300 hover:scale-[1.02] cursor-pointer flex flex-col items-center gap-2 relative overflow-hidden ${
+                  selectedMBScenario === scen.id
+                    ? 'border-violet-400 bg-slate-950/80 shadow-[0_0_15px_rgba(139,92,246,0.2)]'
+                    : 'border-slate-850 bg-slate-950/40 hover:border-slate-700 hover:bg-slate-950/60'
+                }`}
+              >
+                {selectedMBScenario === scen.id && (
+                  <div className="absolute top-2 right-2 bg-violet-500 text-slate-950 rounded-full p-0.5 shadow z-10">
+                    <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M5 13l4 4L19 7" />
+                    </svg>
+                  </div>
+                )}
+                <span className="text-2xl filter drop-shadow">{scen.icon}</span>
+                <span className="text-sm font-bold text-slate-100 group-hover/scenario:text-violet-300 transition-colors">
+                  {scen.name}
+                </span>
+                <span className="text-[10px] text-slate-400 leading-relaxed text-center">
+                  {scen.desc}
+                </span>
+              </button>
+            ))}
+          </div>
         </div>
       )}
 

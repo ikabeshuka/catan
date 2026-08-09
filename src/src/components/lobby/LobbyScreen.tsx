@@ -39,6 +39,8 @@ export const LobbyScreen: React.FC<LobbyScreenProps> = ({
     setActiveExpansion,
     selectedScenario,
     setSelectedScenario,
+    selectedMBScenario,
+    setSelectedMBScenario,
     myPlayerId,
     setMyPlayerId
   } = useGame();
@@ -299,6 +301,8 @@ export const LobbyScreen: React.FC<LobbyScreenProps> = ({
             setActiveExpansion={setActiveExpansion}
             selectedScenario={selectedScenario}
             setSelectedScenario={setSelectedScenario}
+            selectedMBScenario={selectedMBScenario}
+            setSelectedMBScenario={setSelectedMBScenario}
             boardType={boardType}
             setBoardType={setBoardType}
             onNext={handleNextStep}
