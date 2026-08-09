@@ -21,6 +21,10 @@ export const BarbarianAttackPanel: React.FC = () => {
   const [targetB, setTargetB] = useState('');
   const [knightId, setKnightId] = useState('');
   const [payWheat, setPayWheat] = useState(false);
+  const edgeOptions = useMemo(() => {
+    if (scenarioState.kind !== 'BARBARIAN_ATTACK') return [];
+    return edges.filter(edge => !scenarioState.knights.some((knight: any) => knight.edgeId === edge.id));
+  }, [edges, scenarioState]);
   if (scenarioState.kind !== 'BARBARIAN_ATTACK') return null;
   const currentPlayer = players[currentPlayerIndex];
   const humanPlayer = roomId ? players.find(player => player.id === myPlayerId) : players.find(player => !player.isBot) || currentPlayer;
@@ -28,7 +32,6 @@ export const BarbarianAttackPanel: React.FC = () => {
   const pending = scenarioState.pendingDevelopmentCard;
   const playerKnights = scenarioState.knights.filter(knight => knight.ownerPlayerId === humanPlayer?.id);
   const barbarians = scenarioState.barbarians;
-  const edgeOptions = useMemo(() => edges.filter(edge => !scenarioState.knights.some(knight => knight.edgeId === edge.id)), [edges, scenarioState.knights]);
   const submit = (action: any) => dispatchGameAction(action, {
     roomId: roomId || undefined,
     isRemote: false,

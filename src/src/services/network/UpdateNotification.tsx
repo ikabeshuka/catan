@@ -61,7 +61,7 @@ export const UpdateNotification: React.FC = () => {
 
           // Convert installer setup url to portable exe url
           const urlParts = setupUrl.split('/');
-          urlParts[urlParts.length - 1] = 'catan.exe';
+          urlParts[urlParts.length - 1] = 'catan-portable.exe';
           const downloadUrl = urlParts.join('/');
           
           if (!downloadUrl.endsWith('.exe')) {
