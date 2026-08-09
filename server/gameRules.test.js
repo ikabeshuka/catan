@@ -52,6 +52,266 @@ test('reserves typed scenario actions without enabling them before their rules e
   assert.match(result.message, /cannot be claimed/i);
 });
 
+test('Fishermen uses exact fish-token payments and returns spent chits to the shared discard pile', () => {
+  const state = baseState();
+  state.activeExpansion = 'MERCHANTS_AND_BARBARIANS';
+  state.selectedMBScenario = 'FISHERMEN_OF_CATAN';
+  state.players[0].fishTokens = [1, 2, 3, 1];
+  state.players[0].fishCount = 7;
+  state.scenarioState = {
+    version: 1,
+    scenarioId: 'FISHERMEN_OF_CATAN',
+    kind: 'FISHERMEN_OF_CATAN',
+    fishDrawPile: [1, 'OLD_BOOT'],
+    fishDiscardPile: [],
+  };
+
+  const action = { type: 'SPEND_FISH_ACTION', playerId: 'p1', actionType: 'FREE_ROAD' };
+  assert.equal(validateActionShape(action).ok, true);
+  assert.equal(validateGameAction(state, action).ok, true);
+  applyReservedAction(state, action);
+
+  assert.deepEqual(state.players[0].fishTokens, [1, 1]);
+  assert.equal(state.players[0].fishCount, 2);
+  assert.deepEqual(state.scenarioState.fishDiscardPile.sort(), [2, 3]);
+  assert.equal(state.roadBuildingRemaining, 1);
+  assert.equal(validateGameAction(state, action).ok, false, 'the same player can no longer pay five exactly');
+});
+
+test('Fishermen removes the robber from the board until a later seven', () => {
+  const state = baseState();
+  state.activeExpansion = 'MERCHANTS_AND_BARBARIANS';
+  state.selectedMBScenario = 'FISHERMEN_OF_CATAN';
+  state.players[0].fishTokens = [2];
+  state.players[0].fishCount = 2;
+  state.scenarioState = { version: 1, scenarioId: 'FISHERMEN_OF_CATAN', kind: 'FISHERMEN_OF_CATAN', fishDrawPile: [], fishDiscardPile: [] };
+  state.tiles[0].hasRobber = true;
+
+  const action = { type: 'SPEND_FISH_ACTION', playerId: 'p1', actionType: 'MOVE_ROBBER' };
+  assert.equal(validateGameAction(state, action).ok, true);
+  applyReservedAction(state, action);
+  assert.equal(state.tiles.some(tile => tile.hasRobber || tile.hasPirate), false);
+  assert.deepEqual(state.scenarioState.fishDiscardPile, [2]);
+});
+
+test('Fishermen grants one finite fish chit for each fishing area next to the second setup settlement', () => {
+  const state = baseState();
+  state.activeExpansion = 'MERCHANTS_AND_BARBARIANS';
+  state.selectedMBScenario = 'FISHERMEN_OF_CATAN';
+  state.gamePhase = 'SETUP_ROUND_2';
+  state.vertices[1].id = 'v_52_-30';
+  state.vertices[1].structure = 'NONE';
+  state.tiles = [{ id: 'fish-1', type: 'FISHING_GROUND', coord: { q: 0, r: 0, s: 0 } }];
+  state.scenarioState = {
+    version: 1,
+    scenarioId: 'FISHERMEN_OF_CATAN',
+    kind: 'FISHERMEN_OF_CATAN',
+    fishDrawPile: [2, 'OLD_BOOT'],
+    fishDiscardPile: [],
+  };
+
+  applyReservedAction(state, { type: 'BUILD_SETTLEMENT', playerId: 'p1', vertexId: 'v_52_-30' });
+  assert.deepEqual(state.players[0].fishTokens, [2]);
+  assert.equal(state.players[0].fishCount, 2);
+  assert.deepEqual(state.scenarioState.fishDrawPile, ['OLD_BOOT']);
+});
+
+test('The baggage train rules are restricted to the final Merchants & Barbarians scenario', () => {
+  const state = baseState();
+  state.activeExpansion = 'MERCHANTS_AND_BARBARIANS';
+  state.selectedMBScenario = 'RIVERS_OF_CATAN';
+  state.players[0].wagonPosition = 'v_52_-30';
+  state.players[0].remainingMovementPoints = 4;
+  assert.equal(validateGameAction(state, { type: 'MOVE_WAGON', playerId: 'p1', targetVertexId: 'v_52_30', movementCost: 1 }).ok, false);
+
+  state.selectedMBScenario = 'MERCHANTS_AND_BARBARIANS';
+  assert.equal(validateGameAction(state, { type: 'MOVE_WAGON', playerId: 'p1', targetVertexId: 'v_52_30', movementCost: 1 }).ok, true);
+});
+
+test('Merchants & Barbarians wagon draws cargo and scores a completed delivery', () => {
+  const state = baseState();
+  state.activeExpansion = 'MERCHANTS_AND_BARBARIANS';
+  state.selectedMBScenario = 'MERCHANTS_AND_BARBARIANS';
+  state.players[0].wagonPosition = 'v_52_-30';
+  state.players[0].wagonLevel = 3;
+  state.players[0].remainingMovementPoints = 5;
+  state.scenarioState = {
+    version: 1, scenarioId: 'MERCHANTS_AND_BARBARIANS', kind: 'MERCHANTS_AND_BARBARIANS',
+    targetVertexIdsByTileId: { glass: ['v_52_30'], castle: ['v_52_-30'] },
+    productDecksByTargetId: { glass: ['GLASS'], castle: ['SAND'] }, barbarianEdgeIds: [],
+  };
+  state.tiles = [{ id: 'glass', type: 'GLASSWORKS' }, { id: 'castle', type: 'CASTLE' }];
+
+  const firstArrival = { type: 'MOVE_WAGON', playerId: 'p1', targetVertexId: 'v_52_30', movementCost: 1 };
+  assert.equal(validateGameAction(state, firstArrival).ok, true);
+  applyReservedAction(state, firstArrival);
+  assert.equal(state.players[0].wagonCargo, 'GLASS');
+  assert.equal(state.players[0].remainingMovementPoints, 0, 'arrival ends movement');
+
+  state.players[0].remainingMovementPoints = 5;
+  const delivery = { type: 'MOVE_WAGON', playerId: 'p1', targetVertexId: 'v_52_-30', movementCost: 1 };
+  assert.equal(validateGameAction(state, delivery).ok, true);
+  applyReservedAction(state, delivery);
+  assert.equal(state.players[0].victoryPoints, 1);
+  assert.equal(state.goldCoins.p1, 7, 'level three awards three gold on delivery');
+  assert.equal(state.players[0].wagonCargo, 'SAND', 'a new product is revealed at the delivery target');
+});
+
+test('Rivers of Catan updates rich and poor settler scores and allows repeated gold trades', () => {
+  const state = baseState();
+  state.activeExpansion = 'MERCHANTS_AND_BARBARIANS';
+  state.selectedMBScenario = 'RIVERS_OF_CATAN';
+  state.goldCoins = { p1: 6, p2: 0 };
+  const action = { type: 'GOLD_TRADE', playerId: 'p1', requestedResource: 'WOOD' };
+
+  for (let index = 0; index < 3; index += 1) {
+    assert.equal(validateGameAction(state, action).ok, true);
+    applyReservedAction(state, action);
+  }
+  assert.equal(state.goldCoins.p1, 0);
+  assert.equal(state.players[0].goldTradesThisTurn, 3);
+  assert.equal(state.players[0].riverScoreModifier, -2);
+  assert.equal(state.players[1].riverScoreModifier, -2);
+});
+
+test('Rivers of Catan builds at most three connected bridges for wood, two brick, and three gold', () => {
+  const state = baseState();
+  state.activeExpansion = 'MERCHANTS_AND_BARBARIANS';
+  state.selectedMBScenario = 'RIVERS_OF_CATAN';
+  state.goldCoins = { p1: 0, p2: 0 };
+  state.edges[0].isRiverCrossing = true;
+  const action = { type: 'BUILD_BRIDGE', playerId: 'p1', edgeId: state.edges[0].id };
+
+  assert.equal(validateGameAction(state, action).ok, true);
+  applyReservedAction(state, action);
+  assert.equal(state.edges[0].bridgePlayerId, 'p1');
+  assert.equal(state.players[0].resources.WOOD, 4);
+  assert.equal(state.players[0].resources.BRICK, 3);
+  assert.equal(state.goldCoins.p1, 3);
+});
+
+test('Caravan Route places only legal camel extensions, blocks the turn, and scores enclosed structures', () => {
+  const state = baseState();
+  state.activeExpansion = 'MERCHANTS_AND_BARBARIANS';
+  state.selectedMBScenario = 'CARAVAN_ROUTE';
+  state.tiles = [{ id: 'oasis', type: 'OASIS', coord: { q: 0, r: 0, s: 0 } }];
+  state.vertices[1] = { id: 'v_52_30', structure: 'SETTLEMENT', playerId: 'p1' };
+  state.scenarioState = {
+    version: 1, scenarioId: 'CARAVAN_ROUTE', kind: 'CARAVAN_ROUTE',
+    camelEdgeIds: [], remainingCamels: 22, pendingCamelPlayerId: 'p1',
+  };
+  const first = { type: 'PLACE_CARAVAN_CAMEL', playerId: 'p1', edgeId: 'e_v_52_-30_v_52_30' };
+  assert.equal(validateGameAction(state, first).ok, true);
+  applyReservedAction(state, first);
+  assert.equal(state.edges[0].camelCount, 1);
+  assert.equal(state.scenarioState.remainingCamels, 21);
+  assert.equal(state.players[0].caravanScoreModifier, 0);
+
+  state.scenarioState.pendingCamelPlayerId = 'p1';
+  const second = { type: 'PLACE_CARAVAN_CAMEL', playerId: 'p1', edgeId: 'e_v_0_60_v_52_30' };
+  assert.equal(validateGameAction(state, second).ok, true);
+  applyReservedAction(state, second);
+  assert.equal(state.players[0].caravanScoreModifier, 1);
+
+  state.scenarioState.pendingCamelPlayerId = 'p1';
+  assert.equal(validateGameAction(state, { type: 'END_TURN', playerId: 'p1' }).ok, false);
+});
+
+test('Caravan Route resolves sheep/wheat voting, including a tied consensus', () => {
+  const state = baseState();
+  state.activeExpansion = 'MERCHANTS_AND_BARBARIANS';
+  state.selectedMBScenario = 'CARAVAN_ROUTE';
+  state.tiles = [{ id: 'oasis', type: 'OASIS', coord: { q: 0, r: 0, s: 0 } }];
+  state.resourceBank = resources();
+  state.players[0].resources = resources({ SHEEP: 2, WHEAT: 1 });
+  state.players[1].resources = resources({ SHEEP: 1, WHEAT: 2 });
+  state.scenarioState = {
+    version: 1, scenarioId: 'CARAVAN_ROUTE', kind: 'CARAVAN_ROUTE', camelEdgeIds: [], remainingCamels: 22,
+    pendingCaravanVote: { initiatedByPlayerId: 'p1', votesByPlayerId: {} },
+  };
+
+  const p1Vote = { type: 'CAST_CARAVAN_VOTE', playerId: 'p1', cards: { SHEEP: 1, WHEAT: 0 } };
+  const p2Vote = { type: 'CAST_CARAVAN_VOTE', playerId: 'p2', cards: { SHEEP: 0, WHEAT: 2 } };
+  assert.equal(validateGameAction(state, p1Vote).ok, true);
+  applyReservedAction(state, p1Vote);
+  assert.equal(validateGameAction(state, p2Vote).ok, true);
+  applyReservedAction(state, p2Vote);
+  assert.equal(state.scenarioState.pendingCamelPlayerId, 'p2');
+  assert.equal(state.players[0].resources.SHEEP, 1);
+  assert.equal(state.players[1].resources.WHEAT, 0);
+
+  const p2Place = { type: 'PLACE_CARAVAN_CAMEL', playerId: 'p2', edgeId: 'e_v_52_-30_v_52_30' };
+  assert.equal(validateGameAction(state, p2Place).ok, true);
+  applyReservedAction(state, p2Place);
+  assert.equal(state.edges[0].camelCount, 1);
+
+  state.scenarioState.pendingCaravanVote = { initiatedByPlayerId: 'p1', votesByPlayerId: {} };
+  state.players[0].resources.SHEEP = 1;
+  state.players[1].resources.WHEAT = 1;
+  applyReservedAction(state, { type: 'CAST_CARAVAN_VOTE', playerId: 'p1', cards: { SHEEP: 1, WHEAT: 0 } });
+  applyReservedAction(state, { type: 'CAST_CARAVAN_VOTE', playerId: 'p2', cards: { SHEEP: 0, WHEAT: 1 } });
+  assert.deepEqual(state.scenarioState.pendingCamelTie.playerIds.sort(), ['p1', 'p2']);
+  const tieChoice = { type: 'CHOOSE_CARAVAN_TIE_LOCATION', edgeId: 'e_v_0_60_v_52_30' };
+  applyReservedAction(state, { ...tieChoice, playerId: 'p1' });
+  assert.equal(state.edges[1].camelCount, undefined);
+  applyReservedAction(state, { ...tieChoice, playerId: 'p2' });
+  assert.equal(state.edges[1].camelCount, 1);
+  assert.equal(state.scenarioState.pendingCamelTie, undefined);
+});
+
+test('Barbarian Attack places barbarians on three distinct coastal dice results after a city is built', () => {
+  const state = baseState();
+  state.activeExpansion = 'MERCHANTS_AND_BARBARIANS';
+  state.selectedMBScenario = 'BARBARIAN_ATTACK';
+  state.vertices[0].structure = 'SETTLEMENT';
+  state.tiles = [
+    { id: 'coast-2', type: 'WOOD', numberToken: 2, coord: { q: -2, r: 2, s: 0 } },
+    { id: 'coast-3', type: 'BRICK', numberToken: 3, coord: { q: -2, r: 1, s: 1 } },
+    { id: 'coast-4', type: 'WHEAT', numberToken: 4, coord: { q: -2, r: 0, s: 2 } },
+  ];
+  state.scenarioState = {
+    version: 1, scenarioId: 'BARBARIAN_ATTACK', kind: 'BARBARIAN_ATTACK', fortressTileId: 'coast-2',
+    barbarians: [
+      { id: 'barbarian-p1-old-1', ownerPlayerId: 'p1', tileId: 'coast-2' },
+      { id: 'barbarian-p1-old-2', ownerPlayerId: 'p1', tileId: 'coast-2' },
+    ], remainingByPlayerId: { p1: 6, p2: 6 }, capturedTileIds: [],
+  };
+  const action = { type: 'BUILD_CITY', playerId: 'p1', vertexId: state.vertices[0].id };
+  assert.equal(validateGameAction(state, action).ok, true);
+  const originalRandom = Math.random;
+  const randomValues = [0, 0.1, 0.2];
+  Math.random = () => randomValues.shift() ?? 0.3;
+  try { applyReservedAction(state, action); } finally { Math.random = originalRandom; }
+  assert.equal(state.scenarioState.remainingByPlayerId.p1, 3);
+  assert.equal(state.scenarioState.remainingByPlayerId.p2, 6);
+  assert.equal(state.scenarioState.barbarians.length, 5);
+  assert.deepEqual(state.scenarioState.capturedTileIds, ['coast-2']);
+  assert.equal(state.tiles[0].scenarioMarker.barbarianCaptured, true);
+});
+
+test('Barbarian Attack resolves a drawn Knighthood card on a free fortress route and returns it to the deck', () => {
+  const state = baseState();
+  state.activeExpansion = 'MERCHANTS_AND_BARBARIANS';
+  state.selectedMBScenario = 'BARBARIAN_ATTACK';
+  state.edges[0].isBarbarianFortressRoute = true;
+  state.devCardDeck = ['KNIGHTHOOD'];
+  state.scenarioState = {
+    version: 1, scenarioId: 'BARBARIAN_ATTACK', kind: 'BARBARIAN_ATTACK', fortressTileId: 'coast-2',
+    barbarians: [], remainingByPlayerId: { p1: 6, p2: 6 }, capturedTileIds: [], knights: [], prisonersByPlayerId: { p1: 0, p2: 0 },
+  };
+  const buy = { type: 'BUY_DEV_CARD', playerId: 'p1', cardType: 'KNIGHTHOOD' };
+  assert.equal(validateGameAction(state, buy).ok, true);
+  applyReservedAction(state, buy);
+  assert.deepEqual(state.scenarioState.pendingDevelopmentCard, { playerId: 'p1', cardType: 'KNIGHTHOOD' });
+  assert.equal(validateGameAction(state, { type: 'END_TURN', playerId: 'p1' }).ok, false);
+  const resolve = { type: 'RESOLVE_BARBARIAN_CARD', playerId: 'p1', edgeId: state.edges[0].id };
+  assert.equal(validateGameAction(state, resolve).ok, true);
+  applyReservedAction(state, resolve);
+  assert.equal(state.scenarioState.knights[0].edgeId, state.edges[0].id);
+  assert.deepEqual(state.devCardDeck, ['KNIGHTHOOD']);
+  assert.equal(validateGameAction(state, { type: 'END_TURN', playerId: 'p1' }).ok, false);
+});
+
 test('Treasure Islands claims an adjacent chest and restricts grain-or-brick rewards', () => {
   const state = baseState();
   state.selectedScenario = 'TREASURE_ISLANDS';

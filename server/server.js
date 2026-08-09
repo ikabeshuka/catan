@@ -43,6 +43,8 @@ const payloadFits = value => {
   try { return Buffer.byteLength(JSON.stringify(value), 'utf8') <= MAX_PAYLOAD_BYTES; } catch { return false; }
 };
 const STANDARD_DEV_COUNTS = { KNIGHT: 14, VICTORY_POINT: 5, ROAD_BUILDING: 2, YEAR_OF_PLENTY: 2, MONOPOLY: 2 };
+const BARBARIAN_ATTACK_DEV_COUNTS = { KNIGHTHOOD: 14, STRONG_KNIGHT: 4, TREASON: 4, INTRIGUE: 4 };
+const MERCHANTS_BARBARIANS_DEV_COUNTS = { KNIGHT: 16, ROAD_BUILDING: 2, SWIFT_JOURNEY: 2, VICTORY_POINT: 5 };
 const TDA_SCENARIO_KINDS = {
   TREASURE_ISLANDS: 'TREASURE_ISLANDS',
   INTO_THE_UNKNOWN: 'INTO_THE_UNKNOWN',
@@ -51,12 +53,45 @@ const TDA_SCENARIO_KINDS = {
   GREAT_CANAL: 'GREAT_CANAL',
   ENCHANTED_LAND: 'ENCHANTED_LAND',
 };
-const validateScenarioState = (scenarioState, selectedScenario) => {
+const MB_SCENARIOS = new Set(['FISHERMEN_OF_CATAN', 'RIVERS_OF_CATAN', 'CARAVAN_ROUTE', 'BARBARIAN_ATTACK', 'MERCHANTS_AND_BARBARIANS']);
+const validateScenarioState = (scenarioState, selectedScenario, selectedMBScenario, activeExpansion) => {
   // Older rooms did not send this field. Keeping that snapshot compatibility is
   // important while new games always include the versioned state.
   if (scenarioState === undefined) return true;
-  if (!isPlainObject(scenarioState) || scenarioState.version !== 1 || scenarioState.scenarioId !== selectedScenario ||
+  const scenarioId = activeExpansion === 'MERCHANTS_AND_BARBARIANS' ? selectedMBScenario : selectedScenario;
+  if (!isPlainObject(scenarioState) || scenarioState.version !== 1 || scenarioState.scenarioId !== scenarioId ||
       typeof scenarioState.kind !== 'string') return false;
+  if (activeExpansion === 'MERCHANTS_AND_BARBARIANS') {
+    if (!MB_SCENARIOS.has(selectedMBScenario)) return false;
+    if (selectedMBScenario === 'CARAVAN_ROUTE') {
+      return scenarioState.kind === 'CARAVAN_ROUTE' && Array.isArray(scenarioState.camelEdgeIds) &&
+        scenarioState.camelEdgeIds.every(isShortString) && Number.isInteger(scenarioState.remainingCamels) &&
+        scenarioState.remainingCamels >= 0 && scenarioState.remainingCamels <= 22 &&
+        (scenarioState.pendingCamelPlayerId === undefined || isShortString(scenarioState.pendingCamelPlayerId));
+    }
+    if (selectedMBScenario === 'BARBARIAN_ATTACK') {
+      return scenarioState.kind === 'BARBARIAN_ATTACK' && Array.isArray(scenarioState.barbarians) &&
+        scenarioState.barbarians.every(entry => isPlainObject(entry) && isShortString(entry.id) && isShortString(entry.ownerPlayerId) && isShortString(entry.tileId)) &&
+        isPlainObject(scenarioState.remainingByPlayerId) && Object.values(scenarioState.remainingByPlayerId).every(value => Number.isInteger(value) && value >= 0 && value <= 6) &&
+        Array.isArray(scenarioState.capturedTileIds) && scenarioState.capturedTileIds.every(isShortString) &&
+        Array.isArray(scenarioState.knights) && scenarioState.knights.every(entry => isPlainObject(entry) && isShortString(entry.id) && isShortString(entry.ownerPlayerId) && isShortString(entry.edgeId) && ['KNIGHTHOOD', 'STRONG_KNIGHT'].includes(entry.kind)) &&
+        isPlainObject(scenarioState.prisonersByPlayerId) && Object.values(scenarioState.prisonersByPlayerId).every(value => Number.isInteger(value) && value >= 0) &&
+        (scenarioState.pendingDevelopmentCard === undefined || (isPlainObject(scenarioState.pendingDevelopmentCard) && isShortString(scenarioState.pendingDevelopmentCard.playerId) && ['KNIGHTHOOD', 'STRONG_KNIGHT', 'TREASON', 'INTRIGUE'].includes(scenarioState.pendingDevelopmentCard.cardType))) &&
+        (scenarioState.fortressTileId === undefined || isShortString(scenarioState.fortressTileId));
+    }
+    if (selectedMBScenario === 'MERCHANTS_AND_BARBARIANS') {
+      const validProduct = product => ['GLASS', 'MARBLE', 'SAND', 'TOOLS'].includes(product);
+      return scenarioState.kind === 'MERCHANTS_AND_BARBARIANS' && isPlainObject(scenarioState.targetVertexIdsByTileId) &&
+        Object.entries(scenarioState.targetVertexIdsByTileId).every(([id, ids]) => isShortString(id) && Array.isArray(ids) && ids.every(isShortString)) &&
+        isPlainObject(scenarioState.productDecksByTargetId) && Object.values(scenarioState.productDecksByTargetId).every(deck => Array.isArray(deck) && deck.every(validProduct)) &&
+        Array.isArray(scenarioState.barbarianEdgeIds) && scenarioState.barbarianEdgeIds.length <= 3 && scenarioState.barbarianEdgeIds.every(isShortString);
+    }
+    if (selectedMBScenario !== 'FISHERMEN_OF_CATAN') return scenarioState.kind === 'STANDARD';
+    const fishTokens = value => Array.isArray(value) && value.every(token => token === 1 || token === 2 || token === 3);
+    return scenarioState.kind === 'FISHERMEN_OF_CATAN' &&
+      Array.isArray(scenarioState.fishDrawPile) && scenarioState.fishDrawPile.every(token => token === 1 || token === 2 || token === 3 || token === 'OLD_BOOT') &&
+      fishTokens(scenarioState.fishDiscardPile);
+  }
   const expectedKind = TDA_SCENARIO_KINDS[selectedScenario];
   return expectedKind ? scenarioState.kind === expectedKind : scenarioState.kind === 'STANDARD';
 };
@@ -66,7 +101,7 @@ const validateRuntimeGameState = (state, room) => {
       !Number.isInteger(state.currentPlayerIndex) || state.currentPlayerIndex < 0 || state.currentPlayerIndex >= state.players.length ||
       !['SETUP_ROUND_1', 'SETUP_ROUND_2', 'SETUP_ROUND_3', 'MAIN_GAME', 'GAME_OVER'].includes(state.gamePhase) ||
       !isPlainObject(state.resourceBank) || !Array.isArray(state.devCardDeck) ||
-      !validateScenarioState(state.scenarioState, state.selectedScenario)) return false;
+      !validateScenarioState(state.scenarioState, state.selectedScenario, state.selectedMBScenario, state.activeExpansion)) return false;
   const playerIds = state.players.map(player => player?.id);
   if (new Set(playerIds).size !== playerIds.length || playerIds.some((id, index) => id !== `p${index + 1}`)) return false;
   if (state.players.some(player => !isPlainObject(player.resources) || RESOURCE_TYPES.some(resource =>
@@ -78,7 +113,9 @@ const validateRuntimeGameState = (state, room) => {
 const validateInitialGameState = (state, room) => {
   const isLostTribe = state.selectedScenario === 'THE_LOST_TRIBE';
   const isThreePlayerPirateIslands = state.selectedScenario === 'PIRATE_ISLANDS' && state.players?.length === 3;
-  const expectedDeckLength = isLostTribe ? 21 : isThreePlayerPirateIslands ? 20 : 25;
+  const isBarbarianAttack = state.activeExpansion === 'MERCHANTS_AND_BARBARIANS' && state.selectedMBScenario === 'BARBARIAN_ATTACK';
+  const isMerchantsAndBarbarians = state.activeExpansion === 'MERCHANTS_AND_BARBARIANS' && state.selectedMBScenario === 'MERCHANTS_AND_BARBARIANS';
+  const expectedDeckLength = isBarbarianAttack ? 26 : isLostTribe ? 21 : isThreePlayerPirateIslands ? 20 : 25;
   if (!validateRuntimeGameState(state, room) || !['SETUP_ROUND_1', 'SETUP_ROUND_2'].includes(state.gamePhase) || state.devCardDeck.length !== expectedDeckLength) return false;
   const playerIds = state.players.map(player => player?.id);
   if (new Set(playerIds).size !== playerIds.length || playerIds.some((id, index) => id !== `p${index + 1}`)) return false;
@@ -97,8 +134,11 @@ const validateInitialGameState = (state, room) => {
     if (reservedCards.length !== 4 || reservedCards.some(card => !DEV_CARD_TYPES.includes(card))) return false;
     reservedCards.forEach(card => { deckCounts[card] += 1; });
   }
-  return DEV_CARD_TYPES.every(type => deckCounts[type] ===
-    (isThreePlayerPirateIslands && type === 'VICTORY_POINT' ? 0 : STANDARD_DEV_COUNTS[type]));
+  const expectedCounts = isBarbarianAttack ? BARBARIAN_ATTACK_DEV_COUNTS : isMerchantsAndBarbarians ? MERCHANTS_BARBARIANS_DEV_COUNTS : STANDARD_DEV_COUNTS;
+  return DEV_CARD_TYPES.every(type => {
+    if (!(type in expectedCounts)) return deckCounts[type] === 0;
+    return deckCounts[type] === (isThreePlayerPirateIslands && type === 'VICTORY_POINT' ? 0 : expectedCounts[type]);
+  });
 };
 
 function createCatanServer({ disconnectedTurnPauseMs = DISCONNECTED_TURN_PAUSE_MS } = {}) {

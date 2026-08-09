@@ -5,6 +5,7 @@ import { ResourceFlowOverlay } from './components/board/ResourceFlowOverlay';
 import { generateBoard } from './utils/gameEngine/generateBoard';
 import { generateVertices } from './utils/gameEngine/generateVertices';
 import { generateEdges } from './utils/gameEngine/generateEdges';
+import { markRiversOfCatanEdges } from './utils/gameEngine/riversOfCatanRules';
 import { applyPirateIslandsSetup } from './utils/gameEngine/pirateIslands';
 import { standardCatanConfig } from './config/standardVersion';
 import { socketService } from './services/network/socketService';
@@ -38,6 +39,7 @@ import { RoomParticipant } from './types/rating.types';
 import { AuthModal } from './components/modals/AuthModal';
 import { EMPTY_COMMODITIES, createCitiesKnightsState } from './types/citiesKnights.types';
 import { createScenarioState } from './types/scenarioState.types';
+import { initializeBarbarianAttack } from './utils/gameEngine/barbarianAttackRules';
 import { isTreasuresDragonsAdventurersScenario } from './config/treasuresDragonsAdventurers';
 import { getTileVertexIds } from './utils/hexMath/boardGeometryHelpers';
 
@@ -78,6 +80,7 @@ const GameContent: React.FC = () => {
     activeRobberType,
     setActiveRobberType,
     selectedScenario,
+    mbScenarioId,
     boardType,
     roomId,
     setRoomId,
@@ -139,7 +142,7 @@ const GameContent: React.FC = () => {
     };
   }, [roomId]);
 
-  const victoryGoal = getVictoryPointTarget(activeExpansion, selectedScenario, players.length);
+  const victoryGoal = getVictoryPointTarget(activeExpansion, selectedScenario, players.length, mbScenarioId);
 
   const activePlayer = players[currentPlayerIndex];
   const currentTurnPlayerId = activePlayer?.id;
@@ -259,10 +262,16 @@ const GameContent: React.FC = () => {
   // בדיקת תנאי ניצחון דינמית בזמן אמת (אנושי או בוט)
   useEffect(() => {
     if (gamePhase === 'MAIN_GAME' && currentTurnPlayerId) {
-      const winner = players.find(p =>
-        p.id === currentTurnPlayerId &&
-        getPlayerTotalVP(p, longestRoadPlayerId, largestArmyPlayerId, true, vertices, tiles, selectedScenario) >= victoryGoal
-      );
+      const winner = players.find(p => {
+        let dynamicVictoryGoal = victoryGoal;
+        if (mbScenarioId === 'FISHERMEN_OF_CATAN' && p.hasOldBoot) {
+          dynamicVictoryGoal += 1;
+        }
+        return (
+          p.id === currentTurnPlayerId &&
+          getPlayerTotalVP(p, longestRoadPlayerId, largestArmyPlayerId, true, vertices, tiles, selectedScenario) >= dynamicVictoryGoal
+        );
+      });
       if (winner) {
         checkIfGameEnds(winner);
         return;
@@ -273,7 +282,7 @@ const GameContent: React.FC = () => {
         */
       }
     }
-  }, [players, currentTurnPlayerId, longestRoadPlayerId, largestArmyPlayerId, gamePhase, vertices, tiles, victoryGoal, selectedScenario, checkIfGameEnds]);
+  }, [players, currentTurnPlayerId, longestRoadPlayerId, largestArmyPlayerId, gamePhase, vertices, tiles, victoryGoal, selectedScenario, mbScenarioId, checkIfGameEnds]);
 
   // האפקט המרכזי שמזהה תור של בוט ומפעיל את ה-AI באופן אוטומטי
   useEffect(() => {
@@ -426,9 +435,12 @@ const GameContent: React.FC = () => {
             lastProcessedTurnRef.current = "";
             lastStartedTurnRef.current = "";
             // Generate board data
-            const newTiles = generateBoard(standardCatanConfig, boardType, activeExpansion, selectedScenario, pCount);
+            const newTiles = generateBoard(standardCatanConfig, boardType, activeExpansion, selectedScenario, pCount, mbScenarioId);
             let newVertices = generateVertices(newTiles, activeExpansion);
             let newEdges = generateEdges(newTiles, activeExpansion);
+            if (activeExpansion === 'MERCHANTS_AND_BARBARIANS' && mbScenarioId === 'RIVERS_OF_CATAN') {
+              newEdges = markRiversOfCatanEdges(newEdges);
+            }
             const treasureCount = selectedScenario === 'TREASURE_ISLANDS' ? 15
               // The 3-player setup removes three of the seventeen chest
               // tokens before placement; all twenty are used with four players.
@@ -437,7 +449,29 @@ const GameContent: React.FC = () => {
             const treasureVertexIds = treasureCount > 0
               ? [...new Set(newTiles.filter(tile => tile.type === 'FOG').flatMap(getTileVertexIds))].slice(0, treasureCount)
               : [];
-            const initialScenarioState = createScenarioState(selectedScenario, treasureVertexIds);
+            const scenarioId = activeExpansion === 'MERCHANTS_AND_BARBARIANS' ? mbScenarioId : selectedScenario;
+            const initialScenarioState = createScenarioState(scenarioId, treasureVertexIds);
+            if (initialScenarioState.kind === 'BARBARIAN_ATTACK') {
+              Object.assign(initialScenarioState, initializeBarbarianAttack(
+                initialScenarioState,
+                newTiles,
+                lobbyP.slice(0, pCount).map(player => player.id),
+              ));
+            }
+            if (initialScenarioState.kind === 'MERCHANTS_AND_BARBARIANS') {
+              const targetTiles = newTiles.filter(tile => ['CASTLE', 'QUARRY', 'GLASSWORKS'].includes(tile.type));
+              initialScenarioState.targetVertexIdsByTileId = Object.fromEntries(targetTiles.map(tile => [tile.id, getTileVertexIds(tile)]));
+              initialScenarioState.productDecksByTargetId = Object.fromEntries(targetTiles.map(tile => {
+                const products = (tile.type === 'CASTLE' ? ['SAND', 'TOOLS']
+                  : tile.type === 'QUARRY' ? ['MARBLE', 'SAND']
+                    : ['GLASS', 'TOOLS']) as Array<'GLASS' | 'MARBLE' | 'SAND' | 'TOOLS'>;
+                // 36 official tokens: twelve at each target, half of each supplied product.
+                return [tile.id, Array.from({ length: 12 }, (_, index) => products[index % 2])];
+              }));
+              initialScenarioState.barbarianEdgeIds = newEdges
+                .filter(edge => targetTiles.some(tile => getTileVertexIds(tile).some(vertexId => edge.id.includes(vertexId))))
+                .slice(0, 3).map(edge => edge.id);
+            }
             if (selectedScenario === 'GREATER_CATAN' && initialScenarioState.kind === 'GREATER_CATAN') {
               initialScenarioState.numberTokenSupply = pCount === 3 ? [3, 4, 9, 10] : [3, 4, 5, 9, 10];
             }
@@ -493,6 +527,11 @@ const GameContent: React.FC = () => {
                 resources: { WOOD: 0, BRICK: 0, SHEEP: 0, WHEAT: 0, ORE: 0 },
                 developmentCards: { KNIGHT: 0, MONOPOLY: 0, ROAD_BUILDING: 0, YEAR_OF_PLENTY: 0, VICTORY_POINT: 0 },
                 knightsPlayed: 0,
+                fishTokens: [],
+                fishCount: 0,
+                hasOldBoot: false,
+                ...(activeExpansion === 'MERCHANTS_AND_BARBARIANS' && mbScenarioId === 'MERCHANTS_AND_BARBARIANS'
+                  ? { merchantsBarbariansNoLongestRoad: true } : {}),
                 ...(isCitiesKnightsExpansion(activeExpansion) ? {
                   commodities: { ...EMPTY_COMMODITIES },
                   cityImprovements: { SCIENCE: 0, POLITICS: 0, TRADE: 0 },
@@ -516,6 +555,7 @@ const GameContent: React.FC = () => {
                 botTimeLimit: limit,
                 activeExpansion,
                 selectedScenario,
+                selectedMBScenario: mbScenarioId,
                 boardType,
                 initialState: {
                   players: selectedPlayers,
@@ -528,7 +568,9 @@ const GameContent: React.FC = () => {
                   setupState: { hasPlacedSettlement: false, hasPlacedRoad: false },
                   devCardDeck: initialDeck,
                   resourceBank: { WOOD: 19, BRICK: 19, SHEEP: 19, WHEAT: 19, ORE: 19 },
-                  goldCoins: Object.fromEntries(selectedPlayers.map(player => [player.id, 0])),
+                  goldCoins: Object.fromEntries(selectedPlayers.map(player => [player.id,
+                    activeExpansion === 'MERCHANTS_AND_BARBARIANS' && mbScenarioId === 'MERCHANTS_AND_BARBARIANS' ? 5 : 0
+                  ])),
                   roadBuildingRemaining: 0,
                   goldSelectionQueue: [],
                   currentTurnBuiltShips: [],
@@ -538,6 +580,7 @@ const GameContent: React.FC = () => {
                   scenarioState: initialScenarioState,
                   activeExpansion,
                   selectedScenario,
+                  selectedMBScenario: mbScenarioId,
                   boardType,
                 }
               });
@@ -967,10 +1010,16 @@ const GameContent: React.FC = () => {
 
         {/* מודל סיום המשחק */}
         {gamePhase === 'GAME_OVER' && (() => {
-          const winner = players.find(p =>
-            p.id === currentTurnPlayerId &&
-            getPlayerTotalVP(p, longestRoadPlayerId, largestArmyPlayerId, true, vertices, tiles, selectedScenario) >= victoryGoal
-          ) || players.reduce((max, p) => getPlayerTotalVP(p, longestRoadPlayerId, largestArmyPlayerId, true, vertices, tiles, selectedScenario) > getPlayerTotalVP(max, longestRoadPlayerId, largestArmyPlayerId, true, vertices, tiles, selectedScenario) ? p : max, players[0]);
+          const winner = players.find(p => {
+            let dynamicVictoryGoal = victoryGoal;
+            if (mbScenarioId === 'FISHERMEN_OF_CATAN' && p.hasOldBoot) {
+              dynamicVictoryGoal += 1;
+            }
+            return (
+              p.id === currentTurnPlayerId &&
+              getPlayerTotalVP(p, longestRoadPlayerId, largestArmyPlayerId, true, vertices, tiles, selectedScenario) >= dynamicVictoryGoal
+            );
+          }) || players.reduce((max, p) => getPlayerTotalVP(p, longestRoadPlayerId, largestArmyPlayerId, true, vertices, tiles, selectedScenario) > getPlayerTotalVP(max, longestRoadPlayerId, largestArmyPlayerId, true, vertices, tiles, selectedScenario) ? p : max, players[0]);
           return (
             <div className="fixed inset-0 bg-slate-950/90 backdrop-blur-md flex items-center justify-center z-50 p-4 animate-fade-in">
               <div className="bg-slate-900 border-4 border-amber-500 rounded-3xl w-full max-w-2xl p-10 shadow-2xl relative text-center" dir="rtl">

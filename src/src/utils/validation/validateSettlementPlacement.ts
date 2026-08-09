@@ -88,6 +88,8 @@ export function validateSettlementPlacement(
       }
       return false;
     });
+    if (borderingTiles.some(tile => tile.scenarioMarker?.barbarianCaptured)) return false;
+    if (borderingTiles.some(tile => tile.scenarioMarker?.barbarianCaptured)) return false;
 
     // The four Lost Tribe islands are villages, not buildable land.
     if (selectedScenario === 'CLOTH_FOR_CATAN' && borderingTiles.some(tile => (tile.lostTribeVillages?.length || 0) > 0)) {

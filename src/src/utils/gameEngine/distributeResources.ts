@@ -7,7 +7,8 @@ import { GoldSelectionPending } from '../../context/PlayerContext';
 import { CommodityCards } from '../../types/citiesKnights.types';
 import { isCitiesKnightsExpansion } from '../../config/gameRules';
 import { getTileVertexIds } from '../hexMath/boardGeometryHelpers';
-import { ScenarioState } from '../../types/scenarioState.types';
+import { FishToken, ScenarioState } from '../../types/scenarioState.types';
+import { recycleFishTokens } from './fishermenRules';
 
 const HEX_SIZE = 60;
 type Resource = keyof ResourceCards;
@@ -48,6 +49,7 @@ export function distributeResources(
   updatedPlayers: Player[];
   updatedBank: ResourceCards;
   updatedCommodityBank?: CommodityCards;
+  updatedScenarioState?: ScenarioState;
   flows: ResourceFlow[];
   goldSelections: GoldSelectionPending[];
 } {
@@ -56,20 +58,36 @@ export function distributeResources(
   const updatedCommodityBank = isCitiesKnightsExpansion(activeExpansion)
     ? { COIN: 12, PAPER: 12, CLOTH: 12, ...commodityBank }
     : undefined;
-  if (diceRoll === 7) return { updatedPlayers, updatedBank, updatedCommodityBank, flows: [], goldSelections: [] };
+  if (diceRoll === 7) return { updatedPlayers, updatedBank, updatedCommodityBank, updatedScenarioState: scenarioState, flows: [], goldSelections: [] };
 
   const vertexMap = new Map(vertices.map(vertex => [vertex.id, vertex]));
   const claims: Claim[] = [];
   const commodityClaims: { playerId: string; commodity: keyof CommodityCards }[] = [];
   const goldSelections: GoldSelectionPending[] = [];
 
-  tiles.filter(tile =>
-    tile.numberToken === diceRoll &&
-    !tile.hasRobber &&
-    !(selectedScenario === 'DESERT_DRAGONS' && (tile.scenarioMarker?.dragonIds || []).length > 0) &&
-    !(selectedScenario === 'GREAT_CANAL' && tile.scenarioMarker?.infertileField) &&
-    !((selectedScenario === 'THE_LOST_TRIBE' || selectedScenario === 'CLOTH_FOR_CATAN') && tile.islandId !== 1)
-  ).forEach(tile => {
+  let updatedScenarioState = scenarioState;
+  const drawFishToken = (): FishToken | 'OLD_BOOT' | undefined => {
+    if (updatedScenarioState?.kind !== 'FISHERMEN_OF_CATAN') return undefined;
+    const recycled = recycleFishTokens(updatedScenarioState);
+    const [token, ...fishDrawPile] = recycled.fishDrawPile;
+    updatedScenarioState = { ...recycled, fishDrawPile };
+    return token;
+  };
+
+  tiles.filter(tile => {
+    const isActivated = 
+      tile.numberToken === diceRoll ||
+      (tile.numberToken === '2/3' && (diceRoll === 2 || diceRoll === 3)) ||
+      (tile.numberToken === '11/12' && (diceRoll === 11 || diceRoll === 12)) ||
+      (tile.numberToken === '2/3/11/12' && (diceRoll === 2 || diceRoll === 3 || diceRoll === 11 || diceRoll === 12));
+
+    return isActivated &&
+      !tile.hasRobber &&
+      !(scenarioState?.kind === 'BARBARIAN_ATTACK' && scenarioState.capturedTileIds.includes(tile.id)) &&
+      !(selectedScenario === 'DESERT_DRAGONS' && (tile.scenarioMarker?.dragonIds || []).length > 0) &&
+      !(selectedScenario === 'GREAT_CANAL' && tile.scenarioMarker?.infertileField) &&
+      !((selectedScenario === 'THE_LOST_TRIBE' || selectedScenario === 'CLOTH_FOR_CATAN') && tile.islandId !== 1);
+  }).forEach(tile => {
     const center = cubeToPixel(tile.coord, HEX_SIZE);
     for (let index = 0; index < 6; index += 1) {
       const angle = (Math.PI / 180) * (60 * index - 30);
@@ -77,7 +95,28 @@ export function distributeResources(
       const vertex = vertexMap.get(vertexId);
       if (!vertex?.playerId || vertex.structure === 'NONE') continue;
       const amount = vertex.structure === 'CITY' ? 2 : 1;
-      if (tile.type === 'GOLD_FIELD') {
+      
+      if (tile.type === 'LAKE' || tile.type === 'FISHING_GROUND') {
+        const player = updatedPlayers.find(p => p.id === vertex.playerId);
+        if (player) {
+          if (!player.fishTokens) player.fishTokens = [];
+          if (player.fishCount === undefined) player.fishCount = 0;
+          
+          for (let i = 0; i < amount; i++) {
+            // The official limit is seven fish chits. A future choice prompt
+            // handles the optional bank exchange when this limit is reached.
+            if (player.fishTokens.length >= 7) continue;
+            const token = drawFishToken();
+            if (!token) continue;
+            if (token === 'OLD_BOOT') {
+              player.hasOldBoot = true;
+            } else {
+              player.fishTokens.push(token);
+              player.fishCount = (player.fishCount || 0) + token;
+            }
+          }
+        }
+      } else if (tile.type === 'GOLD_FIELD') {
         goldSelections.push({ playerId: vertex.playerId, amount, tileId: tile.id });
       } else if (['WOOD', 'BRICK', 'SHEEP', 'WHEAT', 'ORE'].includes(tile.type)) {
         const commodity = isCitiesKnightsExpansion(activeExpansion) && vertex.structure === 'CITY'
@@ -157,5 +196,5 @@ export function distributeResources(
     }, new Map<string, GoldSelectionPending>()).values()
   );
 
-  return { updatedPlayers, updatedBank, updatedCommodityBank, flows, goldSelections: combinedGoldSelections };
+  return { updatedPlayers, updatedBank, updatedCommodityBank, updatedScenarioState, flows, goldSelections: combinedGoldSelections };
 }

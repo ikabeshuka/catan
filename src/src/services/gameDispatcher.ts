@@ -1,5 +1,6 @@
 import { GameAction } from '../types/gameActions.types';
 import { socketService } from './network/socketService';
+import { getPlayerTotalVP } from '../context/GameContext';
 import { cubeToPixel } from '../utils/hexMath/cubeToPixel';
 import type { ResourceCards } from '../types/resources.types';
 import { validateSettlementPlacement } from '../utils/validation/validateSettlementPlacement';
@@ -8,6 +9,9 @@ import { getTileEdgeIds } from '../utils/gameEngine/generateEdges';
 import { claimLostTribeReward, getEligibleHarborEdges, getLostTribeRewardLog, getReachedLostTribeVillageIds } from '../utils/gameEngine/lostTribeHelpers';
 import { getPirateShippingLine, getPirateShippingPath } from '../utils/gameEngine/pirateIslands';
 import { isCitiesKnightsExpansion, isSeafarersExpansion } from '../config/gameRules';
+import { FISH_ACTION_COSTS, findFishPayment } from '../utils/gameEngine/fishermenRules';
+import { caravanScoreByPlayer, getCaravanCamelCandidates } from '../utils/gameEngine/caravanRouteRules';
+import { placeBarbarianAttacks } from '../utils/gameEngine/barbarianAttackRules';
 
 export interface DispatcherContext {
   roomId?: string;
@@ -37,6 +41,8 @@ showBuildingCostToast?: (type: any, success: boolean, free?: boolean, errorMessa
   setTurnSubPhase?: (phase: any) => void;
   setActiveRobberType?: (type: 'ROBBER' | 'PIRATE' | null) => void;
   setHasMovedShipThisTurn?: (moved: boolean) => void;
+  scenarioState?: any;
+  setScenarioState?: React.Dispatch<React.SetStateAction<any>>;
   setIncomingTradeOffer?: (offer: any) => void;
   resourceBank?: ResourceCards;
   setResourceBank?: React.Dispatch<React.SetStateAction<ResourceCards>>;
@@ -70,6 +76,163 @@ const addLocalDesertDragons = (context: DispatcherContext) => {
   if (existingCount + plannedAmount >= 18) {
     context.setScenarioState?.((previous: any) => ({ ...previous, dragonsHaveAttacked: true }));
   }
+};
+
+const queueLocalCaravanCamel = (context: DispatcherContext, playerId: string) => {
+  if (context.scenarioState?.kind !== 'CARAVAN_ROUTE' || String(context.gamePhase).startsWith('SETUP_') || context.scenarioState.remainingCamels <= 0) return;
+  context.setScenarioState?.((previous: any) => ({ ...previous, pendingCaravanVote: { initiatedByPlayerId: playerId, votesByPlayerId: {} } }));
+  context.addLog?.('נתיב השיירות: כל השחקנים מצביעים בכבשה ובחיטה לפני הצבת גמל.');
+};
+
+const resolveLocalBarbarianAttack = (context: DispatcherContext, playerId: string) => {
+  const scenario = context.scenarioState;
+  if (scenario?.kind !== 'BARBARIAN_ATTACK') return;
+  const rolls = new Set<number>();
+  while (rolls.size < 3) {
+    const total = 2 + Math.floor(Math.random() * 11);
+    if (total !== 7) rolls.add(total);
+  }
+  const next = placeBarbarianAttacks(scenario, context.tiles || [], playerId, [...rolls]);
+  const captured = new Set(next.capturedTileIds);
+  context.setScenarioState?.(next);
+  context.setTiles?.((previous: any[]) => previous.map(tile => ({
+    ...tile,
+    scenarioMarker: { ...tile.scenarioMarker, barbarianCaptured: captured.has(tile.id) },
+  })));
+  context.setVertices?.((previous: any[]) => previous.map(vertex => {
+    if (!['SETTLEMENT', 'CITY'].includes(vertex.structure)) return vertex;
+    const bordering = (context.tiles || []).filter((tile: any) => getTileVertexIds(tile).includes(vertex.id));
+    return { ...vertex, barbarianCaptured: bordering.length > 0 && bordering.every((tile: any) => ['WATER', 'SEA', 'FOG'].includes(tile.type) || captured.has(tile.id)) };
+  }));
+  context.addLog?.(`מתקפת ברברים: תוצאות הפלישה הן ${[...rolls].join(', ')}.`);
+};
+
+const refreshLocalBarbarianAttack = (context: DispatcherContext, next: any) => {
+  const captured = new Set(next.capturedTileIds || []);
+  context.setScenarioState?.(next);
+  context.setTiles?.((previous: any[]) => previous.map(tile => ({ ...tile, scenarioMarker: { ...tile.scenarioMarker, barbarianCaptured: captured.has(tile.id) } })));
+  context.setVertices?.((previous: any[]) => previous.map(vertex => {
+    if (!['SETTLEMENT', 'CITY'].includes(vertex.structure)) return vertex;
+    const bordering = (context.tiles || []).filter((tile: any) => getTileVertexIds(tile).includes(vertex.id));
+    const immune = bordering.some((tile: any) => tile.scenarioMarker?.barbarianFortress || tile.type === 'DESERT');
+    return { ...vertex, barbarianCaptured: !immune && bordering.length > 0 && bordering.every((tile: any) => ['WATER', 'SEA', 'FOG'].includes(tile.type) || captured.has(tile.id)) };
+  }));
+  context.setPlayers?.((previous: any[]) => previous.map(player => ({ ...player, barbarianPrisonerScoreModifier: Math.floor((next.prisonersByPlayerId?.[player.id] || 0) / 2) })));
+  context.setPlayers?.((previous: any[]) => previous.map(player => {
+    const lost = (context.vertices || []).filter((vertex: any) => vertex.playerId === player.id && ['SETTLEMENT', 'CITY'].includes(vertex.structure)).reduce((total: number, vertex: any) => {
+      const bordering = (context.tiles || []).filter((tile: any) => getTileVertexIds(tile).includes(vertex.id));
+      const immune = bordering.some((tile: any) => tile.scenarioMarker?.barbarianFortress || tile.type === 'DESERT');
+      return total + (!immune && bordering.length > 0 && bordering.every((tile: any) => ['WATER', 'SEA', 'FOG'].includes(tile.type) || captured.has(tile.id)) ? (vertex.structure === 'CITY' ? 2 : 1) : 0);
+    }, 0);
+    return { ...player, barbarianCaptureScoreModifier: -lost };
+  }));
+};
+
+const resolveLocalBarbarianCard = (context: DispatcherContext, action: Extract<GameAction, { type: 'RESOLVE_BARBARIAN_CARD' }>) => {
+  const scenario = context.scenarioState;
+  const card = scenario?.pendingDevelopmentCard;
+  if (!card || card.playerId !== action.playerId) return;
+  const next = { ...scenario, knights: [...scenario.knights], barbarians: [...scenario.barbarians], prisonersByPlayerId: { ...scenario.prisonersByPlayerId } };
+  if (card.cardType === 'KNIGHTHOOD' || card.cardType === 'STRONG_KNIGHT') {
+    const edge = (context.edges || []).find((candidate: any) => candidate.id === action.edgeId);
+    if (!edge || next.knights.some((knight: any) => knight.edgeId === action.edgeId) || (card.cardType === 'KNIGHTHOOD' && !edge.isBarbarianFortressRoute)) return;
+    next.knights.push({ id: `barbarian-knight-${action.playerId}-${next.knights.length + 1}`, ownerPlayerId: action.playerId, edgeId: action.edgeId, kind: card.cardType });
+  } else if (card.cardType === 'INTRIGUE') {
+    const index = next.barbarians.findIndex((barbarian: any) => barbarian.tileId === action.tileId);
+    if (index < 0) return;
+    next.barbarians.splice(index, 1);
+    next.prisonersByPlayerId[action.playerId] = (next.prisonersByPlayerId[action.playerId] || 0) + 1;
+  } else if (card.cardType === 'TREASON') {
+    const sources: string[] = action.sourceTileIds ? [...action.sourceTileIds] : [];
+    const targets: string[] = action.targetTileIds ? [...action.targetTileIds] : [];
+    const land = (context.tiles || []).filter((tile: any) => !['WATER', 'SEA', 'FOG'].includes(tile.type));
+    const coastDistance = Math.max(...land.map((tile: any) => Math.abs(tile.coord.q) + Math.abs(tile.coord.r) + Math.abs(tile.coord.s)));
+    const targetIsLegal = (tileId: string) => {
+      const tile = land.find((candidate: any) => candidate.id === tileId);
+      return tile && !sources.includes(tileId) && !next.capturedTileIds.includes(tileId) &&
+        Math.abs(tile.coord.q) + Math.abs(tile.coord.r) + Math.abs(tile.coord.s) === coastDistance &&
+        next.barbarians.filter((barbarian: any) => barbarian.tileId === tileId).length < 3;
+    };
+    if (sources.length !== 2 || new Set(sources).size !== 2 || targets.length !== 2 || new Set(targets).size !== 2 ||
+        !sources.every(tileId => next.barbarians.some((barbarian: any) => barbarian.tileId === tileId)) || !targets.every(targetIsLegal)) return;
+    sources.forEach((tileId, index) => {
+      const barbarianIndex = next.barbarians.findIndex((barbarian: any) => barbarian.tileId === tileId);
+      const [barbarian] = next.barbarians.splice(barbarianIndex, 1);
+      next.barbarians.push({ ...barbarian, tileId: targets[index] });
+    });
+    context.setGoldCoins?.(previous => ({ ...previous, [action.playerId]: (previous[action.playerId] || 0) + 2 }));
+  } else return;
+  const land = (context.tiles || []).filter((tile: any) => !['WATER', 'SEA', 'FOG'].includes(tile.type));
+  next.capturedTileIds = land.filter((tile: any) => next.barbarians.filter((barbarian: any) => barbarian.tileId === tile.id).length >= 3).map((tile: any) => tile.id);
+  next.pendingDevelopmentCard = undefined;
+  context.setDevCardDeck?.((deck: string[]) => [...deck, card.cardType]);
+  refreshLocalBarbarianAttack(context, next);
+};
+
+const moveLocalBarbarianKnight = (context: DispatcherContext, action: Extract<GameAction, { type: 'MOVE_BARBARIAN_KNIGHT' }>) => {
+  const scenario = context.scenarioState;
+  const knight = scenario?.knights?.find((candidate: any) => candidate.id === action.knightId && candidate.ownerPlayerId === action.playerId);
+  const destination = (context.edges || []).find((edge: any) => edge.id === action.edgeId);
+  const player = (context.players || []).find((candidate: any) => candidate.id === action.playerId);
+  if (!knight || knight.movedThisTurn || !destination || destination.isBarbarianFortressRoute || scenario.knights.some((candidate: any) => candidate.edgeId === action.edgeId) ||
+      (action.payWheat && (player?.resources?.WHEAT || 0) < 1)) return;
+  const maxSteps = action.payWheat ? 5 : 3;
+  const queue: Array<[string, number]> = [[knight.edgeId, 0]];
+  const seen = new Set([knight.edgeId]);
+  let reachable = false;
+  while (queue.length) {
+    const [edgeId, distance] = queue.shift()!;
+    if (edgeId === action.edgeId) { reachable = true; break; }
+    if (distance >= maxSteps) continue;
+    const endpoints = getEdgeVertices(edgeId);
+    (context.edges || []).filter((edge: any) => (edge.hasRoad || edge.id === action.edgeId) && getEdgeVertices(edge.id).some(vertexId => endpoints.includes(vertexId))).forEach((edge: any) => {
+      if (!seen.has(edge.id)) { seen.add(edge.id); queue.push([edge.id, distance + 1]); }
+    });
+  }
+  if (!reachable) return;
+  const next = { ...scenario, knights: scenario.knights.map((candidate: any) => candidate.id === knight.id ? { ...candidate, edgeId: action.edgeId, movedThisTurn: true } : candidate), barbarians: [...scenario.barbarians], prisonersByPlayerId: { ...scenario.prisonersByPlayerId } };
+  if (action.payWheat) context.setPlayers?.((previous: any[]) => previous.map(candidate => candidate.id !== action.playerId ? candidate : { ...candidate, resources: { ...candidate.resources, WHEAT: candidate.resources.WHEAT - 1 } }));
+  const released: string[] = [];
+  (next.capturedTileIds || []).forEach((tileId: string) => {
+    const tile = (context.tiles || []).find((candidate: any) => candidate.id === tileId);
+    const edgeIds = new Set(getTileEdgeIds(tile));
+    const participants = next.knights.filter((candidate: any) => edgeIds.has(candidate.edgeId));
+    const barbarians = next.barbarians.filter((candidate: any) => candidate.tileId === tileId);
+    if (participants.length > barbarians.length) {
+      const byPlayer = new Map<string, number>();
+      participants.forEach((candidate: any) => byPlayer.set(candidate.ownerPlayerId, (byPlayer.get(candidate.ownerPlayerId) || 0) + 1));
+      [...byPlayer.entries()].sort((a, b) => b[1] - a[1]).slice(0, barbarians.length).forEach(([playerId]) => { next.prisonersByPlayerId[playerId] = (next.prisonersByPlayerId[playerId] || 0) + 1; });
+      next.barbarians = next.barbarians.filter((candidate: any) => candidate.tileId !== tileId);
+      released.push(tileId);
+    }
+  });
+  const land = (context.tiles || []).filter((tile: any) => !['WATER', 'SEA', 'FOG'].includes(tile.type));
+  next.capturedTileIds = land.filter((tile: any) => next.barbarians.filter((barbarian: any) => barbarian.tileId === tile.id).length >= 3).map((tile: any) => tile.id);
+  refreshLocalBarbarianAttack(context, next);
+  if (released.length) context.addLog?.('האבירים גירשו ברברים ושחררו אזור חוף.');
+};
+
+const syncLocalCaravanScores = (context: DispatcherContext, nextEdges: any[]) => {
+  const scores = caravanScoreByPlayer(nextEdges, context.vertices || []);
+  context.setPlayers?.(previous => previous.map(player => ({ ...player, caravanScoreModifier: scores[player.id] || 0 })));
+};
+
+const placeLocalCaravanCamel = (context: DispatcherContext, edgeId: string) => {
+  const scenario = context.scenarioState;
+  if (scenario?.kind !== 'CARAVAN_ROUTE' || scenario.remainingCamels <= 0 || !context.setEdges) return;
+  const candidates = getCaravanCamelCandidates(context.tiles || [], context.edges || [], scenario.camelEdgeIds || []);
+  if (!candidates.includes(edgeId)) return;
+  const nextEdges = (context.edges || []).map((edge: any) => edge.id === edgeId ? { ...edge, camelCount: 1 } : edge);
+  context.setEdges(nextEdges);
+  context.setScenarioState?.((previous: any) => ({
+    ...previous,
+    camelEdgeIds: [...previous.camelEdgeIds, edgeId],
+    remainingCamels: previous.remainingCamels - 1,
+    pendingCamelPlayerId: undefined,
+    pendingCamelTie: undefined,
+  }));
+  syncLocalCaravanScores(context, nextEdges);
+  context.addLog?.('גמל נוסף לשיירה. דרכים בצמוד לגמל נספרות פעמיים.');
 };
 
 const tryBuildLocalCanal = (context: DispatcherContext, vertexId: string) => {
@@ -288,6 +451,9 @@ export function dispatchGameAction(action: GameAction, context?: DispatcherConte
       context.setVertices?.((prev: any[]) => prev.map(v =>
         v.id === vertexId ? { ...v, structure: 'SETTLEMENT', playerId } : v
       ));
+      if ((context.edges || []).some((edge: any) => (edge.isRiverCrossing || edge.isRiverBank) && edge.id.includes(vertexId))) {
+        context.setGoldCoins?.(previous => ({ ...previous, [playerId]: (previous[playerId] || 0) + 1 }));
+      }
 
       if (isSetupPhase) {
         context.showBuildingCostToast?.('SETTLEMENT', true, true);
@@ -397,6 +563,8 @@ export function dispatchGameAction(action: GameAction, context?: DispatcherConte
           WHEAT: previous.WHEAT + 1,
         }));
         addLocalDesertDragons(context);
+        queueLocalCaravanCamel(context, playerId);
+        resolveLocalBarbarianAttack(context, playerId);
         context.showBuildingCostToast?.('SETTLEMENT', true);
         if (storedHarborCanBePlaced) {
           context.setTurnSubPhase?.('HARBOR_PLACEMENT');
@@ -416,7 +584,8 @@ export function dispatchGameAction(action: GameAction, context?: DispatcherConte
       const player = context.players?.find((p: any) => p.id === playerId);
       if (!player) return;
       const cityTarget = context.vertices?.find((vertex: any) => vertex.id === vertexId);
-      const isSetupCity = isCitiesKnightsExpansion(context.activeExpansion) && context.gamePhase === 'SETUP_ROUND_2';
+      const isSetupCity = context.gamePhase === 'SETUP_ROUND_2' && (isCitiesKnightsExpansion(context.activeExpansion) ||
+        (context.activeExpansion === 'MERCHANTS_AND_BARBARIANS' && context.mbScenarioId === 'MERCHANTS_AND_BARBARIANS'));
       if (isSetupCity) {
         const requiresCoastalStart = ['GREAT_CANAL', 'ENCHANTED_LAND'].includes(context.selectedScenario || '');
         const isCoastal = (id: string) => (context.tiles || []).some((tile: any) => ['WATER', 'SEA', 'FOG'].includes(tile.type) && getTileVertexIds(tile).includes(id));
@@ -426,6 +595,10 @@ export function dispatchGameAction(action: GameAction, context?: DispatcherConte
           context.selectedScenario, context.activeExpansion
         ) || (requiresCoastalStart && !alreadyHasCoastalStructure && !isCoastal(vertexId))) return;
         context.setVertices(prev => prev.map(v => v.id === vertexId ? { ...v, structure: 'CITY', playerId } : v));
+        if (context.activeExpansion === 'MERCHANTS_AND_BARBARIANS' && context.mbScenarioId === 'MERCHANTS_AND_BARBARIANS') {
+          context.setPlayers?.(previous => previous.map(candidate => candidate.id === playerId
+            ? { ...candidate, wagonPosition: vertexId, wagonLevel: 1, remainingMovementPoints: 4 } : candidate));
+        }
         context.showBuildingCostToast?.('CITY', true, true);
         context.addLog?.(`${player.name} בנה עיר בשלב ההקמה (חינם).`);
         context.recordSetupPlacement?.('SETTLEMENT', vertexId);
@@ -451,6 +624,8 @@ export function dispatchGameAction(action: GameAction, context?: DispatcherConte
       ));
       context.setResourceBank?.(previous => ({ ...previous, WHEAT: previous.WHEAT + 2, ORE: previous.ORE + 3 }));
       addLocalDesertDragons(context);
+      queueLocalCaravanCamel(context, playerId);
+      resolveLocalBarbarianAttack(context, playerId);
       context.showBuildingCostToast?.('CITY', true);
       context.addLog?.(`שחקן ${player.name} שדרג יישוב לעיר!`);
       break;
@@ -463,7 +638,7 @@ export function dispatchGameAction(action: GameAction, context?: DispatcherConte
       const player = context.players?.find((p: any) => p.id === playerId);
       if (!player) return;
       const roadTarget = context.edges?.find((edge: any) => edge.id === edgeId);
-      if (!roadTarget || roadTarget.hasRoad || roadTarget.hasShip || !context.setEdges) return;
+      if (!roadTarget || roadTarget.hasRoad || roadTarget.hasShip || roadTarget.isRiverCrossing || !context.setEdges) return;
       if (context.selectedScenario === 'DESERT_DRAGONS' && (context.tiles || []).filter((tile: any) =>
         getTileEdgeIds(tile).includes(edgeId) && (tile.scenarioMarker?.dragonIds || []).length > 0).length >= 2) {
         context.addLog?.('דרך בין שני אריחים עם דרקונים חסומה.');
@@ -492,6 +667,9 @@ export function dispatchGameAction(action: GameAction, context?: DispatcherConte
       context.setEdges((prev: any[]) => prev.map(e =>
         e.id === edgeId ? { ...e, hasRoad: true, playerId } : e
       ));
+      if (roadTarget.isRiverBank) {
+        context.setGoldCoins?.(previous => ({ ...previous, [playerId]: (previous[playerId] || 0) + 1 }));
+      }
 
       if (isSetupPhase) {
         context.showBuildingCostToast?.('ROAD', true, true);
@@ -673,6 +851,16 @@ export function dispatchGameAction(action: GameAction, context?: DispatcherConte
       if (context.buyDevelopmentCard) {
         context.buyDevelopmentCard(action.cardType, playerId);
       }
+      break;
+    }
+
+    case 'RESOLVE_BARBARIAN_CARD': {
+      resolveLocalBarbarianCard(context, action);
+      break;
+    }
+
+    case 'MOVE_BARBARIAN_KNIGHT': {
+      moveLocalBarbarianKnight(context, action);
       break;
     }
 
@@ -1262,7 +1450,7 @@ export function dispatchGameAction(action: GameAction, context?: DispatcherConte
       const { requestedResource } = action;
       const player = context.players?.find((candidate: any) => candidate.id === playerId);
       if (!player || context.turnSubPhase !== 'TRADE_AND_BUILD' || (context.goldCoins?.[playerId] || 0) < 2 ||
-          (player.goldTradesThisTurn || 0) >= 2 || (context.resourceBank?.[requestedResource] || 0) < 1) return;
+          (context.mbScenarioId !== 'RIVERS_OF_CATAN' && (player.goldTradesThisTurn || 0) >= 2) || (context.resourceBank?.[requestedResource] || 0) < 1) return;
       context.setGoldCoins?.(previous => ({ ...previous, [playerId]: previous[playerId] - 2 }));
       context.setPlayers?.((previous: any[]) => previous.map(candidate => candidate.id === playerId ? {
         ...candidate,
@@ -1275,14 +1463,31 @@ export function dispatchGameAction(action: GameAction, context?: DispatcherConte
     }
 
     case 'MOVE_WAGON': {
-      const { targetVertexId, movementCost } = action;
+      const { targetVertexId, movementCost, wheatBoost } = action;
       const player = context.players?.find((candidate: any) => candidate.id === playerId);
-      if (!player || ![1, 2].includes(movementCost) || (player.remainingMovementPoints || 0) < movementCost) return;
+      const scenario = context.scenarioState;
+      const targetTileId = Object.entries(scenario?.targetVertexIdsByTileId || {}).find(([, vertexIds]: any) => vertexIds.includes(targetVertexId))?.[0] as string | undefined;
+      const targetType = targetTileId ? context.tiles?.find((tile: any) => tile.id === targetTileId)?.type : undefined;
+      const requiredTarget = ({ GLASS: 'CASTLE', MARBLE: 'CASTLE', SAND: 'GLASSWORKS', TOOLS: 'QUARRY' } as any)[player.wagonCargo];
+      if (!player || (player.remainingMovementPoints || 0) + (wheatBoost && !player.wagonWheatBoostUsed ? 2 : 0) < movementCost ||
+          (wheatBoost && ((player.resources.WHEAT || 0) < 1 || player.wagonWheatBoostUsed))) return;
       context.setPlayers?.((previous: any[]) => previous.map(candidate => candidate.id === playerId ? {
         ...candidate,
         wagonPosition: targetVertexId,
-        remainingMovementPoints: (candidate.remainingMovementPoints || 0) - movementCost,
+        remainingMovementPoints: targetTileId ? 0 : (candidate.remainingMovementPoints || 0) + (wheatBoost ? 2 : 0) - movementCost,
+        wagonWheatBoostUsed: candidate.wagonWheatBoostUsed || wheatBoost,
+        resources: wheatBoost ? { ...candidate.resources, WHEAT: candidate.resources.WHEAT - 1 } : candidate.resources,
+        victoryPoints: targetTileId && candidate.wagonCargo && targetType === requiredTarget ? (candidate.victoryPoints || 0) + 1 : candidate.victoryPoints,
+        wagonCargo: targetTileId ? (scenario?.productDecksByTargetId?.[targetTileId]?.[0] || candidate.wagonCargo) : candidate.wagonCargo,
       } : candidate));
+      if (wheatBoost) context.setResourceBank?.(previous => ({ ...previous, WHEAT: previous.WHEAT + 1 }));
+      if (targetTileId && scenario?.kind === 'MERCHANTS_AND_BARBARIANS') {
+        context.setScenarioState?.((previous: any) => previous.kind !== 'MERCHANTS_AND_BARBARIANS' ? previous : {
+          ...previous,
+          productDecksByTargetId: { ...previous.productDecksByTargetId, [targetTileId]: (previous.productDecksByTargetId[targetTileId] || []).slice(1) },
+        });
+        if (player.wagonCargo && targetType === requiredTarget) context.setGoldCoins?.(previous => ({ ...previous, [playerId]: (previous[playerId] || 0) + (player.wagonLevel || 1) }));
+      }
       break;
     }
 
@@ -1295,7 +1500,8 @@ export function dispatchGameAction(action: GameAction, context?: DispatcherConte
       context.setPlayers?.((previous: any[]) => previous.map(candidate => candidate.id === playerId ? {
         ...candidate,
         wagonLevel: newLevel,
-        remainingMovementPoints: newLevel === 2 ? 5 : 6,
+        remainingMovementPoints: newLevel <= 1 ? 4 : newLevel <= 3 ? 5 : 6,
+        wagonLevelScoreModifier: newLevel === 5 ? 1 : candidate.wagonLevelScoreModifier,
         resources: payment === 'RESOURCES' ? {
           ...candidate.resources,
           WOOD: candidate.resources.WOOD - 1,
@@ -1304,6 +1510,216 @@ export function dispatchGameAction(action: GameAction, context?: DispatcherConte
       } : candidate));
       if (payment === 'RESOURCES') context.setResourceBank?.(previous => ({ ...previous, WOOD: previous.WOOD + 1, ORE: previous.ORE + 1 }));
       else context.setGoldCoins?.(previous => ({ ...previous, [playerId]: previous[playerId] - 3 }));
+      break;
+    }
+
+    case 'PLACE_MERCHANTS_BARBARIAN': {
+      if (context.turnSubPhase !== 'MERCHANTS_BARBARIAN_PLACEMENT' || context.scenarioState?.kind !== 'MERCHANTS_AND_BARBARIANS') return;
+      const edge = context.edges?.find((candidate: any) => candidate.id === action.edgeId);
+      if (!edge || context.scenarioState.barbarianEdgeIds.includes(action.edgeId)) return;
+      context.setScenarioState?.((previous: any) => previous.kind !== 'MERCHANTS_AND_BARBARIANS' ? previous : {
+        ...previous, barbarianEdgeIds: [...previous.barbarianEdgeIds, action.edgeId],
+      });
+      if (edge.hasRoad && edge.playerId && edge.playerId !== playerId) {
+        const victim = context.players?.find((candidate: any) => candidate.id === edge.playerId);
+        const resource = ['WOOD', 'BRICK', 'SHEEP', 'WHEAT', 'ORE'].find(key => (victim?.resources?.[key] || 0) > 0);
+        if (resource) context.setPlayers?.((previous: any[]) => previous.map(candidate => {
+          if (candidate.id === edge.playerId) return { ...candidate, resources: { ...candidate.resources, [resource]: candidate.resources[resource] - 1 } };
+          if (candidate.id === playerId) return { ...candidate, resources: { ...candidate.resources, [resource]: candidate.resources[resource] + 1 } };
+          return candidate;
+        }));
+      }
+      context.setTurnSubPhase?.('TRADE_AND_BUILD');
+      break;
+    }
+
+    case 'BUILD_BRIDGE': {
+      const { edgeId } = action;
+      const player = context.players?.find((candidate: any) => candidate.id === playerId);
+      const edge = context.edges?.find((candidate: any) => candidate.id === edgeId);
+      const endpointIds = edgeId.replace('e_', '').split('_v_').map((part: string, index: number) => index === 0 ? part : `v_${part}`);
+      const touchesOwnNetwork = endpointIds.some((vertexId: string) =>
+        context.vertices?.some((vertex: any) => vertex.id === vertexId && vertex.playerId === playerId && ['SETTLEMENT', 'CITY'].includes(vertex.structure)) ||
+        context.edges?.some((candidate: any) => candidate.id !== edgeId && ((candidate.hasRoad && candidate.playerId === playerId) || candidate.bridgePlayerId === playerId) && candidate.id.includes(vertexId))
+      );
+      if (!player || context.mbScenarioId !== 'RIVERS_OF_CATAN' || context.turnSubPhase !== 'TRADE_AND_BUILD' ||
+          !edge?.isRiverCrossing || edge.bridgePlayerId || (context.edges || []).filter((candidate: any) => candidate.bridgePlayerId === playerId).length >= 3 ||
+          !touchesOwnNetwork || player.resources.WOOD < 1 || player.resources.BRICK < 2) return;
+      context.setEdges?.((previous: any[]) => previous.map(candidate => candidate.id === edgeId ? { ...candidate, bridgePlayerId: playerId } : candidate));
+      context.setPlayers?.((previous: any[]) => previous.map(candidate => candidate.id === playerId ? {
+        ...candidate,
+        resources: { ...candidate.resources, WOOD: candidate.resources.WOOD - 1, BRICK: candidate.resources.BRICK - 2 },
+      } : candidate));
+      context.setResourceBank?.(previous => ({ ...previous, WOOD: previous.WOOD + 1, BRICK: previous.BRICK + 2 }));
+      context.setGoldCoins?.(previous => ({ ...previous, [playerId]: (previous[playerId] || 0) + 3 }));
+      context.addLog?.(`🌉 ${player.name} built a river bridge and received 3 gold.`);
+      break;
+    }
+
+    case 'PLACE_CARAVAN_CAMEL': {
+      const scenario = context.scenarioState;
+      if (scenario?.kind !== 'CARAVAN_ROUTE' || scenario.pendingCamelPlayerId !== playerId) return;
+      placeLocalCaravanCamel(context, action.edgeId);
+      break;
+    }
+
+    case 'CAST_CARAVAN_VOTE': {
+      const scenario = context.scenarioState;
+      if (scenario?.kind !== 'CARAVAN_ROUTE' || !scenario.pendingCaravanVote || scenario.pendingCaravanVote.votesByPlayerId[playerId]) return;
+      const player = context.players?.find((candidate: any) => candidate.id === playerId);
+      if (!player || action.cards.SHEEP < 0 || action.cards.WHEAT < 0 || action.cards.SHEEP > player.resources.SHEEP || action.cards.WHEAT > player.resources.WHEAT) return;
+      const votes = { ...scenario.pendingCaravanVote.votesByPlayerId, [playerId]: action.cards };
+      const voterIds = (context.players || []).filter((candidate: any) => !candidate.isBot).map((candidate: any) => candidate.id);
+      if (!voterIds.every((id: string) => votes[id])) {
+        context.setScenarioState?.((previous: any) => ({ ...previous, pendingCaravanVote: { ...previous.pendingCaravanVote, votesByPlayerId: votes } }));
+        break;
+      }
+      const amounts = Object.fromEntries(Object.entries(votes).map(([id, cards]: [string, any]) => [id, cards.SHEEP + cards.WHEAT]));
+      const highest = Math.max(0, ...Object.values(amounts) as number[]);
+      const leaders = Object.keys(amounts).filter((id: string) => amounts[id] === highest);
+      context.setPlayers?.((previous: any[]) => previous.map(candidate => {
+        const cards = votes[candidate.id];
+        return cards ? { ...candidate, resources: { ...candidate.resources, SHEEP: candidate.resources.SHEEP - cards.SHEEP, WHEAT: candidate.resources.WHEAT - cards.WHEAT } } : candidate;
+      }));
+      context.setResourceBank?.((previous: any) => ({
+        ...previous,
+        SHEEP: previous.SHEEP + Object.values(votes).reduce((sum: number, cards: any) => sum + cards.SHEEP, 0),
+        WHEAT: previous.WHEAT + Object.values(votes).reduce((sum: number, cards: any) => sum + cards.WHEAT, 0),
+      }));
+      context.setScenarioState?.((previous: any) => ({
+        ...previous,
+        pendingCaravanVote: undefined,
+        pendingCamelPlayerId: highest > 0 && leaders.length === 1 ? leaders[0] : undefined,
+        pendingCamelTie: highest > 0 && leaders.length > 1 ? { playerIds: leaders, choicesByPlayerId: {} } : undefined,
+      }));
+      break;
+    }
+
+    case 'CHOOSE_CARAVAN_TIE_LOCATION': {
+      const scenario = context.scenarioState;
+      const tie = scenario?.kind === 'CARAVAN_ROUTE' ? scenario.pendingCamelTie : undefined;
+      if (!tie || !tie.playerIds.includes(playerId) || tie.choicesByPlayerId[playerId]) return;
+      const candidates = getCaravanCamelCandidates(context.tiles || [], context.edges || [], scenario.camelEdgeIds);
+      if (!candidates.includes(action.edgeId)) return;
+      const choices = { ...tie.choicesByPlayerId, [playerId]: action.edgeId };
+      if (!tie.playerIds.every((id: string) => choices[id])) {
+        context.setScenarioState?.((previous: any) => ({ ...previous, pendingCamelTie: { ...previous.pendingCamelTie, choicesByPlayerId: choices } }));
+      } else if (new Set(Object.values(choices)).size === 1) {
+        context.setScenarioState?.((previous: any) => ({ ...previous, pendingCamelTie: undefined }));
+        placeLocalCaravanCamel(context, action.edgeId);
+      } else {
+        context.setScenarioState?.((previous: any) => ({ ...previous, pendingCamelTie: undefined }));
+        context.addLog?.('לא הושגה הסכמה בין המצביעים המובילים; לא נוסף גמל.');
+      }
+      break;
+    }
+
+    case 'SPEND_FISH_ACTION': {
+      const { actionType, targetPlayerId, resource } = action;
+      const player = context.players?.find((candidate: any) => candidate.id === playerId);
+      if (!player || context.turnSubPhase !== 'TRADE_AND_BUILD') return;
+      const cost = FISH_ACTION_COSTS[actionType];
+      const fishTokens: number[] = player.fishTokens || [];
+      const payment = findFishPayment(fishTokens, cost);
+      if (!payment) return;
+      if (actionType === 'TAKE_BANK_RESOURCE' && (!resource || (context.resourceBank?.[resource] || 0) < 1)) return;
+      if (actionType === 'STEAL_CARD' && (!targetPlayerId || !context.players?.some(candidate => candidate.id === targetPlayerId && candidate.id !== playerId &&
+        Object.values(candidate.resources || {}).some(amount => Number(amount) > 0)))) return;
+      if (actionType === 'FREE_DEV_CARD' && !(context.devCardDeck || []).length) return;
+
+      const paymentIndexes = new Set(payment);
+      const paidTokens = fishTokens.filter((_, index) => paymentIndexes.has(index));
+      const newFishTokens = fishTokens.filter((_, index) => !paymentIndexes.has(index));
+      const newFishCount = newFishTokens.reduce((total, token) => total + token, 0);
+      
+      context.setPlayers?.((previous: any[]) => previous.map(candidate => candidate.id === playerId ? {
+        ...candidate,
+        fishCount: newFishCount,
+        fishTokens: newFishTokens
+      } : candidate));
+      if (context.scenarioState?.kind === 'FISHERMEN_OF_CATAN') {
+        context.setScenarioState?.((previous: any) => previous.kind === 'FISHERMEN_OF_CATAN'
+          ? { ...previous, fishDiscardPile: [...previous.fishDiscardPile, ...paidTokens] }
+          : previous);
+      }
+
+      if (actionType === 'MOVE_ROBBER') {
+        context.setTiles?.((previous: any[]) => previous.map(tile => ({ ...tile, hasRobber: false, hasPirate: false })));
+        context.addLog?.(`🎣 ${player.name} שילם 2 דגים והוציא את השודד מהלוח עד ה-7 הבא.`);
+      } else if (actionType === 'STEAL_CARD') {
+        if (targetPlayerId) {
+          const victim = context.players?.find((p: any) => p.id === targetPlayerId);
+          if (victim) {
+            const victimResources = Object.keys(victim.resources).filter(k => victim.resources[k as keyof ResourceCards] > 0) as (keyof ResourceCards)[];
+            if (victimResources.length > 0) {
+              const randomRes = victimResources[Math.floor(Math.random() * victimResources.length)];
+              context.setPlayers?.((prev: any[]) => prev.map(p => {
+                if (p.id === targetPlayerId) {
+                  return {
+                    ...p,
+                    resources: { ...p.resources, [randomRes]: p.resources[randomRes] - 1 }
+                  };
+                }
+                if (p.id === playerId) {
+                  return {
+                    ...p,
+                    resources: { ...p.resources, [randomRes]: (p.resources[randomRes] || 0) + 1 }
+                  };
+                }
+                return p;
+              }));
+              context.addLog?.(`🎣 ${player.name} שילם 3 דגים וגנב קלף אקראי מ-${victim.name}.`);
+            }
+          }
+        }
+      } else if (actionType === 'TAKE_BANK_RESOURCE') {
+        if (resource) {
+          context.setPlayers?.((prev: any[]) => prev.map(p => p.id === playerId ? {
+            ...p,
+            resources: { ...p.resources, [resource]: (p.resources[resource] || 0) + 1 }
+          } : p));
+          context.setResourceBank?.((prev: any) => ({ ...prev, [resource]: Math.max(0, prev[resource] - 1) }));
+          context.addLog?.(`🎣 ${player.name} שילם 4 דגים ולקח קלף ${resource} מהבנק.`);
+        }
+      } else if (actionType === 'FREE_ROAD') {
+        context.setRoadBuildingRemaining?.((prev: number) => prev + 1);
+        context.addLog?.(`🎣 ${player.name} שילם 5 דגים וקיבל זכות לבניית דרך חינם.`);
+      } else if (actionType === 'FREE_DEV_CARD') {
+        context.setDevCardDeck?.((previous: string[]) => {
+          const [card, ...rest] = previous;
+          if (!card) return previous;
+          context.setPlayers?.((players: any[]) => players.map(candidate => candidate.id === playerId ? {
+            ...candidate,
+            developmentCards: { ...candidate.developmentCards, [card]: (candidate.developmentCards?.[card] || 0) + 1 }
+          } : candidate));
+          context.addLog?.(`🎣 ${player.name} שילם 7 דגים ומשך קלף פיתוח חינם מהקופה.`);
+          return rest;
+        });
+      }
+      break;
+    }
+
+    case 'PASS_OLD_BOOT': {
+      const { targetPlayerId } = action;
+      const player = context.players?.find((candidate: any) => candidate.id === playerId);
+      const target = context.players?.find((candidate: any) => candidate.id === targetPlayerId);
+      if (!player || !target || !player.hasOldBoot) return;
+
+      const playerVP = getPlayerTotalVP(player, context.longestRoadPlayerId, context.largestArmyPlayerId, true, context.vertices || [], context.tiles || [], context.selectedScenario);
+      const targetVP = getPlayerTotalVP(target, context.longestRoadPlayerId, context.largestArmyPlayerId, true, context.vertices || [], context.tiles || [], context.selectedScenario);
+
+      if (targetVP >= playerVP) {
+        context.setPlayers?.((previous: any[]) => previous.map(candidate => {
+          if (candidate.id === playerId) {
+            return { ...candidate, hasOldBoot: false };
+          }
+          if (candidate.id === targetPlayerId) {
+            return { ...candidate, hasOldBoot: true };
+          }
+          return candidate;
+        }));
+        context.addLog?.(`👢 ${player.name} מסר את המגף הישן ל-${target.name}!`);
+      }
       break;
     }
 

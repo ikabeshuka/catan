@@ -4,7 +4,7 @@ import { HexTile } from '../../types/hex.types';
 
 interface NumberToken3DProps {
   tile: HexTile;
-  value?: number;
+  value?: number | string;
   clothRemaining?: number;
   tileX: number;
   tileY: number;
@@ -13,7 +13,7 @@ interface NumberToken3DProps {
   onTileHover: (tile: HexTile, x: number, y: number) => void;
   onTileLeave: () => void;
   isSelectableForRobber: (tile: HexTile) => boolean;
-  getProbabilityDots3D: (num: number) => string;
+  getProbabilityDots3D: (num: number | string) => string;
 }
 
 export const NumberToken3D: React.FC<NumberToken3DProps> = ({

@@ -12,7 +12,7 @@ export function reserveLostTribeDevelopmentCards(deck: string[], edges: BoardEdg
     .filter(edge => edge.lostTribeReward?.kind === 'DEV_CARD')
     .sort((left, right) => left.lostTribeReward!.id.localeCompare(right.lostTribeReward!.id));
   developmentGiftEdges.forEach(edge => {
-    const reservedCard = remainingDeck.shift() as DevCardType | undefined;
+    const reservedCard = remainingDeck.shift() as Exclude<DevCardType, 'KNIGHTHOOD' | 'STRONG_KNIGHT' | 'TREASON' | 'INTRIGUE' | 'SWIFT_JOURNEY'> | undefined;
     if (reservedCard && edge.lostTribeReward) edge.lostTribeReward.devCardType = reservedCard;
   });
   return remainingDeck;

@@ -104,7 +104,7 @@ export const Road3D: React.FC<Road3DProps> = ({
   }, []);
 
   const roadModel = React.useMemo(() => {
-    if (edge.hasShip || hasShip || !edge.hasRoad || !is3DMode) return null;
+    if (edge.hasShip || hasShip || (!edge.hasRoad && !edge.bridgePlayerId) || !is3DMode) return null;
     // מתיחה (Scale) לאורך ציר האורך length * 0.95 ושמירה על דרך מונחת שטוח
     return createStretchedClone(roadScene, length * 0.95, 0.45, 0.3);
   }, [edge.hasRoad, edge.hasShip, hasShip, roadScene, length, is3DMode, createStretchedClone]);
@@ -258,7 +258,7 @@ export const Road3D: React.FC<Road3DProps> = ({
       {is3DMode ? (
         <>
           {/* מצב תלת-ממדי */}
-          {edge.hasRoad && !edge.hasShip && !hasShip && roadModel && (
+          {(edge.hasRoad || edge.bridgePlayerId) && !edge.hasShip && !hasShip && roadModel && (
             <group rotation={[Math.PI / 2, 0, 0]}>
               <ModelWithOutlines object={roadModel} playerColor={playerColor} />
             </group>

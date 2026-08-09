@@ -45,7 +45,10 @@ export function calculateBotYields(
 
         if (checkId === vertex.id && tile.type !== 'DESERT' && tile.numberToken !== null) {
           const resourceType = tile.type as keyof ResourceYields;
-          yields[resourceType] += TOKEN_WEIGHTS_LOCAL[tile.numberToken] || 0;
+          const tokenNum = typeof tile.numberToken === 'number' ? tile.numberToken : parseInt(String(tile.numberToken), 10);
+          if (!isNaN(tokenNum)) {
+            yields[resourceType] += TOKEN_WEIGHTS_LOCAL[tokenNum] || 0;
+          }
         }
       }
     });

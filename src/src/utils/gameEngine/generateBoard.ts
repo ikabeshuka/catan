@@ -24,6 +24,9 @@ import { createDesertDragonsBoard } from '../../config/scenarios/desertDragons';
 import { createGreaterCatanBoard } from '../../config/scenarios/greaterCatan';
 import { createEnchantedLandBoard } from '../../config/scenarios/enchantedLand';
 import { createGreatCanalBoard } from '../../config/scenarios/greatCanal';
+import { applyRiversOfCatanTiles } from './riversOfCatanRules';
+import { applyCaravanRouteTiles } from './caravanBoardRules';
+import { applyBarbarianAttackTiles } from './barbarianAttackRules';
 
 /**
  * פונקציית עזר לבדיקת שכנות קובייה (isNeighbor שבה המרחק הגיאומטרי בין המשושים שווה ל-1)
@@ -84,7 +87,8 @@ export function generateBoard(
   boardType?: 'RANDOM' | 'STARTER',
   expansion?: GameExpansion,
   scenario?: SeafarersScenario,
-  playerCount: number = 4
+  playerCount: number = 4,
+  mbScenarioId?: string
 ): HexTile[] {
   if (expansion === 'SEAFARERS' || expansion === 'SEAFARERS_AND_CITIES_AND_KNIGHTS') {
     switch (scenario) {
@@ -557,7 +561,7 @@ export function generateBoard(
     // Sort 19 tiles row-by-row by coordinates
     tiles.sort((a, b) => a.coord.r - b.coord.r || a.coord.q - b.coord.q);
 
-    if (expansion === 'MERCHANTS_AND_BARBARIANS') {
+    if (expansion === 'MERCHANTS_AND_BARBARIANS' && mbScenarioId === 'MERCHANTS_AND_BARBARIANS') {
       tiles.forEach(tile => {
         const { q, r, s } = tile.coord;
         if (q === 0 && r === 0 && s === 0) {
@@ -571,6 +575,15 @@ export function generateBoard(
           tile.numberToken = null;
         }
       });
+    }
+    if (expansion === 'MERCHANTS_AND_BARBARIANS' && mbScenarioId === 'RIVERS_OF_CATAN') {
+      return applyRiversOfCatanTiles(tiles);
+    }
+    if (expansion === 'MERCHANTS_AND_BARBARIANS' && mbScenarioId === 'CARAVAN_ROUTE') {
+      return applyCaravanRouteTiles(tiles);
+    }
+    if (expansion === 'MERCHANTS_AND_BARBARIANS' && mbScenarioId === 'BARBARIAN_ATTACK') {
+      return applyBarbarianAttackTiles(tiles);
     }
     return tiles;
   }
@@ -694,7 +707,7 @@ export function generateBoard(
     }
   }
 
-  if (expansion === 'MERCHANTS_AND_BARBARIANS') {
+  if (expansion === 'MERCHANTS_AND_BARBARIANS' && mbScenarioId === 'MERCHANTS_AND_BARBARIANS') {
     tiles.forEach(tile => {
       const { q, r, s } = tile.coord;
       if (q === 0 && r === 0 && s === 0) {
@@ -708,6 +721,64 @@ export function generateBoard(
         tile.numberToken = null;
       }
     });
+  }
+
+  if (mbScenarioId?.toLowerCase() === 'fishermen_of_catan') {
+    // 1. Central Lake tile at (0, 0, 0)
+    const centerTile = tiles.find(t => t.coord.q === 0 && t.coord.r === 0 && t.coord.s === 0);
+    if (centerTile) {
+      if (centerTile.type === 'DESERT') {
+        const swapTile = tiles.find(t => t.id !== centerTile.id && t.type !== 'DESERT' && t.type !== 'WATER' && !t.isFrameSea && t.type !== 'FISHING_GROUND');
+        if (swapTile) {
+          centerTile.type = swapTile.type;
+          centerTile.numberToken = swapTile.numberToken;
+          centerTile.hasRobber = false;
+
+          swapTile.type = 'DESERT';
+          swapTile.numberToken = null;
+          swapTile.hasRobber = true;
+        }
+      }
+      centerTile.type = 'LAKE';
+      centerTile.numberToken = '2/3/11/12';
+      centerTile.hasRobber = false;
+    }
+
+    // 2. Add 6 coastal Fishing Grounds
+    const fishingGrounds = [
+      { coord: { q: 1, r: -3, s: 2 }, number: '2/3' },
+      { coord: { q: 3, r: -2, s: -1 }, number: 4 },
+      { coord: { q: 2, r: 1, s: -3 }, number: 5 },
+      { coord: { q: -1, r: 3, s: -2 }, number: 9 },
+      { coord: { q: -3, r: 2, s: 1 }, number: 10 },
+      { coord: { q: -2, r: -1, s: 3 }, number: '11/12' }
+    ];
+
+    fishingGrounds.forEach((fg, index) => {
+      const existingIndex = tiles.findIndex(t => t.coord.q === fg.coord.q && t.coord.r === fg.coord.r && t.coord.s === fg.coord.s);
+      const fgTile: HexTile = {
+        id: `fg_${index + 1}`,
+        coord: fg.coord,
+        type: 'FISHING_GROUND',
+        numberToken: fg.number,
+        hasRobber: false
+      };
+      if (existingIndex > -1) {
+        tiles[existingIndex] = fgTile;
+      } else {
+        tiles.push(fgTile);
+      }
+    });
+  }
+
+  if (expansion === 'MERCHANTS_AND_BARBARIANS' && mbScenarioId === 'RIVERS_OF_CATAN') {
+    return applyRiversOfCatanTiles(tiles);
+  }
+  if (expansion === 'MERCHANTS_AND_BARBARIANS' && mbScenarioId === 'CARAVAN_ROUTE') {
+    return applyCaravanRouteTiles(tiles);
+  }
+  if (expansion === 'MERCHANTS_AND_BARBARIANS' && mbScenarioId === 'BARBARIAN_ATTACK') {
+    return applyBarbarianAttackTiles(tiles);
   }
 
   return tiles;

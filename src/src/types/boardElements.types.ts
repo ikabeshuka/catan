@@ -18,6 +18,8 @@ export interface BoardVertex {
   enchantedDragon?: { id: string; strength: 1 | 2 | 3 };
   isEnchantedLand?: boolean;
   isEnchantedCoast?: boolean;
+  /** Barbarian Attack: a structure surrounded by captured coast/sea is inactive. */
+  barbarianCaptured?: boolean;
 }
 
 export interface BoardEdge {
@@ -30,6 +32,16 @@ export interface BoardEdge {
   hasShip?: boolean;           // האם בנויה כאן ספינה?
   shipPlayerId?: string | null; // מזהה השחקן שבנה את הספינה
   isWarship?: boolean;
+  /** Rivers of Catan: an edge crossed by a buildable bridge. */
+  isRiverCrossing?: boolean;
+  /** Rivers of Catan: a road alongside a river earns one gold coin. */
+  isRiverBank?: boolean;
+  /** Player whose bridge occupies this crossing. A bridge is a road route. */
+  bridgePlayerId?: string | null;
+  /** Barbarian Attack: six paths immediately surrounding the fortress. */
+  isBarbarianFortressRoute?: boolean;
+  /** Caravan Route: a camel stands on this road edge without occupying it. */
+  camelCount?: number;
   lostTribeReward?: {
     id: string;
     kind: 'VICTORY_POINT' | 'DEV_CARD' | 'HARBOR';

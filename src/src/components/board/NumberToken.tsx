@@ -3,21 +3,23 @@ import React from 'react';
 interface NumberTokenProps {
   centerX: number;
   centerY: number;
-  value: number;
+  value: number | string;
   is3DMode?: boolean;
   onClick?: () => void;
 }
 
 // פונקציית עזר קטנה להחזרת כמות נקודות ההסתברות (לפי חוקי קטאן)
-function getProbabilityDots(num: number): string {
-  const dotsMap: Record<number, string> = {
-    2: '.', 12: '.',
-    3: '..', 11: '..',
-    4: '...', 10: '...',
-    5: '....', 9: '....',
-    6: '.....', 8: '.....'
+function getProbabilityDots(num: number | string): string {
+  const dotsMap: Record<string, string> = {
+    '2': '.', '12': '.',
+    '3': '..', '11': '..',
+    '4': '...', '10': '...',
+    '5': '....', '9': '....',
+    '6': '.....', '8': '.....',
+    '2/3': '...',
+    '11/12': '...'
   };
-  return dotsMap[num] || '';
+  return dotsMap[num.toString()] || '';
 }
 
 export const NumberToken: React.FC<NumberTokenProps> = ({ centerX, centerY, value, is3DMode, onClick }) => {

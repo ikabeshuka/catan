@@ -32,12 +32,22 @@ export const getPlayerTotalVP = (
   includeHidden: boolean = false,
   vertices?: BoardVertex[],
   tiles?: HexTile[],
-  selectedScenario?: SeafarersScenario
+  selectedScenario?: string
 ): number => {
   let vp = player.victoryPoints || 0;
+  vp += player.riverScoreModifier || 0;
+  vp += player.caravanScoreModifier || 0;
+  vp += player.barbarianPrisonerScoreModifier || 0;
+  vp += player.barbarianCaptureScoreModifier || 0;
+  vp += player.wagonLevelScoreModifier || 0;
+  if (vertices && selectedScenario === 'BARBARIAN_ATTACK') {
+    vertices.filter(vertex => vertex.playerId === player.id && vertex.barbarianCaptured).forEach(vertex => {
+      vp -= vertex.structure === 'CITY' ? 2 : 1;
+    });
+  }
   // Cities & Knights replaces both the Longest Road and Largest Army awards
   // with city improvements, progress cards, and Defender of Catan points.
-  const disablesTrophies = selectedScenario === 'CLOTH_FOR_CATAN' || selectedScenario === 'PIRATE_ISLANDS' || selectedScenario === 'DESERT_DRAGONS' || Boolean(player.cityImprovements);
+  const disablesTrophies = selectedScenario === 'CLOTH_FOR_CATAN' || selectedScenario === 'PIRATE_ISLANDS' || selectedScenario === 'DESERT_DRAGONS' || selectedScenario === 'MERCHANTS_AND_BARBARIANS' || Boolean(player.cityImprovements) || Boolean(player.merchantsBarbariansNoLongestRoad);
   if (!disablesTrophies && longestRoadPlayerId === player.id) {
     vp += 2;
   }
@@ -66,7 +76,7 @@ export const getPlayerTotalVP = (
   const homeIslandIds = player.homeIslandIds?.length
     ? player.homeIslandIds
     : player.homeIslandId !== undefined ? [player.homeIslandId] : [];
-  if (vertices && tiles && selectedScenario && foreignIslandBonusScenarios.includes(selectedScenario) && homeIslandIds.length > 0) {
+  if (vertices && tiles && selectedScenario && foreignIslandBonusScenarios.includes(selectedScenario as any) && homeIslandIds.length > 0) {
     const foreignIslandsVisited = new Set<number>();
     
     // Find all settlements and cities belonging to this player

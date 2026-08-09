@@ -26,15 +26,17 @@ const HEX_SIZE_2D = 60; // Base size for 2D calculations, remains consistent
 const HEX_HEIGHT_3D = 3.0; // Visual height for 3D hexes
 const SCALE_3D = (HEX_HEIGHT_3D / 2) / HEX_SIZE_2D; // Scaling factor from 2D pixel to 3D unit
 
-function getProbabilityDots3D(num: number): string {
-  const dotsMap: Record<number, string> = {
-    2: '.', 12: '.',
-    3: '..', 11: '..',
-    4: '...', 10: '...',
-    5: '....', 9: '....',
-    6: '.....', 8: '.....'
+function getProbabilityDots3D(num: number | string): string {
+  const dotsMap: Record<string, string> = {
+    '2': '.', '12': '.',
+    '3': '..', '11': '..',
+    '4': '...', '10': '...',
+    '5': '....', '9': '....',
+    '6': '.....', '8': '.....',
+    '2/3': '...',
+    '11/12': '...'
   };
-  return dotsMap[num] || '';
+  return dotsMap[num.toString()] || '';
 }
 
 interface Board3DSceneProps {
@@ -305,7 +307,7 @@ export const Board3DScene: React.FC<Board3DSceneProps> = ({
         const { edge, center3D, length3D, angleRad3D, usesSeaSurface, borderingTiles } = edgeData;
         if (!edge || !edge.id) return null;
 
-        const builtPlayer = playerById.get(edge.playerId || edge.shipPlayerId);
+        const builtPlayer = playerById.get(edge.playerId || edge.shipPlayerId || edge.bridgePlayerId);
         const playerColor = builtPlayer?.color || '#ff5722';
         
         const { isValidPlacement } = getEdgeConfig(edge);

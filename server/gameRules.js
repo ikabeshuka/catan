@@ -18,7 +18,9 @@ const shuffled = deck => {
   }
   return copy;
 };
-const DEV_CARD_TYPES = ['KNIGHT', 'VICTORY_POINT', 'ROAD_BUILDING', 'YEAR_OF_PLENTY', 'MONOPOLY'];
+const DEV_CARD_TYPES = ['KNIGHT', 'VICTORY_POINT', 'ROAD_BUILDING', 'YEAR_OF_PLENTY', 'MONOPOLY', 'KNIGHTHOOD', 'STRONG_KNIGHT', 'TREASON', 'INTRIGUE', 'SWIFT_JOURNEY'];
+const BARBARIAN_ATTACK_CARD_TYPES = new Set(['KNIGHTHOOD', 'STRONG_KNIGHT', 'TREASON', 'INTRIGUE']);
+const FISH_ACTION_COSTS = { MOVE_ROBBER: 2, STEAL_CARD: 3, TAKE_BANK_RESOURCE: 4, FREE_ROAD: 5, FREE_DEV_CARD: 7 };
 const TREASURES_DRAGONS_ADVENTURERS_SCENARIOS = new Set([
   'TREASURE_ISLANDS', 'INTO_THE_UNKNOWN', 'GREATER_CATAN', 'DESERT_DRAGONS', 'GREAT_CANAL', 'ENCHANTED_LAND',
 ]);
@@ -32,7 +34,7 @@ const ACTION_TYPES = new Set([
   'MOVE_SHIP', 'PLACE_HARBOR', 'DISCOVER_FOG', 'SELECT_GOLD_RESOURCE',
   'ATTACK_PIRATE_FORTRESS',
   'DISCOVER_SCENARIO_HEX', 'CLAIM_TREASURE', 'KEEP_TREASURE', 'MOVE_ENCHANTED_KNIGHT', 'FIGHT_ENCHANTED_DRAGON',
-  'MOVE_WAGON', 'UPGRADE_WAGON',
+  'MOVE_WAGON', 'UPGRADE_WAGON', 'PLACE_MERCHANTS_BARBARIAN', 'BUILD_BRIDGE', 'CAST_CARAVAN_VOTE', 'CHOOSE_CARAVAN_TIE_LOCATION', 'PLACE_CARAVAN_CAMEL', 'RESOLVE_BARBARIAN_CARD', 'MOVE_BARBARIAN_KNIGHT', 'SPEND_FISH_ACTION', 'PASS_OLD_BOOT',
   'BUILD_KNIGHT', 'ACTIVATE_KNIGHT', 'UPGRADE_KNIGHT', 'MOVE_KNIGHT', 'DISPLACE_KNIGHT', 'RELOCATE_DISPLACED_KNIGHT', 'SELECT_DESERTER_KNIGHT', 'PLACE_DESERTER_KNIGHT',
   'EXPEL_PIRATE',
   'BUILD_CITY_WALL', 'UPGRADE_CITY_IMPROVEMENT', 'DOWNGRADE_CITY', 'PLAY_PROGRESS_CARD', 'DISCARD_PROGRESS_CARD',
@@ -96,6 +98,16 @@ function validateActionShape(action, { authoritative = false } = {}) {
       break;
     case 'BUY_DEV_CARD':
       if (!DEV_CARD_TYPES.includes(action.cardType)) return { ok: false, message: 'Invalid development card' };
+      break;
+    case 'RESOLVE_BARBARIAN_CARD':
+      if ((action.edgeId !== undefined && !requireId('edgeId')) || (action.tileId !== undefined && !requireId('tileId')) ||
+          (action.sourceTileIds !== undefined && (!Array.isArray(action.sourceTileIds) || action.sourceTileIds.length !== 2 || !action.sourceTileIds.every(isId))) ||
+          (action.targetTileIds !== undefined && (!Array.isArray(action.targetTileIds) || action.targetTileIds.length !== 2 || !action.targetTileIds.every(isId)))) {
+        return { ok: false, message: 'Invalid Barbarian Attack card resolution' };
+      }
+      break;
+    case 'MOVE_BARBARIAN_KNIGHT':
+      if (!requireId('knightId') || !requireId('edgeId') || (action.payWheat !== undefined && typeof action.payWheat !== 'boolean')) return { ok: false, message: 'Invalid Barbarian Attack knight move' };
       break;
     case 'PLAY_DEV_CARD':
       if (!DEV_CARD_TYPES.includes(action.cardType)) {
@@ -184,11 +196,38 @@ function validateActionShape(action, { authoritative = false } = {}) {
       if (!requireId('knightVertexId') || !requireId('dragonId')) return { ok: false, message: 'Invalid dragon fight' };
       break;
     case 'MOVE_WAGON':
-      if (!requireId('targetVertexId') || ![1, 2].includes(action.movementCost)) return { ok: false, message: 'Invalid wagon move' };
+      if (!requireId('targetVertexId') || !Number.isInteger(action.movementCost) || action.movementCost < 1 || action.movementCost > 5 ||
+          (action.wheatBoost !== undefined && typeof action.wheatBoost !== 'boolean')) return { ok: false, message: 'Invalid wagon move' };
       break;
     case 'UPGRADE_WAGON':
-      if (![2, 3].includes(action.newLevel) || !['RESOURCES', 'GOLD'].includes(action.payment)) {
+      if (![2, 3, 4, 5].includes(action.newLevel) || !['RESOURCES', 'GOLD'].includes(action.payment)) {
         return { ok: false, message: 'Invalid wagon upgrade' };
+      }
+      break;
+    case 'PLACE_MERCHANTS_BARBARIAN':
+      if (!requireId('edgeId')) return { ok: false, message: 'Invalid barbarian location' };
+      break;
+    case 'BUILD_BRIDGE':
+      if (!requireId('edgeId')) return { ok: false, message: 'Invalid bridge location' };
+      break;
+    case 'CAST_CARAVAN_VOTE':
+      if (!isPlainObject(action.cards) || !isNonNegativeInteger(action.cards.SHEEP) || !isNonNegativeInteger(action.cards.WHEAT) ||
+          Object.keys(action.cards).some(key => !['SHEEP', 'WHEAT'].includes(key))) return { ok: false, message: 'Invalid caravan vote' };
+      break;
+    case 'CHOOSE_CARAVAN_TIE_LOCATION':
+    case 'PLACE_CARAVAN_CAMEL':
+      if (!requireId('edgeId')) return { ok: false, message: 'Invalid camel location' };
+      break;
+    case 'SPEND_FISH_ACTION':
+      if (!Object.hasOwn(FISH_ACTION_COSTS, action.actionType) ||
+          (action.targetPlayerId !== undefined && !requireId('targetPlayerId')) ||
+          (action.resource !== undefined && !isResource(action.resource))) {
+        return { ok: false, message: 'Invalid fish action' };
+      }
+      break;
+    case 'PASS_OLD_BOOT':
+      if (!requireId('targetPlayerId') || action.targetPlayerId === action.playerId) {
+        return { ok: false, message: 'Invalid Old Boot target' };
       }
       break;
     case 'BUILD_KNIGHT':
@@ -310,6 +349,66 @@ const resolveBarbarianAttack = state => {
   return citiesKnights.barbarianLossQueue.length > 0;
 };
 const hasResources = (player, cost) => Object.entries(cost).every(([key, amount]) => (player.resources?.[key] || 0) >= amount);
+const isFishermen = state => state?.activeExpansion === 'MERCHANTS_AND_BARBARIANS' && state?.selectedMBScenario === 'FISHERMEN_OF_CATAN';
+const isRiversOfCatan = state => state?.activeExpansion === 'MERCHANTS_AND_BARBARIANS' && state?.selectedMBScenario === 'RIVERS_OF_CATAN';
+const isCaravanRoute = state => state?.activeExpansion === 'MERCHANTS_AND_BARBARIANS' && state?.selectedMBScenario === 'CARAVAN_ROUTE';
+const isBarbarianAttack = state => state?.activeExpansion === 'MERCHANTS_AND_BARBARIANS' && state?.selectedMBScenario === 'BARBARIAN_ATTACK';
+const isMerchantsAndBarbarians = state => state?.activeExpansion === 'MERCHANTS_AND_BARBARIANS' && state?.selectedMBScenario === 'MERCHANTS_AND_BARBARIANS';
+const wagonMaxMovement = level => [4, 5, 5, 6, 6][Math.max(0, (level || 1) - 1)] || 4;
+const wagonDeliveryTargetType = product => ({ GLASS: 'CASTLE', MARBLE: 'CASTLE', SAND: 'GLASSWORKS', TOOLS: 'QUARRY' })[product];
+const wagonTargetAtVertex = (state, vertexId) => Object.entries(state.scenarioState?.targetVertexIdsByTileId || {})
+  .find(([, vertexIds]) => vertexIds.includes(vertexId))?.[0];
+const resolveWagonArrival = (state, player, targetTileId) => {
+  const scenario = state.scenarioState;
+  if (!targetTileId || !scenario?.kind || scenario.kind !== 'MERCHANTS_AND_BARBARIANS') return false;
+  const target = state.tiles.find(tile => tile.id === targetTileId);
+  if (!target) return false;
+  if (!player.wagonCargo) {
+    player.wagonCargo = scenario.productDecksByTargetId[targetTileId]?.shift();
+    return true;
+  }
+  if (target.type !== wagonDeliveryTargetType(player.wagonCargo)) return true;
+  player.victoryPoints = (player.victoryPoints || 0) + 1;
+  state.goldCoins[player.id] = (state.goldCoins[player.id] || 0) + (player.wagonLevel || 1);
+  player.wagonCargo = scenario.productDecksByTargetId[targetTileId]?.shift();
+  return true;
+};
+const syncRiversWealth = state => {
+  if (!isRiversOfCatan(state) || !state.players?.length) return;
+  const amounts = state.players.map(player => state.goldCoins?.[player.id] || 0);
+  const richest = Math.max(...amounts);
+  const poorest = Math.min(...amounts);
+  const richIndex = amounts.filter(amount => amount === richest).length === 1 ? amounts.indexOf(richest) : -1;
+  state.players.forEach((candidate, index) => {
+    candidate.riverScoreModifier = (index === richIndex ? 1 : 0) + (amounts[index] === poorest ? -2 : 0);
+  });
+};
+const findFishPayment = (tokens, cost) => {
+  const selected = [];
+  let best = null;
+  const visit = (index, total) => {
+    if (total === cost) {
+      if (!best || selected.length < best.length) best = [...selected];
+      return;
+    }
+    if (total > cost || index >= tokens.length || (best && selected.length >= best.length)) return;
+    selected.push(index);
+    visit(index + 1, total + tokens[index]);
+    selected.pop();
+    visit(index + 1, total);
+  };
+  visit(0, 0);
+  return best;
+};
+const drawFishermenToken = state => {
+  const scenario = state.scenarioState;
+  if (scenario?.kind !== 'FISHERMEN_OF_CATAN') return undefined;
+  if (!scenario.fishDrawPile.length && scenario.fishDiscardPile.length) {
+    scenario.fishDrawPile = shuffled(scenario.fishDiscardPile);
+    scenario.fishDiscardPile = [];
+  }
+  return scenario.fishDrawPile.shift();
+};
 const countPieces = (state, playerId, kind) => {
   if (kind === 'SETTLEMENT' || kind === 'CITY') {
     return (state.vertices || []).filter(vertex => vertex.playerId === playerId && vertex.structure === kind).length;
@@ -323,6 +422,155 @@ const edgeEndpoints = (edge) => {
   return parts.length === 2 ? [parts[0], `v_${parts[1]}`] : [];
 };
 const incidentEdges = (state, vertexId) => (state.edges || []).filter(edge => edgeEndpoints(edge).includes(vertexId));
+const caravanComponents = (state, camelEdgeIds) => {
+  const unseen = new Set(camelEdgeIds);
+  let result = 0;
+  while (unseen.size) {
+    result += 1;
+    const [first] = unseen;
+    const queue = [first];
+    unseen.delete(first);
+    while (queue.length) {
+      const current = state.edges?.find(edge => edge.id === queue.shift());
+      if (!current) continue;
+      edgeEndpoints(current).forEach(vertexId => incidentEdges(state, vertexId).filter(edge => unseen.has(edge.id)).forEach(edge => {
+        unseen.delete(edge.id); queue.push(edge.id);
+      }));
+    }
+  }
+  return result;
+};
+const caravanCamelCandidates = state => {
+  const camelEdgeIds = state.scenarioState?.camelEdgeIds || [];
+  const occupied = new Set(camelEdgeIds);
+  const degrees = new Map();
+  (state.edges || []).filter(edge => occupied.has(edge.id)).forEach(edge => edgeEndpoints(edge).forEach(vertexId =>
+    degrees.set(vertexId, (degrees.get(vertexId) || 0) + 1)));
+  const endpoints = new Set([...degrees.entries()].filter(([, count]) => count === 1).map(([vertexId]) => vertexId));
+  const extensions = (state.edges || []).filter(edge => !occupied.has(edge.id) && edgeEndpoints(edge).some(vertexId => endpoints.has(vertexId))).map(edge => edge.id);
+  const oasis = (state.tiles || []).find(tile => tile.type === 'OASIS');
+  const starts = oasis && caravanComponents(state, camelEdgeIds) < 3
+    ? tileEdgeIds(oasis).filter(edgeId => !occupied.has(edgeId)) : [];
+  return new Set([...starts, ...extensions]);
+};
+const syncCaravanScores = state => {
+  if (!isCaravanRoute(state)) return;
+  const degrees = new Map();
+  (state.edges || []).filter(edge => edge.camelCount).forEach(edge => edgeEndpoints(edge).forEach(vertexId =>
+    degrees.set(vertexId, (degrees.get(vertexId) || 0) + 1)));
+  (state.players || []).forEach(candidate => {
+    candidate.caravanScoreModifier = (state.vertices || []).filter(vertex => vertex.playerId === candidate.id &&
+      ['SETTLEMENT', 'CITY'].includes(vertex.structure) && (degrees.get(vertex.id) || 0) >= 2).length;
+  });
+};
+const humanCaravanVoterIds = state => (state.players || []).filter(candidate => !candidate.isBot).map(candidate => candidate.id);
+const placeCaravanCamel = (state, edgeId) => {
+  const edge = state.edges.find(candidate => candidate.id === edgeId);
+  edge.camelCount = 1;
+  state.scenarioState.camelEdgeIds.push(edgeId);
+  state.scenarioState.remainingCamels -= 1;
+};
+const settleCaravanVote = state => {
+  const scenario = state.scenarioState;
+  const votes = scenario.pendingCaravanVote.votesByPlayerId;
+  const amounts = Object.fromEntries(Object.entries(votes).map(([playerId, cards]) => [playerId, cards.SHEEP + cards.WHEAT]));
+  Object.entries(votes).forEach(([playerId, cards]) => {
+    const player = state.players.find(candidate => candidate.id === playerId);
+    player.resources.SHEEP -= cards.SHEEP;
+    player.resources.WHEAT -= cards.WHEAT;
+    state.resourceBank.SHEEP += cards.SHEEP;
+    state.resourceBank.WHEAT += cards.WHEAT;
+  });
+  delete scenario.pendingCaravanVote;
+  const highest = Math.max(0, ...Object.values(amounts));
+  if (highest === 0) return;
+  const leaders = Object.keys(amounts).filter(playerId => amounts[playerId] === highest);
+  if (leaders.length === 1) scenario.pendingCamelPlayerId = leaders[0];
+  else scenario.pendingCamelTie = { playerIds: leaders, choicesByPlayerId: {} };
+};
+const barbarianDistanceToCatan = tile => Math.abs(tile.coord.q) + Math.abs(tile.coord.r) + Math.abs(tile.coord.s);
+const resolveBarbarianInvasion = (state, playerId) => {
+  const scenario = state.scenarioState;
+  if (!isBarbarianAttack(state) || scenario?.kind !== 'BARBARIAN_ATTACK') return [];
+  scenario.remainingByPlayerId ||= {};
+  const rolls = new Set();
+  while (rolls.size < 3) {
+    const total = 2 + Math.floor(Math.random() * 11);
+    if (total !== 7) rolls.add(total);
+  }
+  const land = (state.tiles || []).filter(tile => !isWaterTile(tile));
+  const coastDistance = Math.max(...land.map(barbarianDistanceToCatan));
+  [...rolls].forEach(roll => {
+    if ((scenario.remainingByPlayerId[playerId] || 0) <= 0) return;
+    const target = land.find(tile => tile.numberToken === roll && barbarianDistanceToCatan(tile) === coastDistance &&
+      (scenario.barbarians || []).filter(barbarian => barbarian.tileId === tile.id).length < 3);
+    if (!target) return;
+    const ordinal = 6 - scenario.remainingByPlayerId[playerId] + 1;
+    scenario.remainingByPlayerId[playerId] -= 1;
+    scenario.barbarians.push({ id: `barbarian-${playerId}-${ordinal}`, ownerPlayerId: playerId, tileId: target.id });
+  });
+  refreshBarbarianCaptures(state);
+  return [...rolls];
+};
+const refreshBarbarianCaptures = state => {
+  const scenario = state.scenarioState;
+  const land = (state.tiles || []).filter(tile => !isWaterTile(tile));
+  scenario.capturedTileIds = land.filter(tile => (scenario.barbarians || []).filter(barbarian => barbarian.tileId === tile.id).length >= 3).map(tile => tile.id);
+  (state.tiles || []).forEach(tile => { tile.scenarioMarker = { ...tile.scenarioMarker, barbarianCaptured: scenario.capturedTileIds.includes(tile.id) }; });
+  (state.vertices || []).forEach(vertex => {
+    if (!['SETTLEMENT', 'CITY'].includes(vertex.structure)) return;
+    const bordering = state.tiles.filter(tile => tileVertexIds(tile).includes(vertex.id));
+    // The fortress and desert are explicitly immune to capture.
+    vertex.barbarianCaptured = bordering.length > 0 && !bordering.some(tile => tile.scenarioMarker?.barbarianFortress || tile.type === 'DESERT') &&
+      bordering.every(tile => isWaterTile(tile) || scenario.capturedTileIds.includes(tile.id));
+  });
+  (state.players || []).forEach(player => {
+    player.barbarianPrisonerScoreModifier = Math.floor((scenario.prisonersByPlayerId?.[player.id] || 0) / 2);
+  });
+};
+const barbarianKnightReachable = (state, startEdgeId, targetEdgeId, maxSteps) => {
+  const queue = [[startEdgeId, 0]];
+  const seen = new Set([startEdgeId]);
+  while (queue.length) {
+    const [edgeId, distance] = queue.shift();
+    if (edgeId === targetEdgeId) return true;
+    if (distance >= maxSteps) continue;
+    const edge = state.edges.find(candidate => candidate.id === edgeId);
+    if (!edge) continue;
+    edgeEndpoints(edge).forEach(vertexId => incidentEdges(state, vertexId).forEach(next => {
+      if (seen.has(next.id) || !(next.hasRoad || next.id === targetEdgeId)) return;
+      seen.add(next.id); queue.push([next.id, distance + 1]);
+    }));
+  }
+  return false;
+};
+const resolveBarbarianVictories = state => {
+  const scenario = state.scenarioState;
+  if (!isBarbarianAttack(state) || scenario?.kind !== 'BARBARIAN_ATTACK') return [];
+  const awards = [];
+  for (const tileId of [...scenario.capturedTileIds]) {
+    const tile = state.tiles.find(candidate => candidate.id === tileId);
+    if (!tile) continue;
+    const surroundingEdges = new Set(tileEdgeIds(tile));
+    const involved = new Map();
+    (scenario.knights || []).filter(knight => surroundingEdges.has(knight.edgeId)).forEach(knight =>
+      involved.set(knight.ownerPlayerId, (involved.get(knight.ownerPlayerId) || 0) + 1));
+    const barbarians = (scenario.barbarians || []).filter(barbarian => barbarian.tileId === tileId);
+    const knightCount = [...involved.values()].reduce((total, count) => total + count, 0);
+    if (knightCount <= barbarians.length) continue;
+    const contenders = [...involved.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
+    const winners = contenders.slice(0, barbarians.length).map(([playerId]) => playerId);
+    barbarians.forEach((barbarian, index) => {
+      const recipient = winners[index];
+      if (!recipient) return;
+      scenario.prisonersByPlayerId[recipient] = (scenario.prisonersByPlayerId[recipient] || 0) + 1;
+      awards.push({ tileId, prisonerId: barbarian.id, playerId: recipient });
+    });
+    scenario.barbarians = scenario.barbarians.filter(barbarian => barbarian.tileId !== tileId);
+  }
+  refreshBarbarianCaptures(state);
+  return awards;
+};
 const hasOwnedRoutePath = (state, playerId, fromVertexId, toVertexId, { allowOccupiedTarget = false } = {}) => {
   const pending = [fromVertexId];
   const visited = new Set(pending);
@@ -331,6 +579,7 @@ const hasOwnedRoutePath = (state, playerId, fromVertexId, toVertexId, { allowOcc
     if (current === toVertexId) return true;
     incidentEdges(state, current).filter(edge =>
       (edge.hasRoad && edge.playerId === playerId) ||
+      edge.bridgePlayerId === playerId ||
       (isCombinedSeafarersCitiesKnights(state) && edge.hasShip && edge.shipPlayerId === playerId)
     ).forEach(edge => {
       edgeEndpoints(edge).filter(id => !visited.has(id)).forEach(id => {
@@ -378,7 +627,7 @@ const networkTouchesTarget = (state, playerId, edge, routeKind, ignoredEdgeId) =
   if (vertex?.playerId === playerId && vertex.structure !== 'NONE') return true;
   return incidentEdges(state, endpoint).some(candidate => {
     if (candidate.id === edge.id || candidate.id === ignoredEdgeId) return false;
-    const connectedKind = candidate.hasRoad && candidate.playerId === playerId
+    const connectedKind = (candidate.hasRoad && candidate.playerId === playerId) || candidate.bridgePlayerId === playerId
       ? 'ROAD'
       : candidate.hasShip && candidate.shipPlayerId === playerId ? 'SHIP' : null;
     if (!connectedKind) return false;
@@ -593,6 +842,15 @@ const TDA_VICTORY_TARGETS = {
   ENCHANTED_LAND: { SEAFARERS_AND_CITIES_AND_KNIGHTS: { 3: 21, 4: 18 } },
 };
 const victoryTarget = state => {
+  if (state.activeExpansion === 'MERCHANTS_AND_BARBARIANS') {
+    return ({
+      FISHERMEN_OF_CATAN: 10,
+      RIVERS_OF_CATAN: 10,
+      CARAVAN_ROUTE: 12,
+      BARBARIAN_ATTACK: 12,
+      MERCHANTS_AND_BARBARIANS: 13,
+    })[state.selectedMBScenario] || 10;
+  }
   const playerCount = state.players?.length === 3 ? 3 : 4;
   const tdaTarget = TDA_VICTORY_TARGETS[state.selectedScenario]?.[state.activeExpansion]?.[playerCount];
   if (tdaTarget) return tdaTarget;
@@ -602,6 +860,13 @@ const victoryTarget = state => {
 };
 const playerTotalVP = (state, player) => {
   let points = player.victoryPoints || 0;
+  points += player.riverScoreModifier || 0;
+  points += player.caravanScoreModifier || 0;
+  if (isBarbarianAttack(state)) {
+    (state.vertices || []).filter(vertex => vertex.playerId === player.id && vertex.barbarianCaptured).forEach(vertex => {
+      points -= vertex.structure === 'CITY' ? 2 : 1;
+    });
+  }
   if (!isPirateIslands(state)) points += player.developmentCards?.VICTORY_POINT || 0;
   if (state.selectedScenario === 'CLOTH_FOR_CATAN') points += Math.floor((player.clothRolls || 0) / 2);
   points += player.defenderOfCatanPoints || 0;
@@ -619,6 +884,7 @@ const playerTotalVP = (state, player) => {
       if (land.length > 0 && land.every(tile => (tile.scenarioMarker?.dragonIds || []).length > 0)) points -= 1;
     });
   }
+  if (isFishermen(state) && player.hasOldBoot) points -= 1;
   return points;
 };
 const maybeEndGame = (state, playerId) => {
@@ -703,9 +969,14 @@ const distributeRolledResources = (state, total) => {
   const commodityClaims = [];
   const goldSelections = [];
   const receivedByPlayer = new Map();
+  const isActivatedToken = token => token === total ||
+    (token === '2/3' && [2, 3].includes(total)) ||
+    (token === '11/12' && [11, 12].includes(total)) ||
+    (token === '2/3/11/12' && [2, 3, 11, 12].includes(total));
   (state.tiles || []).filter(tile =>
-    tile.numberToken === total &&
+    isActivatedToken(tile.numberToken) &&
     !tile.hasRobber &&
+    !(isBarbarianAttack(state) && state.scenarioState?.capturedTileIds?.includes(tile.id)) &&
     !(state.selectedScenario === 'DESERT_DRAGONS' && (tile.scenarioMarker?.dragonIds || []).length > 0) &&
     !(state.selectedScenario === 'GREAT_CANAL' && tile.scenarioMarker?.infertileField) &&
     !(['THE_LOST_TRIBE', 'CLOTH_FOR_CATAN'].includes(state.selectedScenario) && tile.islandId !== 1)
@@ -714,7 +985,16 @@ const distributeRolledResources = (state, total) => {
     (state.vertices || []).forEach(vertex => {
       if (!vertexIds.has(vertex.id) || !vertex.playerId || vertex.structure === 'NONE') return;
       const amount = vertex.structure === 'CITY' ? 2 : 1;
-      if (tile.type === 'GOLD_FIELD') goldSelections.push({ playerId: vertex.playerId, amount, tileId: tile.id });
+      if (isFishermen(state) && ['LAKE', 'FISHING_GROUND'].includes(tile.type)) {
+        const owner = state.players.find(candidate => candidate.id === vertex.playerId);
+        owner.fishTokens ||= [];
+        for (let index = 0; index < amount && owner.fishTokens.length < 7; index += 1) {
+          const token = drawFishermenToken(state);
+          if (token === 'OLD_BOOT') owner.hasOldBoot = true;
+          else if (token) owner.fishTokens.push(token);
+        }
+        owner.fishCount = owner.fishTokens.reduce((sum, token) => sum + token, 0);
+      } else if (tile.type === 'GOLD_FIELD') goldSelections.push({ playerId: vertex.playerId, amount, tileId: tile.id });
       else if (RESOURCE_TYPES.includes(tile.type)) {
         const commodity = isCitiesKnights(state) && vertex.structure === 'CITY' ? commodityForTerrain(tile.type) : null;
         claims.push({ playerId: vertex.playerId, resource: tile.type, amount: commodity ? 1 : amount });
@@ -772,7 +1052,7 @@ const distributeRolledResources = (state, total) => {
     return byPlayer;
   }, new Map()).values());
   if (goldSelections.length > 0) state.turnSubPhase = 'GOLD_RESOURCE_SELECTION';
-  if (state.activeExpansion === 'MERCHANTS_AND_BARBARIANS') {
+  if (state.activeExpansion === 'MERCHANTS_AND_BARBARIANS' && state.selectedMBScenario === 'MERCHANTS_AND_BARBARIANS') {
     const playersWithBuildings = new Set((state.vertices || [])
       .filter(vertex => vertex.playerId && vertex.structure !== 'NONE')
       .map(vertex => vertex.playerId));
@@ -896,7 +1176,7 @@ function validateGameAction(state, action) {
   if (!player) return { ok: false, message: 'Unknown player' };
   const activePlayer = state.players[state.currentPlayerIndex || 0];
   const isSetup = ['SETUP_ROUND_1', 'SETUP_ROUND_2', 'SETUP_ROUND_3'].includes(state.gamePhase);
-  const phaseExceptions = new Set(['DISCARD_CARDS', 'GIVE_PROGRESS_CARDS', 'ACCEPT_TRADE', 'DECLINE_TRADE', 'SELECT_GOLD_RESOURCE', 'RELOCATE_DISPLACED_KNIGHT', 'SELECT_DESERTER_KNIGHT', 'DISCARD_PROGRESS_CARD']);
+  const phaseExceptions = new Set(['DISCARD_CARDS', 'GIVE_PROGRESS_CARDS', 'ACCEPT_TRADE', 'DECLINE_TRADE', 'SELECT_GOLD_RESOURCE', 'RELOCATE_DISPLACED_KNIGHT', 'SELECT_DESERTER_KNIGHT', 'DISCARD_PROGRESS_CARD', 'CAST_CARAVAN_VOTE', 'CHOOSE_CARAVAN_TIE_LOCATION', 'PLACE_CARAVAN_CAMEL']);
   if (!phaseExceptions.has(action.type) && activePlayer?.id !== action.playerId) {
     return { ok: false, message: 'It is not this player\'s turn' };
   }
@@ -975,8 +1255,49 @@ function validateGameAction(state, action) {
     case 'ROLL_DICE':
       if (state.gamePhase !== 'MAIN_GAME' || state.turnSubPhase !== 'BEFORE_ROLL') return { ok: false, message: 'Dice cannot be rolled now' };
       break;
+    case 'RESOLVE_BARBARIAN_CARD': {
+      const pending = state.scenarioState?.pendingDevelopmentCard;
+      if (!isBarbarianAttack(state) || !pending || pending.playerId !== action.playerId) return { ok: false, message: 'No Barbarian Attack card is awaiting resolution' };
+      const scenario = state.scenarioState;
+      const freeEdge = edgeId => {
+        const edge = state.edges?.find(candidate => candidate.id === edgeId);
+        return edge && !scenario.knights.some(knight => knight.edgeId === edgeId);
+      };
+      if (pending.cardType === 'KNIGHTHOOD' && (!freeEdge(action.edgeId) || !state.edges.find(edge => edge.id === action.edgeId)?.isBarbarianFortressRoute)) return { ok: false, message: 'Knighthood must use a free fortress path' };
+      if (pending.cardType === 'STRONG_KNIGHT' && !freeEdge(action.edgeId)) return { ok: false, message: 'Strong Knight needs a free path' };
+      if (pending.cardType === 'INTRIGUE' && !scenario.barbarians.some(barbarian => barbarian.tileId === action.tileId)) return { ok: false, message: 'Intrigue needs a barbarian target' };
+      if (pending.cardType === 'TREASON') {
+        const sources = action.sourceTileIds || [];
+        const targets = action.targetTileIds || [];
+        const land = state.tiles.filter(tile => !isWaterTile(tile));
+        const coastDistance = Math.max(...land.map(barbarianDistanceToCatan));
+        const eligibleTarget = tileId => {
+          const tile = land.find(candidate => candidate.id === tileId);
+          return tile && barbarianDistanceToCatan(tile) === coastDistance && !scenario.capturedTileIds.includes(tile.id) &&
+            !sources.includes(tileId) && scenario.barbarians.filter(barbarian => barbarian.tileId === tileId).length < 3;
+        };
+        if (sources.length !== 2 || new Set(sources).size !== 2 || targets.length !== 2 || new Set(targets).size !== 2 ||
+            !sources.every(tileId => scenario.barbarians.some(barbarian => barbarian.tileId === tileId)) || !targets.every(eligibleTarget)) {
+          return { ok: false, message: 'Treason requires two different source and eligible coastal target areas' };
+        }
+      }
+      break;
+    }
+    case 'MOVE_BARBARIAN_KNIGHT': {
+      const scenario = state.scenarioState;
+      const knight = scenario?.knights?.find(candidate => candidate.id === action.knightId && candidate.ownerPlayerId === action.playerId);
+      const destination = state.edges?.find(edge => edge.id === action.edgeId);
+      if (!isBarbarianAttack(state) || state.turnSubPhase !== 'TRADE_AND_BUILD' || !knight || knight.movedThisTurn || !destination || destination.isBarbarianFortressRoute ||
+          scenario.knights.some(candidate => candidate.edgeId === action.edgeId) || (action.payWheat && (player.resources?.WHEAT || 0) < 1) ||
+          !barbarianKnightReachable(state, knight.edgeId, action.edgeId, action.payWheat ? 5 : 3)) {
+        return { ok: false, message: 'Illegal Barbarian Attack knight move' };
+      }
+      break;
+    }
     case 'END_TURN':
       if (!isSetup && state.turnSubPhase !== 'TRADE_AND_BUILD') return { ok: false, message: 'Turn cannot end now' };
+      if (isCaravanRoute(state) && (state.scenarioState?.pendingCaravanVote || state.scenarioState?.pendingCamelPlayerId || state.scenarioState?.pendingCamelTie)) return { ok: false, message: 'Resolve the caravan vote before ending the turn' };
+      if (isBarbarianAttack(state) && (state.scenarioState?.pendingDevelopmentCard || state.scenarioState?.knights?.some(knight => knight.ownerPlayerId === action.playerId && state.edges?.find(edge => edge.id === knight.edgeId)?.isBarbarianFortressRoute))) return { ok: false, message: 'Resolve the Barbarian Attack card and move knights out of the fortress' };
       if (isCitiesKnights(state) && (player.progressCards || []).length > 4) {
         return { ok: false, message: 'Discard progress cards until only four remain' };
       }
@@ -1030,6 +1351,7 @@ function validateGameAction(state, action) {
       if (!vertex || vertex.structure !== 'NONE' || countPieces(state, action.playerId, 'SETTLEMENT') >= 5) return { ok: false, message: 'Illegal settlement target' };
       const borderingTiles = (state.tiles || []).filter(tile => tileVertexIds(tile).includes(action.vertexId));
       if (borderingTiles.length === 0 || borderingTiles.every(isWaterTile)) return { ok: false, message: 'Settlement must touch land' };
+      if (isBarbarianAttack(state) && borderingTiles.some(tile => state.scenarioState?.capturedTileIds?.includes(tile.id))) return { ok: false, message: 'Captured coastal areas cannot be settled' };
       if ((state.selectedScenario === 'CLOTH_FOR_CATAN' && borderingTiles.some(tile => (tile.lostTribeVillages || []).length)) ||
           (state.selectedScenario === 'THE_LOST_TRIBE' && borderingTiles.some(tile => !isWaterTile(tile) && tile.islandId !== 1))) return { ok: false, message: 'Lost Tribe islands cannot be settled' };
       if (state.selectedScenario === 'GREAT_CANAL' && borderingTiles.some(tile => !isWaterTile(tile) && tile.islandId !== 1)) {
@@ -1060,8 +1382,8 @@ function validateGameAction(state, action) {
       if (state.selectedScenario === 'ENCHANTED_LAND' && (state.tiles || []).some(tile => tile.scenarioMarker?.isEnchantedLand && tileVertexIds(tile).includes(action.vertexId))) {
         return { ok: false, message: 'Enchanted Land settlements cannot be upgraded to cities' };
       }
-      const isCitiesKnightsSetupCity = isCitiesKnights(state) && state.gamePhase === 'SETUP_ROUND_2';
-      if (isCitiesKnightsSetupCity) {
+      const isScenarioSetupCity = state.gamePhase === 'SETUP_ROUND_2' && (isCitiesKnights(state) || isMerchantsAndBarbarians(state));
+      if (isScenarioSetupCity) {
         const borderingTiles = (state.tiles || []).filter(tile => tileVertexIds(tile).includes(action.vertexId));
         const requiresCoastalStart = ['GREAT_CANAL', 'ENCHANTED_LAND'].includes(state.selectedScenario);
         const alreadyHasCoastalStructure = (state.vertices || []).some(candidate => candidate.playerId === action.playerId && ['SETTLEMENT', 'CITY'].includes(candidate.structure) && isCoastalVertex(state, candidate.id));
@@ -1078,6 +1400,28 @@ function validateGameAction(state, action) {
       }
       break;
     }
+    case 'CAST_CARAVAN_VOTE': {
+      const scenario = state.scenarioState;
+      if (!isCaravanRoute(state) || scenario?.kind !== 'CARAVAN_ROUTE' || !scenario.pendingCaravanVote || player.isBot ||
+          Object.hasOwn(scenario.pendingCaravanVote.votesByPlayerId, action.playerId) || action.cards.SHEEP > (player.resources.SHEEP || 0) || action.cards.WHEAT > (player.resources.WHEAT || 0)) {
+        return { ok: false, message: 'Illegal caravan vote' };
+      }
+      break;
+    }
+    case 'CHOOSE_CARAVAN_TIE_LOCATION': {
+      const tie = state.scenarioState?.pendingCamelTie;
+      if (!isCaravanRoute(state) || !tie?.playerIds.includes(action.playerId) || Object.hasOwn(tie.choicesByPlayerId, action.playerId) ||
+          !caravanCamelCandidates(state).has(action.edgeId)) return { ok: false, message: 'Illegal caravan tie choice' };
+      break;
+    }
+    case 'PLACE_CARAVAN_CAMEL': {
+      const scenario = state.scenarioState;
+      if (!isCaravanRoute(state) || scenario?.kind !== 'CARAVAN_ROUTE' || scenario.pendingCamelPlayerId !== action.playerId ||
+          scenario.remainingCamels <= 0 || !caravanCamelCandidates(state).has(action.edgeId)) {
+        return { ok: false, message: 'Illegal caravan camel location' };
+      }
+      break;
+    }
     case 'BUILD_ROAD':
     case 'BUILD_SHIP': {
       const edge = state.edges?.find(candidate => candidate.id === action.edgeId);
@@ -1087,11 +1431,12 @@ function validateGameAction(state, action) {
         ? (state.roadBuildingRemaining || 0) > 0 || (state.diplomatRoadBuildingRemaining || 0) > 0
         : (state.roadBuildingRemaining || 0) > 0;
       const cost = kind === 'ROAD' ? { WOOD: 1, BRICK: 1 } : { WOOD: 1, SHEEP: 1 };
-      if (!edge || edge.hasRoad || edge.hasShip || countPieces(state, action.playerId, kind) >= limit ||
+      if (!edge || edge.hasRoad || edge.hasShip || (kind === 'ROAD' && edge.isRiverCrossing) || countPieces(state, action.playerId, kind) >= limit ||
           (!isSetup && state.turnSubPhase !== 'TRADE_AND_BUILD' && !free) || (!isSetup && !free && !hasResources(player, cost))) {
         return { ok: false, message: `Illegal ${kind.toLowerCase()} placement` };
       }
       const borderingTiles = (state.tiles || []).filter(tile => tileEdgeIds(tile).includes(action.edgeId));
+      if (isBarbarianAttack(state) && borderingTiles.some(tile => state.scenarioState?.capturedTileIds?.includes(tile.id))) return { ok: false, message: 'Roads cannot be built around a captured coastal area' };
       if (state.selectedScenario === 'DESERT_DRAGONS' && kind === 'ROAD' &&
           borderingTiles.filter(tile => (tile.scenarioMarker?.dragonIds || []).length > 0).length >= 2) {
         return { ok: false, message: 'A road between two dragon hexes is blocked' };
@@ -1163,7 +1508,7 @@ function validateGameAction(state, action) {
       const tile = state.tiles?.find(candidate => candidate.id === action.tileId);
       const robberType = action.robberType || 'ROBBER';
       if (!tile || state.turnSubPhase !== 'ROBBER_PLACEMENT' ||
-          (robberType === 'ROBBER' ? isWaterTile(tile) || tile.hasRobber : !isRevealedWaterTile(tile) || tile.hasPirate)) {
+          (robberType === 'ROBBER' ? isWaterTile(tile) || tile.type === 'OASIS' || tile.hasRobber : !isRevealedWaterTile(tile) || tile.hasPirate)) {
         return { ok: false, message: 'Illegal robber target' };
       }
       if (state.selectedScenario === 'CLOTH_FOR_CATAN' && robberType === 'ROBBER' && tile.islandId !== 1) {
@@ -1216,8 +1561,8 @@ function validateGameAction(state, action) {
       break;
     }
     case 'GOLD_TRADE':
-      if (state.turnSubPhase !== 'TRADE_AND_BUILD' || (state.goldCoins?.[action.playerId] || 0) < 2 ||
-          (player.goldTradesThisTurn || 0) >= 2 || (state.resourceBank?.[action.requestedResource] || 0) < 1) {
+      if ((!isRiversOfCatan(state) && !isMerchantsAndBarbarians(state)) || state.turnSubPhase !== 'TRADE_AND_BUILD' || (state.goldCoins?.[action.playerId] || 0) < 2 ||
+          (!isRiversOfCatan(state) && (player.goldTradesThisTurn || 0) >= 2) || (state.resourceBank?.[action.requestedResource] || 0) < 1) {
         return { ok: false, message: 'Illegal gold trade' };
       }
       break;
@@ -1271,18 +1616,67 @@ function validateGameAction(state, action) {
       break;
     }
     case 'MOVE_WAGON': {
+      if (!isMerchantsAndBarbarians(state) || state.turnSubPhase !== 'TRADE_AND_BUILD') return { ok: false, message: 'Wagons are unavailable' };
       const connectingEdge = incidentEdges(state, player.wagonPosition).find(edge => edgeEndpoints(edge).includes(action.targetVertexId));
-      const expectedCost = connectingEdge?.hasRoad && connectingEdge.playerId === action.playerId ? 1 : 2;
-      if (!connectingEdge || action.movementCost !== expectedCost || (player.remainingMovementPoints || 0) < action.movementCost) {
+      const foreignRoad = connectingEdge?.hasRoad && connectingEdge.playerId && connectingEdge.playerId !== action.playerId;
+      const expectedCost = (connectingEdge?.hasRoad && connectingEdge.playerId === action.playerId ? 1 : 2) +
+        (state.scenarioState?.barbarianEdgeIds?.includes(connectingEdge?.id) ? 2 : 0);
+      const movement = (player.remainingMovementPoints || 0) + (action.wheatBoost && !player.wagonWheatBoostUsed ? 2 : 0);
+      if (!connectingEdge || action.movementCost !== expectedCost || movement < action.movementCost ||
+          (action.wheatBoost && ((player.resources?.WHEAT || 0) < 1 || player.wagonWheatBoostUsed)) ||
+          (foreignRoad && (state.goldCoins?.[action.playerId] || 0) < 1)) {
         return { ok: false, message: 'Illegal wagon move' };
       }
       break;
     }
     case 'UPGRADE_WAGON':
-      if ((player.wagonLevel || 1) + 1 !== action.newLevel) return { ok: false, message: 'Invalid wagon level' };
+      if (!isMerchantsAndBarbarians(state) || state.turnSubPhase !== 'TRADE_AND_BUILD') return { ok: false, message: 'Wagons are unavailable' };
+      if ((player.wagonLevel || 1) + 1 !== action.newLevel || action.newLevel > 5) return { ok: false, message: 'Invalid wagon level' };
       if (action.payment === 'RESOURCES' && !hasResources(player, { WOOD: 1, ORE: 1 })) return { ok: false, message: 'Not enough resources' };
       if (action.payment === 'GOLD' && (state.goldCoins?.[action.playerId] || 0) < 3) return { ok: false, message: 'Not enough gold' };
       break;
+    case 'PLACE_MERCHANTS_BARBARIAN': {
+      const edge = state.edges?.find(candidate => candidate.id === action.edgeId);
+      if (!isMerchantsAndBarbarians(state) || state.turnSubPhase !== 'MERCHANTS_BARBARIAN_PLACEMENT' || !edge ||
+          state.scenarioState?.barbarianEdgeIds?.includes(action.edgeId) || (state.scenarioState?.barbarianEdgeIds?.length || 0) >= 3) {
+        return { ok: false, message: 'Illegal barbarian placement' };
+      }
+      break;
+    }
+    case 'BUILD_BRIDGE': {
+      const edge = state.edges?.find(candidate => candidate.id === action.edgeId);
+      const endpoints = edgeEndpoints(edge);
+      const touchesOwnNetwork = endpoints.some(vertexId =>
+        state.vertices?.some(vertex => vertex.id === vertexId && vertex.playerId === action.playerId && ['SETTLEMENT', 'CITY'].includes(vertex.structure)) ||
+        incidentEdges(state, vertexId).some(candidate => (candidate.hasRoad && candidate.playerId === action.playerId) || candidate.bridgePlayerId === action.playerId)
+      );
+      if (!isRiversOfCatan(state) || state.turnSubPhase !== 'TRADE_AND_BUILD' || !edge?.isRiverCrossing || edge.bridgePlayerId ||
+          (state.edges || []).filter(candidate => candidate.bridgePlayerId === action.playerId).length >= 3 ||
+          !hasResources(player, { WOOD: 1, BRICK: 2 }) || !touchesOwnNetwork) {
+        return { ok: false, message: 'Illegal bridge construction' };
+      }
+      break;
+    }
+    case 'SPEND_FISH_ACTION': {
+      if (!isFishermen(state) || state.turnSubPhase !== 'TRADE_AND_BUILD') return { ok: false, message: 'Fish actions are unavailable' };
+      const cost = FISH_ACTION_COSTS[action.actionType];
+      if (!findFishPayment(player.fishTokens || [], cost)) return { ok: false, message: 'Fish payment must match exactly' };
+      if (action.actionType === 'TAKE_BANK_RESOURCE' && (!isResource(action.resource) || (state.resourceBank?.[action.resource] || 0) < 1)) {
+        return { ok: false, message: 'Requested bank resource is unavailable' };
+      }
+      if (action.actionType === 'STEAL_CARD') {
+        const target = state.players.find(candidate => candidate.id === action.targetPlayerId);
+        if (!target || target.id === action.playerId || totalResources(target) < 1) return { ok: false, message: 'Invalid fish theft target' };
+      }
+      if (action.actionType === 'FREE_DEV_CARD' && !state.devCardDeck?.length) return { ok: false, message: 'Development deck is empty' };
+      break;
+    }
+    case 'PASS_OLD_BOOT': {
+      if (!isFishermen(state) || !player.hasOldBoot) return { ok: false, message: 'Old Boot is unavailable' };
+      const target = state.players.find(candidate => candidate.id === action.targetPlayerId);
+      if (!target || playerTotalVP(state, target) < playerTotalVP(state, player)) return { ok: false, message: 'Old Boot target must not be behind' };
+      break;
+    }
     case 'BUILD_KNIGHT': {
       const vertex = state.vertices?.find(candidate => candidate.id === action.vertexId);
       const ownsRoute = incidentEdges(state, action.vertexId).some(edge =>
@@ -1674,6 +2068,10 @@ function applyReservedAction(state, action) {
             }
           });
       }
+      if (isMerchantsAndBarbarians(state) && [2, 12].includes(total)) {
+        state.turnSubPhase = 'BEFORE_ROLL';
+        break;
+      }
       if (total === 7) {
         state.players.filter(candidate => candidate.isBot && totalHandCards(state, candidate) > handLimit(state, candidate)).forEach(bot => {
           let remaining = Math.floor(totalHandCards(state, bot) / 2);
@@ -1700,7 +2098,8 @@ function applyReservedAction(state, action) {
             ? 'ROBBER_STEAL'
           : isPirateIslands(state) && state.players.some(candidate => candidate.id !== action.playerId && totalResources(candidate) > 0)
             ? 'ROBBER_STEAL'
-            : (isPirateIslands(state) || cAndKNoRobberYet) ? 'TRADE_AND_BUILD' : 'ROBBER_PLACEMENT';
+            : isMerchantsAndBarbarians(state) ? 'MERCHANTS_BARBARIAN_PLACEMENT'
+            : (isPirateIslands(state) || cAndKNoRobberYet || isBarbarianAttack(state)) ? 'TRADE_AND_BUILD' : 'ROBBER_PLACEMENT';
       } else {
         state.turnSubPhase = 'TRADE_AND_BUILD';
         distributeRolledResources(state, total);
@@ -1741,6 +2140,11 @@ function applyReservedAction(state, action) {
       state.players[state.currentPlayerIndex].goldTradesThisTurn = 0;
       state.players[state.currentPlayerIndex].playedDevCardThisTurn = false;
       state.players[state.currentPlayerIndex].boughtDevCardsThisTurn = {};
+      if (isBarbarianAttack(state) && state.scenarioState?.kind === 'BARBARIAN_ATTACK') {
+        state.scenarioState.knights.forEach(knight => {
+          if (knight.ownerPlayerId === state.players[state.currentPlayerIndex].id) knight.movedThisTurn = false;
+        });
+      }
       (state.vertices || []).forEach(vertex => { if (vertex.knight) vertex.knight.promotedThisTurn = false; });
       (state.players || []).forEach(candidate => { candidate.cityImprovementDiscount = 0; candidate.freeKnightPromotions = 0; delete candidate.merchantFleetResource; });
       break;
@@ -1761,7 +2165,8 @@ function applyReservedAction(state, action) {
         const cAndKNoRobberYet = isCitiesKnights(state) && !ensureCitiesKnightsState(state).hasBarbarianAttacked;
         state.turnSubPhase = isPirateIslands(state) && state.players.some(candidate => candidate.id !== action.playerId && totalResources(candidate) > 0)
           ? 'ROBBER_STEAL'
-          : (isPirateIslands(state) || cAndKNoRobberYet) ? 'TRADE_AND_BUILD' : 'ROBBER_PLACEMENT';
+          : isMerchantsAndBarbarians(state) ? 'MERCHANTS_BARBARIAN_PLACEMENT'
+          : (isPirateIslands(state) || cAndKNoRobberYet || isBarbarianAttack(state)) ? 'TRADE_AND_BUILD' : 'ROBBER_PLACEMENT';
       }
       break;
     case 'GIVE_PROGRESS_CARDS': {
@@ -1791,6 +2196,9 @@ function applyReservedAction(state, action) {
     }
     case 'BUILD_SETTLEMENT':
       Object.assign(state.vertices.find(vertex => vertex.id === action.vertexId), { structure: 'SETTLEMENT', playerId: action.playerId });
+      if (isRiversOfCatan(state) && incidentEdges(state, action.vertexId).some(edge => edge.isRiverCrossing || edge.isRiverBank)) {
+        state.goldCoins[action.playerId] = (state.goldCoins[action.playerId] || 0) + 1;
+      }
       if (String(state.gamePhase).startsWith('SETUP_')) {
         state.setupState = { ...(state.setupState || {}), hasPlacedSettlement: true, lastSettlementVertexId: action.vertexId };
         const islandIds = vertexIslandIds(state, action.vertexId);
@@ -1806,6 +2214,18 @@ function applyReservedAction(state, action) {
               if ((state.resourceBank[tile.type] || 0) > 0) {
                 player.resources[tile.type] += 1;
                 state.resourceBank[tile.type] -= 1;
+              }
+            });
+        }
+        if (isFishermen(state)) {
+          (state.tiles || []).filter(tile => tileVertexIds(tile).includes(action.vertexId) && ['FISHING_GROUND', 'LAKE'].includes(tile.type))
+            .forEach(() => {
+              if ((player.fishTokens || []).length >= 7) return;
+              const drawn = drawFishermenToken(state);
+              if (drawn === 'OLD_BOOT') player.hasOldBoot = true;
+              else if (drawn !== undefined) {
+                player.fishTokens = [...(player.fishTokens || []), drawn];
+                player.fishCount = player.fishTokens.reduce((total, token) => total + token, 0);
               }
             });
         }
@@ -1828,10 +2248,12 @@ function applyReservedAction(state, action) {
           }
         }
         addDesertDragons(state);
+        if (isCaravanRoute(state) && state.scenarioState?.remainingCamels > 0) state.scenarioState.pendingCaravanVote = { initiatedByPlayerId: action.playerId, votesByPlayerId: {} };
+        if (isBarbarianAttack(state)) action.barbarianAttackRolls = resolveBarbarianInvasion(state, action.playerId);
       }
       break;
     case 'BUILD_CITY':
-      if (isCitiesKnights(state) && state.gamePhase === 'SETUP_ROUND_2') {
+      if ((isCitiesKnights(state) || isMerchantsAndBarbarians(state)) && state.gamePhase === 'SETUP_ROUND_2') {
         Object.assign(state.vertices.find(vertex => vertex.id === action.vertexId), { structure: 'CITY', playerId: action.playerId });
         state.setupState = { ...(state.setupState || {}), hasPlacedSettlement: true, lastSettlementVertexId: action.vertexId };
         const islandIds = vertexIslandIds(state, action.vertexId);
@@ -1846,12 +2268,19 @@ function applyReservedAction(state, action) {
               state.resourceBank[tile.type] -= 1;
             }
           });
+        if (isMerchantsAndBarbarians(state)) {
+          player.wagonPosition = action.vertexId;
+          player.wagonLevel = 1;
+          player.remainingMovementPoints = 4;
+        }
       } else {
         state.vertices.find(vertex => vertex.id === action.vertexId).structure = 'CITY';
         player.victoryPoints = (player.victoryPoints || 0) + 1;
         spend({ WHEAT: 2, ORE: 3 });
         returnToBank({ WHEAT: 2, ORE: 3 });
         addDesertDragons(state);
+        if (isCaravanRoute(state) && state.scenarioState?.remainingCamels > 0) state.scenarioState.pendingCaravanVote = { initiatedByPlayerId: action.playerId, votesByPlayerId: {} };
+        if (isBarbarianAttack(state)) action.barbarianAttackRolls = resolveBarbarianInvasion(state, action.playerId);
       }
       break;
     case 'BUILD_ROAD': {
@@ -1865,6 +2294,7 @@ function applyReservedAction(state, action) {
       if (state.diplomatRoadBuildingRemaining > 0) state.diplomatRoadBuildingRemaining -= 1;
       else if (state.roadBuildingRemaining > 0) state.roadBuildingRemaining -= 1;
       if (String(state.gamePhase).startsWith('SETUP_')) state.setupState = { ...(state.setupState || {}), hasPlacedRoad: true };
+      if (isRiversOfCatan(state) && edge.isRiverBank) state.goldCoins[action.playerId] = (state.goldCoins[action.playerId] || 0) + 1;
       break;
     }
     case 'BUILD_SHIP': {
@@ -1927,11 +2357,51 @@ function applyReservedAction(state, action) {
       }
       break;
     }
+    case 'RESOLVE_BARBARIAN_CARD': {
+      const scenario = state.scenarioState;
+      const cardType = scenario.pendingDevelopmentCard.cardType;
+      if (cardType === 'KNIGHTHOOD' || cardType === 'STRONG_KNIGHT') {
+        scenario.knights.push({ id: `barbarian-knight-${action.playerId}-${scenario.knights.length + 1}`, ownerPlayerId: action.playerId, edgeId: action.edgeId, kind: cardType });
+      } else if (cardType === 'INTRIGUE') {
+        const index = scenario.barbarians.findIndex(barbarian => barbarian.tileId === action.tileId);
+        scenario.barbarians.splice(index, 1);
+        scenario.prisonersByPlayerId[action.playerId] = (scenario.prisonersByPlayerId[action.playerId] || 0) + 1;
+        refreshBarbarianCaptures(state);
+      } else if (cardType === 'TREASON') {
+        action.sourceTileIds.forEach((tileId, index) => {
+          const barbarianIndex = scenario.barbarians.findIndex(barbarian => barbarian.tileId === tileId);
+          const [barbarian] = scenario.barbarians.splice(barbarianIndex, 1);
+          barbarian.tileId = action.targetTileIds[index];
+          scenario.barbarians.push(barbarian);
+        });
+        state.goldCoins ||= {};
+        state.goldCoins[action.playerId] = (state.goldCoins[action.playerId] || 0) + 2;
+        refreshBarbarianCaptures(state);
+      }
+      state.devCardDeck.push(cardType);
+      delete scenario.pendingDevelopmentCard;
+      break;
+    }
+    case 'MOVE_BARBARIAN_KNIGHT': {
+      const knight = state.scenarioState.knights.find(candidate => candidate.id === action.knightId);
+      knight.edgeId = action.edgeId;
+      knight.movedThisTurn = true;
+      if (action.payWheat) {
+        player.resources.WHEAT -= 1;
+        state.resourceBank.WHEAT += 1;
+      }
+      action.barbarianPrisonerAwards = resolveBarbarianVictories(state);
+      break;
+    }
     case 'BUY_DEV_CARD':
       spend({ SHEEP: 1, WHEAT: 1, ORE: 1 });
       returnToBank({ SHEEP: 1, WHEAT: 1, ORE: 1 });
       state.devCardDeck.shift();
-      player.developmentCards[action.cardType] = (player.developmentCards[action.cardType] || 0) + 1;
+      if (isBarbarianAttack(state) && BARBARIAN_ATTACK_CARD_TYPES.has(action.cardType)) {
+        state.scenarioState.pendingDevelopmentCard = { playerId: action.playerId, cardType: action.cardType };
+      } else {
+        player.developmentCards[action.cardType] = (player.developmentCards[action.cardType] || 0) + 1;
+      }
       break;
     case 'PLAY_DEV_CARD':
       player.developmentCards[action.cardType] -= 1;
@@ -2123,8 +2593,22 @@ function applyReservedAction(state, action) {
       break;
     }
     case 'MOVE_WAGON':
+      if (action.wheatBoost) {
+        player.resources.WHEAT -= 1;
+        state.resourceBank.WHEAT += 1;
+        player.remainingMovementPoints += 2;
+        player.wagonWheatBoostUsed = true;
+      }
+      {
+        const traversed = incidentEdges(state, player.wagonPosition).find(edge => edgeEndpoints(edge).includes(action.targetVertexId));
+        if (traversed?.hasRoad && traversed.playerId && traversed.playerId !== action.playerId) {
+          state.goldCoins[action.playerId] -= 1;
+          state.goldCoins[traversed.playerId] = (state.goldCoins[traversed.playerId] || 0) + 1;
+        }
+      }
       player.wagonPosition = action.targetVertexId;
       player.remainingMovementPoints -= action.movementCost;
+      if (resolveWagonArrival(state, player, wagonTargetAtVertex(state, action.targetVertexId))) player.remainingMovementPoints = 0;
       break;
     case 'UPGRADE_WAGON':
       if (action.payment === 'RESOURCES') {
@@ -2133,7 +2617,86 @@ function applyReservedAction(state, action) {
       }
       else state.goldCoins[action.playerId] -= 3;
       player.wagonLevel = action.newLevel;
+      player.remainingMovementPoints = Math.max(player.remainingMovementPoints || 0, wagonMaxMovement(action.newLevel));
+      if (action.newLevel === 5) player.wagonLevelScoreModifier = 1;
       break;
+    case 'PLACE_MERCHANTS_BARBARIAN': {
+      state.scenarioState.barbarianEdgeIds.push(action.edgeId);
+      const roadOwnerId = state.edges.find(edge => edge.id === action.edgeId)?.playerId;
+      if (roadOwnerId && roadOwnerId !== action.playerId) {
+        const target = state.players.find(candidate => candidate.id === roadOwnerId);
+        const available = RESOURCE_TYPES.filter(resource => (target?.resources?.[resource] || 0) > 0);
+        if (target && available.length) {
+          const stolen = available[Math.floor(Math.random() * available.length)];
+          target.resources[stolen] -= 1;
+          player.resources[stolen] += 1;
+        }
+      }
+      state.turnSubPhase = 'TRADE_AND_BUILD';
+      break;
+    }
+    case 'BUILD_BRIDGE': {
+      const edge = state.edges.find(candidate => candidate.id === action.edgeId);
+      edge.bridgePlayerId = action.playerId;
+      spend({ WOOD: 1, BRICK: 2 });
+      returnToBank({ WOOD: 1, BRICK: 2 });
+      state.goldCoins[action.playerId] = (state.goldCoins[action.playerId] || 0) + 3;
+      break;
+    }
+    case 'CAST_CARAVAN_VOTE': {
+      state.scenarioState.pendingCaravanVote.votesByPlayerId[action.playerId] = action.cards;
+      const required = humanCaravanVoterIds(state);
+      if (required.every(playerId => Object.hasOwn(state.scenarioState.pendingCaravanVote.votesByPlayerId, playerId))) settleCaravanVote(state);
+      break;
+    }
+    case 'CHOOSE_CARAVAN_TIE_LOCATION': {
+      const tie = state.scenarioState.pendingCamelTie;
+      tie.choicesByPlayerId[action.playerId] = action.edgeId;
+      if (tie.playerIds.every(playerId => Object.hasOwn(tie.choicesByPlayerId, playerId))) {
+        const choices = Object.values(tie.choicesByPlayerId);
+        if (new Set(choices).size === 1) placeCaravanCamel(state, choices[0]);
+        delete state.scenarioState.pendingCamelTie;
+      }
+      break;
+    }
+    case 'PLACE_CARAVAN_CAMEL': {
+      placeCaravanCamel(state, action.edgeId);
+      delete state.scenarioState.pendingCamelPlayerId;
+      break;
+    }
+    case 'SPEND_FISH_ACTION': {
+      const cost = FISH_ACTION_COSTS[action.actionType];
+      const payment = findFishPayment(player.fishTokens || [], cost);
+      const paidIndexes = new Set(payment);
+      const paidTokens = player.fishTokens.filter((_, index) => paidIndexes.has(index));
+      player.fishTokens = player.fishTokens.filter((_, index) => !paidIndexes.has(index));
+      player.fishCount = player.fishTokens.reduce((total, token) => total + token, 0);
+      if (state.scenarioState?.kind === 'FISHERMEN_OF_CATAN') state.scenarioState.fishDiscardPile.push(...paidTokens);
+      if (action.actionType === 'MOVE_ROBBER') {
+        state.tiles.forEach(tile => { tile.hasRobber = false; tile.hasPirate = false; });
+      } else if (action.actionType === 'STEAL_CARD') {
+        const target = state.players.find(candidate => candidate.id === action.targetPlayerId);
+        const available = RESOURCE_TYPES.flatMap(resource => Array.from({ length: target.resources?.[resource] || 0 }, () => resource));
+        const stolen = available[Math.floor(Math.random() * available.length)];
+        target.resources[stolen] -= 1;
+        player.resources[stolen] += 1;
+      } else if (action.actionType === 'TAKE_BANK_RESOURCE') {
+        player.resources[action.resource] += 1;
+        state.resourceBank[action.resource] -= 1;
+      } else if (action.actionType === 'FREE_ROAD') {
+        state.roadBuildingRemaining = (state.roadBuildingRemaining || 0) + 1;
+      } else if (action.actionType === 'FREE_DEV_CARD') {
+        const card = state.devCardDeck.shift();
+        player.developmentCards[card] = (player.developmentCards[card] || 0) + 1;
+      }
+      break;
+    }
+    case 'PASS_OLD_BOOT': {
+      const target = state.players.find(candidate => candidate.id === action.targetPlayerId);
+      player.hasOldBoot = false;
+      target.hasOldBoot = true;
+      break;
+    }
     case 'BUILD_KNIGHT': {
       const vertex = state.vertices.find(candidate => candidate.id === action.vertexId);
       vertex.knight = { playerId: action.playerId, level: 1, active: false, actedThisTurn: false };
@@ -2444,6 +3007,8 @@ function applyReservedAction(state, action) {
     default:
       break;
   }
+  syncRiversWealth(state);
+  syncCaravanScores(state);
   maybeEndGame(state, action.playerId);
 }
 

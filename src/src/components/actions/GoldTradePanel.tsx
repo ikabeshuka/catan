@@ -13,7 +13,7 @@ const RESOURCE_IMAGES = {
 
 export const GoldTradePanel: React.FC = () => {
   const { currentPlayer, turnSubPhase } = useTurnManager();
-  const { goldCoins, setGoldCoins, setPlayers, addLog, roomId, myPlayerId, resourceBank, setResourceBank } = useGame();
+  const { goldCoins, setGoldCoins, setPlayers, addLog, roomId, myPlayerId, resourceBank, setResourceBank, mbScenarioId } = useGame();
 
   const [goldTradesThisTurn, setGoldTradesThisTurn] = useState(0);
   const [showResourceSelect, setShowResourceSelect] = useState(false);
@@ -26,6 +26,7 @@ export const GoldTradePanel: React.FC = () => {
   if (!currentPlayer) return null;
 
   const isWrongOnlinePlayer = !!roomId && (!myPlayerId || currentPlayer.id !== myPlayerId);
+  const isRiversOfCatan = mbScenarioId === 'RIVERS_OF_CATAN';
 
   const handleGoldTrade = (requestedResource: keyof typeof RESOURCE_IMAGES) => {
     dispatchGameAction({ type: 'GOLD_TRADE', playerId: currentPlayer.id, requestedResource }, {
@@ -39,6 +40,7 @@ export const GoldTradePanel: React.FC = () => {
       setGoldCoins,
       resourceBank,
       setResourceBank,
+      mbScenarioId,
       addLog,
     });
     setGoldTradesThisTurn(previous => previous + 1);
@@ -62,15 +64,15 @@ export const GoldTradePanel: React.FC = () => {
         <div className="flex flex-col gap-2 mt-1">
           {!showResourceSelect ? (
             <button
-              disabled={(goldCoins[currentPlayer.id] || 0) < 2 || goldTradesThisTurn >= 2}
+              disabled={(goldCoins[currentPlayer.id] || 0) < 2 || (!isRiversOfCatan && goldTradesThisTurn >= 2)}
               onClick={() => setShowResourceSelect(true)}
               className={`w-full py-2 px-3 rounded-xl font-bold text-[11px] transition-all duration-200 border cursor-pointer
-                ${((goldCoins[currentPlayer.id] || 0) >= 2 && goldTradesThisTurn < 2)
+                ${((goldCoins[currentPlayer.id] || 0) >= 2 && (isRiversOfCatan || goldTradesThisTurn < 2))
                   ? 'bg-gradient-to-l from-amber-500 to-orange-500 text-slate-950 border-amber-400 hover:brightness-110 active:scale-[0.98]'
                   : 'bg-slate-800/40 text-slate-500 border-slate-800/50 cursor-not-allowed'
                 }`}
             >
-              {goldTradesThisTurn >= 2 
+              {!isRiversOfCatan && goldTradesThisTurn >= 2 
                 ? 'השתמשת במכסת ההחלפות לתור זה (2/2)' 
                 : (goldCoins[currentPlayer.id] || 0) < 2
                   ? 'החלפת 2 זהב במשאב (נדרש לפחות 2 זהב)'

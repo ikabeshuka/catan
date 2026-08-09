@@ -27,7 +27,11 @@ export const useOnlineGameSync = ({ roomId, isHost, setBotTimeLimit }: UseOnline
     if (snapshot.commodityBank) game.setCommodityBank(snapshot.commodityBank);
     if (snapshot.citiesKnightsState) game.setCitiesKnightsState(snapshot.citiesKnightsState);
     if (snapshot.scenarioState) game.setScenarioState(snapshot.scenarioState);
-    else if (snapshot.selectedScenario) game.setScenarioState(createScenarioState(snapshot.selectedScenario));
+    else if (snapshot.selectedScenario) game.setScenarioState(createScenarioState(
+      snapshot.activeExpansion === 'MERCHANTS_AND_BARBARIANS' && snapshot.selectedMBScenario
+        ? snapshot.selectedMBScenario
+        : snapshot.selectedScenario
+    ));
     if (snapshot.goldCoins) game.setGoldCoins(snapshot.goldCoins);
     if (Array.isArray(snapshot.goldSelectionQueue)) game.setGoldSelectionQueue(snapshot.goldSelectionQueue);
     if (Array.isArray(snapshot.currentTurnBuiltShips)) game.setCurrentTurnBuiltShips(snapshot.currentTurnBuiltShips);
@@ -39,6 +43,7 @@ export const useOnlineGameSync = ({ roomId, isHost, setBotTimeLimit }: UseOnline
     if (typeof snapshot.hasMovedShipThisTurn === 'boolean') game.setHasMovedShipThisTurn(snapshot.hasMovedShipThisTurn);
     if (snapshot.activeExpansion) game.setActiveExpansion(snapshot.activeExpansion);
     if (snapshot.selectedScenario) game.setSelectedScenario(snapshot.selectedScenario);
+    if (snapshot.selectedMBScenario) game.setSelectedMBScenario(snapshot.selectedMBScenario);
     if (snapshot.boardType) game.setBoardType(snapshot.boardType);
     if (['PIRATE_ISLANDS', 'DESERT_DRAGONS'].includes(snapshot.selectedScenario) && snapshot.turnSubPhase === 'ROBBER_STEAL') {
       const activePlayer = snapshot.players?.[snapshot.currentPlayerIndex];
@@ -81,6 +86,7 @@ export const useOnlineGameSync = ({ roomId, isHost, setBotTimeLimit }: UseOnline
       setBotTimeLimit(startData.botTimeLimit);
       game.setActiveExpansion(startData.activeExpansion);
       game.setSelectedScenario(startData.selectedScenario);
+      if (startData.selectedMBScenario) game.setSelectedMBScenario(startData.selectedMBScenario);
       game.setBoardType(startData.boardType);
       const initial = startData.initialState;
       game.initNewGame(

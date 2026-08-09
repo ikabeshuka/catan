@@ -94,7 +94,8 @@ export function robberPhase({
       tileVertices.forEach(v => {
         if (v.playerId && v.playerId !== botPlayer.id && (v.structure === 'SETTLEMENT' || v.structure === 'CITY')) {
           const buildingValue = v.structure === 'CITY' ? 2 : 1;
-          const numWeight = tile.numberToken !== null ? (TOKEN_WEIGHTS[tile.numberToken] || 1) : 1;
+          const tokenNum = tile.numberToken !== null ? (typeof tile.numberToken === 'number' ? tile.numberToken : parseInt(String(tile.numberToken), 10)) : NaN;
+          const numWeight = !isNaN(tokenNum) ? (TOKEN_WEIGHTS[tokenNum] || 1) : 1;
           let baseScore = buildingValue * numWeight;
           
           // Anti-leader strategy: actively target players with 7+ victory points

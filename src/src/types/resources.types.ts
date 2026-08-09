@@ -1,4 +1,4 @@
-export type ResourceType = 'WOOD' | 'BRICK' | 'SHEEP' | 'WHEAT' | 'ORE' | 'DESERT' | 'CASTLE' | 'QUARRY' | 'GLASSWORKS' | 'WATER' | 'GOLD_FIELD' | 'FOG' | 'SEA';
+export type ResourceType = 'WOOD' | 'BRICK' | 'SHEEP' | 'WHEAT' | 'ORE' | 'DESERT' | 'OASIS' | 'SWAMP' | 'CASTLE' | 'QUARRY' | 'GLASSWORKS' | 'WATER' | 'GOLD_FIELD' | 'FOG' | 'SEA' | 'LAKE' | 'FISHING_GROUND';
 
 export interface ResourceCards {
   WOOD: number;

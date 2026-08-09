@@ -10,7 +10,7 @@ export interface HexTile {
   id: string;               // מזהה ייחודי (למשל "hex_1")
   coord: HexCoordinate;     // המיקום שלו על הלוח
   type: ResourceType;       // סוג המשאב (עץ, כבשה וכו')
-  numberToken: number | null; // המספר שעל האריח (2-12), למדבר אין מספר
+  numberToken: number | string | null; // המספר שעל האריח (2-12), למדבר אין מספר
   hasRobber: boolean;       // האם השודד נמצא כרגע על האריח הזה?
   hasPirate?: boolean;      // האם שודד הים נמצא על אריח זה
   isFrameSea?: boolean;     // יעד ים וירטואלי על מסגרת הלוח (אינו אריח משחק רגיל)
@@ -49,5 +49,10 @@ export interface HexTile {
     canalBuilt?: boolean;
     infertileField?: boolean;
     isEnchantedLand?: boolean;
+    /** One of the two printed river paths in the Rivers of Catan scenario. */
+    riverId?: 'NORTH' | 'SOUTH';
+    isOasis?: boolean;
+    barbarianFortress?: boolean;
+    barbarianCaptured?: boolean;
   };
 }

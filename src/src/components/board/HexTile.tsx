@@ -12,14 +12,18 @@ interface HexTileProps {
 }
 
 const RESOURCE_COLORS: Record<string, string> = {
+  SWAMP: '#4b5563',
   WOOD: '#15803d',   // ירוק כהה בשביל יער
   BRICK: '#dc2626',  // אדום בשביל לבנים
   SHEEP: '#a3e635',  // ירוק בהיר בשביל מרעה כבשים
   WHEAT: '#eab308',  // צהוב בשביל חיטה
   ORE: '#64748b',    // אפור בשביל ברזל (סלעים)
   DESERT: '#8b5a2b', // חום בשביל מדבר
+  OASIS: '#caa65a',
   WATER: '#3b82f6',  // כחול ים
   SEA: '#3b82f6',    // כחול ים
+  LAKE: '#0284c7',   // כחול אגם מיוחד
+  FISHING_GROUND: '#0369a1', // כחול כהה של דייג
 };
 
 const RESOURCE_TEXTURES: Record<string, string> = {
@@ -34,7 +38,7 @@ const RESOURCE_TEXTURES: Record<string, string> = {
 };
 
 export const HexTile: React.FC<HexTileProps> = ({ tile }) => {
-  const { turnSubPhase, setTiles, setTurnSubPhase, players, currentPlayerIndex, addLog, is3DMode, vertices, setRobberyState, activeExpansion, activeRobberType, setActiveRobberType, edges, boardRenderCache, selectedScenario } = useGame();
+  const { turnSubPhase, setTiles, setTurnSubPhase, players, currentPlayerIndex, addLog, is3DMode, vertices, setRobberyState, activeExpansion, activeRobberType, setActiveRobberType, edges, boardRenderCache, selectedScenario, scenarioState } = useGame();
   
   const tileGeometry = boardRenderCache.tileById.get(tile.id) || getCachedTileGeometry(tile);
   const center = tileGeometry.center2D;
@@ -50,13 +54,13 @@ export const HexTile: React.FC<HexTileProps> = ({ tile }) => {
       if (activeRobberType === 'ROBBER') {
         if (selectedScenario === 'THE_LOST_TRIBE' && (tile.islandId !== 1 || tile.robberStartLocked)) return false;
         if (selectedScenario === 'CLOTH_FOR_CATAN' && tile.islandId !== 1) return false;
-        return tile.type !== 'WATER' && !tile.hasRobber;
+        return tile.type !== 'WATER' && tile.type !== 'OASIS' && !tile.hasRobber;
       } else if (activeRobberType === 'PIRATE') {
         return tile.type === 'WATER' && !tile.hasPirate;
       }
       return false;
     } else {
-      return tile.type !== 'WATER' && !tile.hasRobber;
+      return tile.type !== 'WATER' && tile.type !== 'OASIS' && !tile.hasRobber;
     }
   })();
 
@@ -209,6 +213,37 @@ export const HexTile: React.FC<HexTileProps> = ({ tile }) => {
         <g className="pointer-events-none">
           <path d={`M ${center.x - 36},${center.y + 15} Q ${center.x},${center.y - 18} ${center.x + 36},${center.y + 15}`} fill="none" stroke="#38bdf8" strokeWidth="10" strokeLinecap="round" opacity="0.9" />
           <path d={`M ${center.x - 36},${center.y + 15} Q ${center.x},${center.y - 18} ${center.x + 36},${center.y + 15}`} fill="none" stroke="#e0f2fe" strokeWidth="3" strokeLinecap="round" />
+        </g>
+      )}
+      {tile.scenarioMarker?.riverId && (
+        <g className="pointer-events-none">
+          <path d={`M ${center.x - 48},${center.y + (tile.scenarioMarker.riverId === 'NORTH' ? 14 : -14)} Q ${center.x},${center.y - (tile.scenarioMarker.riverId === 'NORTH' ? 15 : -15)} ${center.x + 48},${center.y + (tile.scenarioMarker.riverId === 'NORTH' ? 14 : -14)}`} fill="none" stroke="#075985" strokeWidth="12" strokeLinecap="round" opacity="0.84" />
+          <path d={`M ${center.x - 48},${center.y + (tile.scenarioMarker.riverId === 'NORTH' ? 14 : -14)} Q ${center.x},${center.y - (tile.scenarioMarker.riverId === 'NORTH' ? 15 : -15)} ${center.x + 48},${center.y + (tile.scenarioMarker.riverId === 'NORTH' ? 14 : -14)}`} fill="none" stroke="#bae6fd" strokeWidth="2.5" strokeLinecap="round" opacity="0.9" />
+        </g>
+      )}
+      {tile.type === 'OASIS' && (
+        <g transform={`translate(${center.x}, ${center.y})`} className="pointer-events-none">
+          <circle r="22" fill="#0f766e" opacity="0.72" stroke="#fef3c7" strokeWidth="2" />
+          <text textAnchor="middle" dominantBaseline="central" fontSize="20">🌴</text>
+        </g>
+      )}
+      {tile.scenarioMarker?.barbarianFortress && (
+        <g transform={`translate(${center.x}, ${center.y - 2})`} className="pointer-events-none drop-shadow-lg">
+          <path d="M -20,16 L -20,-13 L -11,-20 L -3,-13 L 5,-20 L 13,-13 L 20,-6 L 20,16 Z" fill="#475569" stroke="#e2e8f0" strokeWidth="2" />
+          <path d="M -16,16 L -16,3 L -7,3 L -7,16" fill="#1e293b" stroke="#fbbf24" strokeWidth="1.5" />
+        </g>
+      )}
+      {scenarioState.kind === 'BARBARIAN_ATTACK' && scenarioState.barbarians.filter(barbarian => barbarian.tileId === tile.id).length > 0 && (
+        <g transform={`translate(${center.x + 22}, ${center.y - 22})`} className="pointer-events-none drop-shadow-lg">
+          <circle r="14" fill="#991b1b" stroke="#fecaca" strokeWidth="2" />
+          <text textAnchor="middle" dominantBaseline="central" fontSize="17">⚔</text>
+          <text x="11" y="12" textAnchor="middle" fontSize="10" fontWeight="900" fill="#fff">{scenarioState.barbarians.filter(barbarian => barbarian.tileId === tile.id).length}</text>
+        </g>
+      )}
+      {tile.scenarioMarker?.barbarianCaptured && (
+        <g transform={`translate(${center.x}, ${center.y})`} className="pointer-events-none">
+          <path d="M -34,-28 L 34,28 M -34,28 L 34,-28" stroke="#7f1d1d" strokeWidth="7" strokeLinecap="round" opacity="0.76" />
+          <text y="42" textAnchor="middle" fontSize="9" fontWeight="900" fill="#fecaca">כבוש</text>
         </g>
       )}
       {tile.scenarioMarker?.infertileField && (

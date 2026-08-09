@@ -24,11 +24,13 @@ export function validateRoadPlacement(
 
   // 1. בדיקה שהנתיב פנוי
   const targetEdge = boardRenderCache?.edgeById.get(edgeId)?.edge || edges.find(e => e.id === edgeId);
-  if (!targetEdge || targetEdge.hasRoad || targetEdge.hasShip) return false;
+  if (!targetEdge || targetEdge.hasRoad || targetEdge.hasShip || targetEdge.isRiverCrossing) return false;
 
   const borderingTiles = boardRenderCache?.edgeById.get(edgeId)?.borderingTiles
     || tiles?.filter(tile => getTileEdgeIds(tile).includes(edgeId))
     || [];
+  if (borderingTiles.some(tile => tile.scenarioMarker?.barbarianCaptured)) return false;
+  if (borderingTiles.some(tile => tile.scenarioMarker?.barbarianCaptured)) return false;
 
   // בדיקה של איסור הצבה על/צמוד לערפל בשלבי הקמה
   if (tiles && ['SETUP_ROUND_1', 'SETUP_ROUND_2', 'SETUP_ROUND_3'].includes(gamePhase || '')) {
@@ -60,14 +62,14 @@ export function validateRoadPlacement(
   const edgesAtV1 = edgesAtVertex(v1Id);
   const edgesAtV2 = edgesAtVertex(v2Id);
 
-  const touchesRoadAtV1 = edgesAtV1.some(edge => edge.id !== edgeId && !!edge.hasRoad && edge.playerId === playerId);
+  const touchesRoadAtV1 = edgesAtV1.some(edge => edge.id !== edgeId && ((!!edge.hasRoad && edge.playerId === playerId) || edge.bridgePlayerId === playerId));
   const touchesShipAtV1 = edgesAtV1.some(edge => edge.id !== edgeId && !!edge.hasShip && edge.shipPlayerId === playerId);
   const hasOwnStructureAtV1 = !!(vertex1 && vertex1.playerId === playerId && vertex1.structure !== 'NONE');
   const v1IsBlocked = !!(vertex1 && vertex1.structure !== 'NONE' && vertex1.playerId !== playerId);
 
   const canConnectAtV1 = hasOwnStructureAtV1 || (touchesRoadAtV1 && !v1IsBlocked) || (touchesShipAtV1 && hasOwnStructureAtV1);
 
-  const touchesRoadAtV2 = edgesAtV2.some(edge => edge.id !== edgeId && !!edge.hasRoad && edge.playerId === playerId);
+  const touchesRoadAtV2 = edgesAtV2.some(edge => edge.id !== edgeId && ((!!edge.hasRoad && edge.playerId === playerId) || edge.bridgePlayerId === playerId));
   const touchesShipAtV2 = edgesAtV2.some(edge => edge.id !== edgeId && !!edge.hasShip && edge.shipPlayerId === playerId);
   const hasOwnStructureAtV2 = !!(vertex2 && vertex2.playerId === playerId && vertex2.structure !== 'NONE');
   const v2IsBlocked = !!(vertex2 && vertex2.structure !== 'NONE' && vertex2.playerId !== playerId);

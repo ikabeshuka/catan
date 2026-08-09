@@ -52,6 +52,13 @@ export function generateEdges(tiles: HexTile[], activeExpansion?: string): Board
     });
   });
 
+  // The six paths around the printed fortress are a special deployment area
+  // for Knighthood cards in Barbarian Attack.
+  const fortress = boardTiles.find(tile => tile.scenarioMarker?.barbarianFortress);
+  if (fortress) getTileEdgeIds(fortress).forEach(edgeId => {
+    if (edgeMap[edgeId]) edgeMap[edgeId].isBarbarianFortressRoute = true;
+  });
+
   if (activeExpansion === 'SEAFARERS' || activeExpansion === 'SEAFARERS_AND_CITIES_AND_KNIGHTS') {
     const findSharedEdge = (t1: HexTile, t2: HexTile): string | null => {
       if (!t1 || !t2) return null;

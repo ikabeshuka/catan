@@ -12,6 +12,11 @@ import { dispatchGameAction } from '../../services/gameDispatcher';
 import { GameRulesModal } from '../modals/GameRulesModal';
 import { CitiesKnightsPanel } from './CitiesKnightsPanel';
 import { isCitiesKnightsExpansion } from '../../config/gameRules';
+import { FishTradePanel } from './FishTradePanel';
+import { RiverBridgePanel } from './RiverBridgePanel';
+import { CaravanRoutePanel } from './CaravanRoutePanel';
+import { BarbarianAttackPanel } from './BarbarianAttackPanel';
+import { MerchantsBarbariansPanel } from './MerchantsBarbariansPanel';
 
 interface ChatMessage {
   text: string;
@@ -33,6 +38,7 @@ export const ActionSidebar: React.FC = () => {
   const { 
     activeExpansion,
     selectedScenario,
+    mbScenarioId,
     longestRoadPlayerId, 
     largestArmyPlayerId,
     vertices,
@@ -283,11 +289,21 @@ export const ActionSidebar: React.FC = () => {
       )}
 
       {/* פאנל עגלת המסחר */}
-      {activeExpansion === 'MERCHANTS_AND_BARBARIANS' && (
+      {activeExpansion === 'MERCHANTS_AND_BARBARIANS' && mbScenarioId === 'MERCHANTS_AND_BARBARIANS' && (
         <WagonUpgradePanel />
       )}
 
       {isCitiesKnightsExpansion(activeExpansion) && <CitiesKnightsPanel />}
+
+      {/* פאנל המסחר בדגים */}
+      {((mbScenarioId as string) === 'fishermen_of_catan' || (mbScenarioId as string) === 'FISHERMEN_OF_CATAN') && (
+        <FishTradePanel />
+      )}
+
+      {mbScenarioId === 'RIVERS_OF_CATAN' && <RiverBridgePanel />}
+      {mbScenarioId === 'CARAVAN_ROUTE' && <CaravanRoutePanel />}
+      {mbScenarioId === 'BARBARIAN_ATTACK' && <BarbarianAttackPanel />}
+      {mbScenarioId === 'MERCHANTS_AND_BARBARIANS' && <MerchantsBarbariansPanel />}
 
       {/* פאנל הצעות לבנייה */}
       <BuildActionsPanel />

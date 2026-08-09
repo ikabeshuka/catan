@@ -374,10 +374,10 @@ export const EdgeLine: React.FC<EdgeLineProps> = ({
   const isShipMode = currentAction === 'BUILD_SHIP' || currentAction === 'MOVE_SHIP_PLACE';
 
   // קביעת צבע הכביש: אם הוא בנוי - צבע השחקן שבנה. אם הוא חוקי לבנייה - צבע השחקן הנוכחי בחצי שקופות. אחר כך - כמעט שקוף.
-  const builtPlayer = players.find(p => p.id === edge.playerId || p.id === edge.shipPlayerId);
+  const builtPlayer = players.find(p => p.id === edge.playerId || p.id === edge.shipPlayerId || p.id === edge.bridgePlayerId);
   const playerColor = builtPlayer?.color || '#ff5722';
   
-  const isBuilt = edge.hasRoad || edge.hasShip;
+  const isBuilt = edge.hasRoad || edge.hasShip || Boolean(edge.bridgePlayerId);
   const isMovingThisShip = currentAction === 'MOVE_SHIP_PLACE' && selectedShipIdToMove === edge.id;
   const roadColor = isBuilt 
     ? (isMovingThisShip ? '#facc15' : playerColor)
@@ -477,6 +477,14 @@ export const EdgeLine: React.FC<EdgeLineProps> = ({
               />
             </svg>
           </g>
+        </g>
+      )}
+
+      {edge.bridgePlayerId && !is3DMode && (
+        <g pointerEvents="none">
+          <line x1={x1} y1={y1} x2={x2} y2={y2} stroke="#0f172a" strokeWidth="12" strokeLinecap="round" />
+          <line x1={x1} y1={y1} x2={x2} y2={y2} stroke={playerColor} strokeWidth="7" strokeLinecap="round" />
+          <line x1={x1} y1={y1} x2={x2} y2={y2} stroke="#f8fafc" strokeWidth="2" strokeDasharray="4 3" strokeLinecap="round" />
         </g>
       )}
 
@@ -670,6 +678,13 @@ export const EdgeLine: React.FC<EdgeLineProps> = ({
               <text y="4" textAnchor="middle" fontSize="14" fontWeight="900" fill="#78350f">★</text>
             </>
           )}
+        </g>
+      )}
+
+      {edge.camelCount && !is3DMode && (
+        <g transform={`translate(${mx}, ${my})`} pointerEvents="none" className="drop-shadow-lg">
+          <circle r="13" fill="#fef3c7" fillOpacity="0.9" stroke="#78350f" strokeWidth="1.5" />
+          <text textAnchor="middle" dominantBaseline="central" fontSize="17">🐪</text>
         </g>
       )}
 

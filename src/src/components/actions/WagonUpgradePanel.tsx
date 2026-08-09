@@ -34,7 +34,7 @@ export const WagonUpgradePanel: React.FC = () => {
   // Wagon variables
   const wagonLevel = currentPlayer.wagonLevel || 1;
   const remainingPoints = currentPlayer.remainingMovementPoints !== undefined ? currentPlayer.remainingMovementPoints : 4;
-  const maxPoints = wagonLevel === 1 ? 4 : wagonLevel === 2 ? 5 : 6;
+  const maxPoints = wagonLevel <= 1 ? 4 : wagonLevel <= 3 ? 5 : 6;
   const wagonPosition = currentPlayer.wagonPosition || '';
 
   const handleToggleWagonMovement = () => {
@@ -43,13 +43,13 @@ export const WagonUpgradePanel: React.FC = () => {
     }
   };
 
-  const canUpgradeWithResources = !isWrongOnlinePlayer && checkHumanResource('WOOD', 1) && checkHumanResource('ORE', 1) && wagonLevel < 3;
-  const canUpgradeWithGold = !isWrongOnlinePlayer && (goldCoins[currentPlayer.id] || 0) >= 3 && wagonLevel < 3;
+  const canUpgradeWithResources = !isWrongOnlinePlayer && checkHumanResource('WOOD', 1) && checkHumanResource('ORE', 1) && wagonLevel < 5;
+  const canUpgradeWithGold = !isWrongOnlinePlayer && (goldCoins[currentPlayer.id] || 0) >= 3 && wagonLevel < 5;
 
   const dispatchUpgrade = (payment: 'RESOURCES' | 'GOLD') => dispatchGameAction({
     type: 'UPGRADE_WAGON',
     playerId: currentPlayer.id,
-    newLevel: (wagonLevel + 1) as 2 | 3,
+    newLevel: (wagonLevel + 1) as 2 | 3 | 4 | 5,
     payment,
   }, {
     roomId: roomId || undefined,
@@ -157,7 +157,7 @@ export const WagonUpgradePanel: React.FC = () => {
           </button>
 
           {/* כפתורי שדרוג עגלה */}
-          {wagonLevel < 3 ? (
+          {wagonLevel < 5 ? (
             <div className="flex flex-col gap-1.5 border-t border-slate-800/60 pt-2.5">
               <span className="text-[10px] text-slate-400 font-bold block text-center mb-0.5">שדרג עגלה לרמה {wagonLevel + 1}:</span>
               <div className="grid grid-cols-2 gap-1.5">

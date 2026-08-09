@@ -74,8 +74,11 @@ export function evaluateVertices(
         if (checkId === vertex.id) {
           // א) הוספת משקל המספר (הסתברות הפקה) לציון
           if (tile.numberToken !== null) {
-            score += TOKEN_WEIGHTS[tile.numberToken] || 0;
-            numberTokens.add(tile.numberToken); // Track unique number tokens
+            const tokenNum = typeof tile.numberToken === 'number' ? tile.numberToken : parseInt(String(tile.numberToken), 10);
+            if (!isNaN(tokenNum)) {
+              score += TOKEN_WEIGHTS[tokenNum] || 0;
+              numberTokens.add(tokenNum); // Track unique number tokens
+            }
           }
 
           // ב) בונוס על גיוון משאבים (עדיף לבנות על צומת שמניב סוגים שונים של משאבים)

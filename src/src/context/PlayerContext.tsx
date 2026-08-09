@@ -7,12 +7,14 @@ import { generateBoard } from '../utils/gameEngine/generateBoard';
 import { generateVertices } from '../utils/gameEngine/generateVertices';
 import { generateEdges } from '../utils/gameEngine/generateEdges';
 import { standardCatanConfig } from '../config/standardVersion';
-import { createStandardDevelopmentDeck, isCitiesKnightsExpansion } from '../config/gameRules';
+import { createBarbarianAttackDevelopmentDeck, createMerchantsAndBarbariansDevelopmentDeck, createStandardDevelopmentDeck, isCitiesKnightsExpansion } from '../config/gameRules';
 import { createSnapshot, restoreFromSnapshot, TurnSnapshot } from '../utils/gameEngine/turnSnapshots';
 import { calculateLongestRoadForPlayer } from '../utils/gameEngine/checkLongestRoad';
 import { ResourceCards } from '../types/resources.types';
 import { CommodityCards } from '../types/citiesKnights.types';
 import { reserveLostTribeDevelopmentCards } from '../utils/gameEngine/lostTribeHelpers';
+import { markRiversOfCatanEdges } from '../utils/gameEngine/riversOfCatanRules';
+import { caravanScoreByPlayer } from '../utils/gameEngine/caravanRouteRules';
 
 export type GamePhase = 'LOBBY' | 'SETUP_ROUND_1' | 'SETUP_ROUND_2' | 'SETUP_ROUND_3' | 'MAIN_GAME' | 'GAME_OVER';
 
@@ -86,11 +88,14 @@ export const PlayerProvider: React.FC<{ children: ReactNode }> = ({ children }) 
     boardType,
     activeExpansion,
     selectedScenario,
+    mbScenarioId,
     setTiles,
     setVertices,
     setEdges,
     vertices,
     edges,
+    scenarioState,
+    setScenarioState,
   } = useBoard();
 
   const [players, setPlayers] = useState<Player[]>([]);
@@ -132,6 +137,34 @@ export const PlayerProvider: React.FC<{ children: ReactNode }> = ({ children }) 
     setResourceBank(previous => (Object.keys(reconciled) as (keyof ResourceCards)[])
       .every(resource => previous[resource] === reconciled[resource]) ? previous : reconciled);
   }, [players]);
+
+  // Rivers of Catan updates both cards whenever the gold distribution changes.
+  useEffect(() => {
+    if (activeExpansion !== 'MERCHANTS_AND_BARBARIANS' || mbScenarioId !== 'RIVERS_OF_CATAN') return;
+    const amounts = players.map(player => goldCoins[player.id] || 0);
+    if (!amounts.length) return;
+    const richestAmount = Math.max(...amounts);
+    const poorestAmount = Math.min(...amounts);
+    const uniqueRichestId = amounts.filter(amount => amount === richestAmount).length === 1
+      ? players[amounts.indexOf(richestAmount)].id
+      : undefined;
+    setPlayers(previous => {
+      const next = previous.map(player => ({
+        ...player,
+        riverScoreModifier: (player.id === uniqueRichestId ? 1 : 0) + ((goldCoins[player.id] || 0) === poorestAmount ? -2 : 0),
+      }));
+      return next.every((player, index) => player.riverScoreModifier === previous[index].riverScoreModifier) ? previous : next;
+    });
+  }, [activeExpansion, mbScenarioId, goldCoins, players]);
+
+  useEffect(() => {
+    if (activeExpansion !== 'MERCHANTS_AND_BARBARIANS' || mbScenarioId !== 'CARAVAN_ROUTE') return;
+    const scores = caravanScoreByPlayer(edges, vertices);
+    setPlayers(previous => {
+      const next = previous.map(player => ({ ...player, caravanScoreModifier: scores[player.id] || 0 }));
+      return next.every((player, index) => player.caravanScoreModifier === previous[index].caravanScoreModifier) ? previous : next;
+    });
+  }, [activeExpansion, mbScenarioId, edges, vertices]);
 
   const longestRoadPlayerId = useMemo(() => {
     if (selectedScenario === 'CLOTH_FOR_CATAN' || selectedScenario === 'PIRATE_ISLANDS') {
@@ -257,6 +290,8 @@ export const PlayerProvider: React.FC<{ children: ReactNode }> = ({ children }) 
       ? 'VICTORY_POINT' 
       : cardDrawn;
 
+    const isBarbarianCard = activeExpansion === 'MERCHANTS_AND_BARBARIANS' && mbScenarioId === 'BARBARIAN_ATTACK' &&
+      ['KNIGHTHOOD', 'STRONG_KNIGHT', 'TREASON', 'INTRIGUE'].includes(normalizedType);
     setPlayers(prev => prev.map((p) => {
       if (p.id === currentPlayer.id) {
         const boughtDevCardsThisTurn = normalizedType === 'VICTORY_POINT'
@@ -273,7 +308,7 @@ export const PlayerProvider: React.FC<{ children: ReactNode }> = ({ children }) 
             ORE: Math.max(0, (p.resources.ORE || 0) - 1),
             SHEEP: Math.max(0, (p.resources.SHEEP || 0) - 1),
           },
-          developmentCards: {
+          developmentCards: isBarbarianCard ? p.developmentCards : {
             ...p.developmentCards,
             [normalizedType]: ((p.developmentCards as any)?.[normalizedType] || 0) + 1,
           },
@@ -282,6 +317,12 @@ export const PlayerProvider: React.FC<{ children: ReactNode }> = ({ children }) 
       }
       return p;
     }));
+    if (isBarbarianCard && scenarioState.kind === 'BARBARIAN_ATTACK') {
+      setScenarioState(previous => previous.kind !== 'BARBARIAN_ATTACK' ? previous : {
+        ...previous,
+        pendingDevelopmentCard: { playerId: currentPlayer.id, cardType: normalizedType as 'KNIGHTHOOD' | 'STRONG_KNIGHT' | 'TREASON' | 'INTRIGUE' },
+      });
+    }
     setResourceBank(prev => ({ ...prev, WHEAT: prev.WHEAT + 1, ORE: prev.ORE + 1, SHEEP: prev.SHEEP + 1 }));
 
     addLog(`🎴 ${currentPlayer.name} קנה קלף פיתוח.`);
@@ -381,11 +422,19 @@ export const PlayerProvider: React.FC<{ children: ReactNode }> = ({ children }) 
     presetEdges?: any[],
     presetDeck?: string[]
   ) => {
-    const newTiles = presetTiles || generateBoard(standardCatanConfig, boardType, activeExpansion, selectedScenario, playerCount);
+    const newTiles = presetTiles || generateBoard(standardCatanConfig, boardType, activeExpansion, selectedScenario, playerCount, mbScenarioId);
     const newVertices = presetVertices || generateVertices(newTiles, activeExpansion);
-    const newEdges = presetEdges || generateEdges(newTiles, activeExpansion);
+    const generatedEdges = presetEdges || generateEdges(newTiles, activeExpansion);
+    const newEdges = activeExpansion === 'MERCHANTS_AND_BARBARIANS' && mbScenarioId === 'RIVERS_OF_CATAN'
+      ? markRiversOfCatanEdges(generatedEdges)
+      : generatedEdges;
 
-    let deck: string[] = presetDeck ? [...presetDeck] : createStandardDevelopmentDeck();
+    let deck: string[] = presetDeck ? [...presetDeck]
+      : activeExpansion === 'MERCHANTS_AND_BARBARIANS' && mbScenarioId === 'BARBARIAN_ATTACK'
+        ? createBarbarianAttackDevelopmentDeck()
+        : activeExpansion === 'MERCHANTS_AND_BARBARIANS' && mbScenarioId === 'MERCHANTS_AND_BARBARIANS'
+          ? createMerchantsAndBarbariansDevelopmentDeck()
+        : createStandardDevelopmentDeck();
 
     if (!presetDeck) {
       for (let i = deck.length - 1; i > 0; i--) {
@@ -414,6 +463,9 @@ export const PlayerProvider: React.FC<{ children: ReactNode }> = ({ children }) 
         resources: { WOOD: 0, BRICK: 0, SHEEP: 0, WHEAT: 0, ORE: 0 },
         developmentCards: { KNIGHT: 0, MONOPOLY: 0, ROAD_BUILDING: 0, YEAR_OF_PLENTY: 0, VICTORY_POINT: 0 },
         knightsPlayed: 0,
+        fishTokens: [],
+        fishCount: 0,
+        hasOldBoot: false,
       },
       {
         id: 'p2',
@@ -427,6 +479,9 @@ export const PlayerProvider: React.FC<{ children: ReactNode }> = ({ children }) 
         resources: { WOOD: 0, BRICK: 0, SHEEP: 0, WHEAT: 0, ORE: 0 },
         developmentCards: { KNIGHT: 0, MONOPOLY: 0, ROAD_BUILDING: 0, YEAR_OF_PLENTY: 0, VICTORY_POINT: 0 },
         knightsPlayed: 0,
+        fishTokens: [],
+        fishCount: 0,
+        hasOldBoot: false,
       },
       {
         id: 'p3',
@@ -440,6 +495,9 @@ export const PlayerProvider: React.FC<{ children: ReactNode }> = ({ children }) 
         resources: { WOOD: 0, BRICK: 0, SHEEP: 0, WHEAT: 0, ORE: 0 },
         developmentCards: { KNIGHT: 0, MONOPOLY: 0, ROAD_BUILDING: 0, YEAR_OF_PLENTY: 0, VICTORY_POINT: 0 },
         knightsPlayed: 0,
+        fishTokens: [],
+        fishCount: 0,
+        hasOldBoot: false,
       },
       {
         id: 'p4',
@@ -453,6 +511,9 @@ export const PlayerProvider: React.FC<{ children: ReactNode }> = ({ children }) 
         resources: { WOOD: 0, BRICK: 0, SHEEP: 0, WHEAT: 0, ORE: 0 },
         developmentCards: { KNIGHT: 0, MONOPOLY: 0, ROAD_BUILDING: 0, YEAR_OF_PLENTY: 0, VICTORY_POINT: 0 },
         knightsPlayed: 0,
+        fishTokens: [],
+        fishCount: 0,
+        hasOldBoot: false,
       },
     ];
 
@@ -462,12 +523,8 @@ export const PlayerProvider: React.FC<{ children: ReactNode }> = ({ children }) 
     prevLongestRoadRef.current = null;
     prevLargestArmyRef.current = null;
 
-    setGoldCoins({
-      p1: 0,
-      p2: 0,
-      p3: 0,
-      p4: 0,
-    });
+    const initialGold = activeExpansion === 'MERCHANTS_AND_BARBARIANS' && mbScenarioId === 'MERCHANTS_AND_BARBARIANS' ? 5 : 0;
+    setGoldCoins({ p1: initialGold, p2: initialGold, p3: initialGold, p4: initialGold });
     setResourceBank({ WOOD: 19, BRICK: 19, SHEEP: 19, WHEAT: 19, ORE: 19 });
     setCommodityBank({ COIN: 12, PAPER: 12, CLOTH: 12 });
     setPlayers(initialPlayers);

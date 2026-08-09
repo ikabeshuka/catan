@@ -14,6 +14,7 @@ export function useVertexInteraction() {
     edges,
     tiles,
     activeExpansion,
+    mbScenarioId,
     gamePhase,
     turnSubPhase,
     players,
@@ -31,6 +32,8 @@ export function useVertexInteraction() {
     resourceBank,
     setResourceBank,
     setActiveVertexPopover,
+    scenarioState,
+    setScenarioState,
   } = useGame();
 
   const { isSetupPhase, setupState, recordSetupPlacement, moveWagon } = useTurnManager();
@@ -52,7 +55,8 @@ export function useVertexInteraction() {
     const isOwnedHarbor = vertex.isHarbor && vertex.playerId === currentPlayer?.id;
     const isClickable = ((isValidPlacement || canUpgradeToCity) || (isOwnedHarbor && turnSubPhase === 'TRADE_AND_BUILD')) && !currentPlayer?.isBot && isLocalPlayersTurn;
 
-    const isSetupCity = isSetupPhase && isCitiesKnightsExpansion(activeExpansion) && gamePhase === 'SETUP_ROUND_2';
+    const isSetupCity = isSetupPhase && gamePhase === 'SETUP_ROUND_2' && (isCitiesKnightsExpansion(activeExpansion) ||
+      (activeExpansion === 'MERCHANTS_AND_BARBARIANS' && mbScenarioId === 'MERCHANTS_AND_BARBARIANS'));
     return { isValidPlacement, canUpgradeToCity, isOwnedHarbor, isClickable, isSetupCity };
   };
 
@@ -69,11 +73,14 @@ export function useVertexInteraction() {
       tiles,
       selectedScenario,
       activeExpansion,
+      mbScenarioId,
       setVertices,
       setTiles,
       setPlayers,
       resourceBank,
       setResourceBank,
+      scenarioState,
+      setScenarioState,
       showBuildingCostToast,
       addLog,
       recordSetupPlacement,

@@ -1,4 +1,6 @@
-export type DevCardType = 'KNIGHT' | 'VICTORY_POINT' | 'ROAD_BUILDING' | 'YEAR_OF_PLENTY' | 'MONOPOLY';
+/** The Barbarian Attack scenario replaces the base deck with its own 26 cards. */
+export type DevCardType = 'KNIGHT' | 'VICTORY_POINT' | 'ROAD_BUILDING' | 'YEAR_OF_PLENTY' | 'MONOPOLY'
+  | 'KNIGHTHOOD' | 'STRONG_KNIGHT' | 'TREASON' | 'INTRIGUE' | 'SWIFT_JOURNEY';
 
 export type ResourceType = 'WOOD' | 'BRICK' | 'SHEEP' | 'WHEAT' | 'ORE';
 export type CommodityType = 'COIN' | 'PAPER' | 'CLOTH';
@@ -79,8 +81,15 @@ export type GameAction =
   | { type: 'FIGHT_ENCHANTED_DRAGON'; playerId: string; knightVertexId: string; dragonId: string }
 
   // --- הרחבת סוחרים וברברים (Merchants & Barbarians) ---
-  | { type: 'MOVE_WAGON'; playerId: string; targetVertexId: string; movementCost: number }
-  | { type: 'UPGRADE_WAGON'; playerId: string; newLevel: 2 | 3; payment: 'RESOURCES' | 'GOLD' }
+  | { type: 'MOVE_WAGON'; playerId: string; targetVertexId: string; movementCost: number; wheatBoost?: boolean }
+  | { type: 'UPGRADE_WAGON'; playerId: string; newLevel: 2 | 3 | 4 | 5; payment: 'RESOURCES' | 'GOLD' }
+  | { type: 'PLACE_MERCHANTS_BARBARIAN'; playerId: string; edgeId: string }
+  | { type: 'BUILD_BRIDGE'; playerId: string; edgeId: string }
+  | { type: 'CAST_CARAVAN_VOTE'; playerId: string; cards: { SHEEP: number; WHEAT: number } }
+  | { type: 'CHOOSE_CARAVAN_TIE_LOCATION'; playerId: string; edgeId: string }
+  | { type: 'PLACE_CARAVAN_CAMEL'; playerId: string; edgeId: string }
+  | { type: 'RESOLVE_BARBARIAN_CARD'; playerId: string; edgeId?: string; tileId?: string; sourceTileIds?: [string, string]; targetTileIds?: [string, string] }
+  | { type: 'MOVE_BARBARIAN_KNIGHT'; playerId: string; knightId: string; edgeId: string; payWheat?: boolean }
   // --- Cities & Knights ---
   | { type: 'BUILD_KNIGHT'; playerId: string; vertexId: string }
   | { type: 'ACTIVATE_KNIGHT'; playerId: string; vertexId: string }
@@ -104,4 +113,17 @@ export type GameAction =
         diceValues?: [number, number, number]; eventDie?: CitiesKnightsEvent;
       };
     }
-  | { type: 'DISCARD_PROGRESS_CARD'; playerId: string; cardId: string };
+  | { type: 'DISCARD_PROGRESS_CARD'; playerId: string; cardId: string }
+  | {
+      type: 'SPEND_FISH_ACTION';
+      playerId: string;
+      actionType: 'MOVE_ROBBER' | 'STEAL_CARD' | 'TAKE_BANK_RESOURCE' | 'FREE_ROAD' | 'FREE_DEV_CARD';
+      targetPlayerId?: string;
+      resource?: ResourceType;
+      edgeId?: string;
+    }
+  | {
+      type: 'PASS_OLD_BOOT';
+      playerId: string;
+      targetPlayerId: string;
+    };

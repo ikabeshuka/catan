@@ -42,6 +42,7 @@ export function useTurnManager() {
     largestArmyPlayerId,
     activeExpansion,
     selectedScenario,
+    mbScenarioId,
     setGoldCoins,
     setGoldSelectionQueue,
     setCurrentTurnBuiltShips,
@@ -57,6 +58,7 @@ export function useTurnManager() {
     citiesKnightsState,
     setCitiesKnightsState,
     scenarioState,
+    setScenarioState,
   } = useGame();
 
   const { devCardDeck, setDevCardDeck, createTurnSnapshot, undoTurnActions } = useGame();
@@ -99,11 +101,11 @@ export function useTurnManager() {
     setHasMovedShipThisTurn(false);
 
     // Initialize or reset remainingMovementPoints based on wagonLevel
-    if (currentPlayer && gamePhase === 'MAIN_GAME') {
+    if (currentPlayer && gamePhase === 'MAIN_GAME' && activeExpansion === 'MERCHANTS_AND_BARBARIANS' && mbScenarioId === 'MERCHANTS_AND_BARBARIANS') {
       setPlayers((prevPlayers: Player[]) => prevPlayers.map(p => {
         if (p.id === currentPlayer.id) {
           const level = p.wagonLevel || 1;
-          const maxPoints = level === 1 ? 4 : level === 2 ? 5 : 6;
+          const maxPoints = level <= 1 ? 4 : level <= 3 ? 5 : 6;
           const playerSettlements = vertices.filter(v => v.playerId === p.id && v.structure !== 'NONE');
           const defaultPos = playerSettlements.length > 0 ? playerSettlements[0].id : '';
           return {
@@ -111,6 +113,7 @@ export function useTurnManager() {
             wagonLevel: p.wagonLevel || 1,
             wagonPosition: p.wagonPosition || defaultPos,
             remainingMovementPoints: maxPoints,
+            wagonWheatBoostUsed: false,
             playedDevCardThisTurn: false,
             boughtDevCardsThisTurn: {},
             diplomatRoadBuildingRemaining: 0,
@@ -258,7 +261,14 @@ export function useTurnManager() {
         addLog(`🏴‍☠️ צי הפיראטים התקדם ${steps} חבלי ים אל אריח ${destinationNumber}.`);
       }
 
+      const isMerchantsAndBarbarians = activeExpansion === 'MERCHANTS_AND_BARBARIANS' && mbScenarioId === 'MERCHANTS_AND_BARBARIANS';
+      if (isMerchantsAndBarbarians && [2, 12].includes(diceResult.total)) {
+        addLog('בתרחיש סוחרים וברברים, 2 או 12 מחייבים הטלה חוזרת.');
+        setTurnSubPhase('BEFORE_ROLL');
+        return;
+      }
       if (diceResult.total === 7) {
+        const isBarbarianAttack = activeExpansion === 'MERCHANTS_AND_BARBARIANS' && mbScenarioId === 'BARBARIAN_ATTACK';
         addLog(`המספר 7 עלה! השודד הופעל.`);
         
         const handSize = (player: Player) => Object.values(player.resources).reduce((a, b) => a + b, 0) +
@@ -271,6 +281,10 @@ export function useTurnManager() {
         if (anyHumanNeedsToDiscard) {
           addLog(`השודד הגיע! שחקנים עם מעל 7 קלפים נאלצים לזרוק קלפים לקופה.`);
           setTurnSubPhase('DISCARD_PHASE');
+        } else if (isMerchantsAndBarbarians) {
+          setTurnSubPhase('MERCHANTS_BARBARIAN_PLACEMENT');
+        } else if (isBarbarianAttack) {
+          setTurnSubPhase('TRADE_AND_BUILD');
         } else if (selectedScenario === 'PIRATE_ISLANDS' || selectedScenario === 'DESERT_DRAGONS') {
           const targets = players.filter(player => player.id !== currentPlayer.id && Object.values(player.resources).reduce((sum, count) => sum + count, 0) > 0);
           if (targets.length) {
@@ -347,11 +361,12 @@ export function useTurnManager() {
           return p;
         }));
       } else {
-        const { updatedPlayers, updatedBank, updatedCommodityBank, flows, goldSelections } = distributeResources(
+        const { updatedPlayers, updatedBank, updatedCommodityBank, updatedScenarioState, flows, goldSelections } = distributeResources(
           diceResult.total, tiles, vertices, players, resourceBank, selectedScenario, activeExpansion, commodityBank, scenarioState
         );
         setResourceBank(updatedBank);
         if (updatedCommodityBank) setCommodityBank(updatedCommodityBank);
+        if (updatedScenarioState) setScenarioState(updatedScenarioState);
         if (triggerResourceFlow) {
           triggerResourceFlow(flows);
         } else {
@@ -370,6 +385,16 @@ export function useTurnManager() {
                 received.push(`${diff} ${resLabel}`);
               }
             });
+            
+            const oldFish = oldPlayer.fishCount || 0;
+            const newFish = newPlayer.fishCount || 0;
+            if (newFish > oldFish) {
+              received.push(`${newFish - oldFish} דגים 🎣`);
+            }
+            if (!oldPlayer.hasOldBoot && newPlayer.hasOldBoot) {
+              received.push(`מגף ישן 👢`);
+            }
+
             if (received.length > 0) {
               addLog(`${oldPlayer.name} קיבל ${received.join(' ו-')} מהקוביות.`);
             }
@@ -674,10 +699,11 @@ export function useTurnManager() {
       if (gamePhase === 'SETUP_ROUND_3' || (gamePhase === 'SETUP_ROUND_2' && selectedScenario !== 'INTO_THE_UNKNOWN')) {
         const oldPlayer = players.find(p => p.id === currentPlayer.id);
         const initialDistribution = distributeInitialResources(
-          targetId, tiles, players, currentPlayer.id, resourceBank
+          targetId, tiles, players, currentPlayer.id, resourceBank, scenarioState
         );
         const updatedPlayers = assignHomeIsland(initialDistribution.updatedPlayers);
         setResourceBank(initialDistribution.updatedBank);
+        if (initialDistribution.updatedScenarioState) setScenarioState(initialDistribution.updatedScenarioState);
         
         if (oldPlayer) {
           const newPlayer = updatedPlayers.find(p => p.id === currentPlayer.id);
@@ -717,19 +743,15 @@ export function useTurnManager() {
         setTurnSubPhase('BEFORE_ROLL');
         addLog(`סבב ההקמה הסתיים! המשחק מתחיל.`);
         
-        // Initialize wagon state for all players
-        setPlayers((prevPlayers: Player[]) => {
-          return prevPlayers.map(p => {
-            const playerSettlements = vertices.filter(v => v.playerId === p.id && v.structure === 'SETTLEMENT');
-            const initialVertexId = playerSettlements.length > 0 ? playerSettlements[0].id : '';
-            return {
-              ...p,
-              wagonPosition: initialVertexId,
-              wagonLevel: 1,
-              remainingMovementPoints: 4
-            };
-          });
-        });
+        if (activeExpansion === 'MERCHANTS_AND_BARBARIANS' && mbScenarioId === 'MERCHANTS_AND_BARBARIANS') {
+          // The baggage train belongs only to scenario 5, not to the expansion as a whole.
+          setPlayers((prevPlayers: Player[]) => prevPlayers.map(p => {
+            const playerCity = vertices.find(v => v.playerId === p.id && v.structure === 'CITY');
+            const playerSettlement = vertices.find(v => v.playerId === p.id && v.structure === 'SETTLEMENT');
+            const initialVertexId = playerCity?.id || playerSettlement?.id || '';
+            return { ...p, wagonPosition: p.wagonPosition || initialVertexId, wagonLevel: p.wagonLevel || 1, remainingMovementPoints: 4 };
+          }));
+        }
       }
       return;
     }
@@ -775,7 +797,10 @@ export function useTurnManager() {
     }
     const totalVP = getPlayerTotalVP(player, longestRoadPlayerId, largestArmyPlayerId, true, vertices, tiles, selectedScenario);
     
-    const victoryGoal = getVictoryPointTarget(activeExpansion, selectedScenario, players.length);
+    let victoryGoal = getVictoryPointTarget(activeExpansion, selectedScenario, players.length, mbScenarioId);
+    if (mbScenarioId === 'FISHERMEN_OF_CATAN' && player.hasOldBoot) {
+      victoryGoal += 1;
+    }
 
     if (totalVP >= victoryGoal) {
       setGamePhase('GAME_OVER');
@@ -814,9 +839,10 @@ export function useTurnManager() {
     }
 
     // Find the edge connecting currentPos and targetVertexId
-    const sorted = [currentPos, targetVertexId].sort();
-    const edgeId = `e_${sorted[0]}_${sorted[1]}`;
-    const connectingEdge = edges.find((e: any) => e.id === edgeId);
+    const connectingEdge = edges.find((edge: any) => {
+      const parts = String(edge.id).replace(/^e_/, '').split('_v_');
+      return parts.length === 2 && [parts[0], `v_${parts[1]}`].includes(currentPos) && [parts[0], `v_${parts[1]}`].includes(targetVertexId);
+    });
 
     if (!connectingEdge) {
       addLog(`❌ שגיאה: היעד אינו מחובר ישירות לקודקוד הנוכחי.`);
@@ -825,11 +851,12 @@ export function useTurnManager() {
 
     // Cost: 1 if active player's road, 2 otherwise
     const isOwner = connectingEdge.hasRoad && connectingEdge.playerId === playerId;
-    const movementCost = isOwner ? 1 : 2;
+    const movementCost = (isOwner ? 1 : 2) + ((scenarioState as any)?.barbarianEdgeIds?.includes(connectingEdge.id) ? 2 : 0);
 
     const points = player.remainingMovementPoints !== undefined ? player.remainingMovementPoints : 4;
 
-    if (points < movementCost) {
+    const wheatBoost = points < movementCost && !player.wagonWheatBoostUsed && (player.resources.WHEAT || 0) >= 1;
+    if (points + (wheatBoost ? 2 : 0) < movementCost) {
       addLog(`❌ אין מספיק נקודות תנועה לעגלה (נדרש: ${movementCost}, נותר: ${points}).`);
       return false;
     }
@@ -839,6 +866,7 @@ export function useTurnManager() {
       playerId,
       targetVertexId,
       movementCost,
+      wheatBoost,
     }, {
       roomId: roomId || undefined,
       isRemote: false,

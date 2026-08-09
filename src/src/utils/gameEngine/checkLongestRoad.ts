@@ -27,12 +27,12 @@ export const calculateLongestRoadForPlayer = (
 ): number => {
   // סינון הצלעות השייכות לשחקן (כבישים או ספינות)
   const playerEdges = allEdges.filter(
-    e => (e.hasRoad && e.playerId === playerId) || (e.hasShip && e.shipPlayerId === playerId)
+    e => (e.hasRoad && e.playerId === playerId) || (e.hasShip && e.shipPlayerId === playerId) || e.bridgePlayerId === playerId
   );
   if (playerEdges.length === 0) return 0;
 
   // בניית גרף שכנויות (Adjacency List)
-  const adj: Record<string, { edgeId: string; type: 'ROAD' | 'SHIP'; targetVertex: string }[]> = {};
+  const adj: Record<string, { edgeId: string; type: 'ROAD' | 'SHIP'; targetVertex: string; weight: number }[]> = {};
 
   playerEdges.forEach(edge => {
     try {
@@ -41,8 +41,9 @@ export const calculateLongestRoadForPlayer = (
         const edgeType = (edge.hasShip && edge.shipPlayerId === playerId) ? 'SHIP' : 'ROAD';
         if (!adj[v1]) adj[v1] = [];
         if (!adj[v2]) adj[v2] = [];
-        adj[v1].push({ edgeId: edge.id, type: edgeType, targetVertex: v2 });
-        adj[v2].push({ edgeId: edge.id, type: edgeType, targetVertex: v1 });
+        const weight = edgeType === 'ROAD' && edge.camelCount ? 2 : 1;
+        adj[v1].push({ edgeId: edge.id, type: edgeType, targetVertex: v2, weight });
+        adj[v2].push({ edgeId: edge.id, type: edgeType, targetVertex: v1, weight });
       }
     } catch {
       // גיבוי בטוח למקרה של כשל בפרסור המזהה
@@ -84,7 +85,7 @@ export const calculateLongestRoadForPlayer = (
         }
 
         visitedEdges.add(neighbor.edgeId);
-        dfs(neighbor.targetVertex, currentLength + 1, neighbor.type);
+        dfs(neighbor.targetVertex, currentLength + neighbor.weight, neighbor.type);
         visitedEdges.delete(neighbor.edgeId); // Backtracking
       }
     }

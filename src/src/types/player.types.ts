@@ -16,6 +16,14 @@ export interface Player {
   homeIslandId?: number;
   homeIslandIds?: number[];
   goldTradesThisTurn?: number;
+  /** Dynamic score from the Rivers of Catan rich/poor settler cards. */
+  riverScoreModifier?: number;
+  /** One VP for each own settlement or city enclosed by caravan camels. */
+  caravanScoreModifier?: number;
+  /** Two captured barbarians are one VP in Barbarian Attack. */
+  barbarianPrisonerScoreModifier?: number;
+  /** Negative VP from a settlement/city currently surrounded by conquered coast. */
+  barbarianCaptureScoreModifier?: number;
   resources: ResourceCards; // כמות הכרטיסים שיש לו ביד מכל משאב
   victoryPoints: number; // נקודות הניצחון הנוכחיות שלו
   /** Cloth rolls collected from Lost Tribe villages. Two rolls are one VP. */
@@ -34,6 +42,11 @@ export interface Player {
     ROAD_BUILDING: number;
     YEAR_OF_PLENTY?: number;
     VICTORY_POINT?: number;
+    KNIGHTHOOD?: number;
+    STRONG_KNIGHT?: number;
+    TREASON?: number;
+    INTRIGUE?: number;
+    SWIFT_JOURNEY?: number;
   };
   playedDevCardThisTurn?: boolean;
   unplacedHarbors?: ('WOOD' | 'BRICK' | 'SHEEP' | 'WHEAT' | 'ORE' | 'GENERIC')[];
@@ -46,9 +59,19 @@ export interface Player {
     YEAR_OF_PLENTY?: number;
   };
   knightsPlayed?: number;
+  fishTokens?: number[];
+  fishCount?: number;
+  hasOldBoot?: boolean;
   wagonPosition?: string; // mazahe vertexId
-  wagonLevel?: number; // 1-3
+  wagonLevel?: number; // 1-5
   remainingMovementPoints?: number;
+  /** Product token currently carried by the wagon; only one delivery may be active. */
+  wagonCargo?: 'GLASS' | 'MARBLE' | 'SAND' | 'TOOLS';
+  wagonWheatBoostUsed?: boolean;
+  /** The level-5 wagon itself is a victory point. */
+  wagonLevelScoreModifier?: number;
+  /** Scenario 5 explicitly removes the Longest Road victory-point award. */
+  merchantsBarbariansNoLongestRoad?: boolean;
   /** Cities & Knights commodity cards. */
   commodities?: CommodityCards;
   /** Levels 0–5 for science, politics, and trade. */
